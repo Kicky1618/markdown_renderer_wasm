@@ -47,8 +47,9 @@ await parser.consume(fetchResponse, {
 
 主なメソッドとプロパティは次の通りです。
 
-- `append(chunk)` / `appendMany(chunks)`: 1個または複数の文字列チャンクを追記
-- `consume(source, options)`: Response、ストリーム、Iterableを最後まで取り込み
+- `append(chunk)` / `appendMany(chunks)`: 1個または複数の文字列チャンクを追記し、Deltaを返す
+- `appendInPlace(chunk)`: hot-path Delta objectを生成せず `document` を直接更新する高速経路
+- `consume(source, options)`: Response、ストリーム、Iterableを最後まで取り込み。`onDelta` 未指定時は `appendInPlace` を自動使用
 - `finish()`: 最終チャンクを確定（末尾改行のないコードフェンスにも対応）
 - `reset()`: 次のアシスタントメッセージ用に状態を初期化
 - `setContent(markdown)`: 再生成・編集後の応答で現在内容を置換

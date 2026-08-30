@@ -243,49 +243,31 @@ export class Streamdown {
     this.inputCapacity = 0;
     this.inputMemory = null;
     this.inputView = null;
+    this.outputMemory = null;
+    this.outputView = null;
   }
 
   append(chunk) {
     this.#assertActive();
     if (typeof chunk !== "string") throw new TypeError("append() expects a string");
-
-    let ok;
-    if (this.exports.md_input_reserve && this.exports.md_append_input && utf8.encodeInto) {
-      // Three bytes per UTF-16 code unit is a safe upper bound for UTF-8. Grow
-      // geometrically so normal token streams reserve WASM input memory once.
-      const needed = chunk.length * 3;
-      if (needed > this.inputCapacity) {
-        const capacity = Math.max(64, needed, this.inputCapacity * 2);
-        this.inputPtr = this.exports.md_input_reserve(this.handle, capacity);
-        this.inputCapacity = capacity;
-        this.inputMemory = null;
-        this.inputView = null;
-      }
-      const memory = this.exports.memory.buffer;
-      if (this.inputCapacity && this.inputMemory !== memory) {
-        this.inputMemory = memory;
-        this.inputView = new Uint8Array(memory, this.inputPtr, this.inputCapacity);
-      }
-      let written = 0;
-      if (needed) {
-        const encoded = utf8.encodeInto(chunk, this.inputView);
-        if (encoded.read !== chunk.length) throw new Error("WASM input buffer was too small");
-        written = encoded.written;
-      }
-      ok = this.exports.md_append_input(this.handle, written);
-    } else {
-      // Compatibility path for older Streamdown WASM binaries.
-      const input = utf8.encode(chunk);
-      const ptr = this.exports.md_alloc(input.length);
-      if (input.length) new Uint8Array(this.exports.memory.buffer, ptr, input.length).set(input);
-      ok = this.exports.md_append(this.handle, ptr, input.length);
-      this.exports.md_free(ptr);
-    }
-
-    if (!ok) throw new Error("WASM parser rejected the input");
+    this.#appendWasm(chunk);
     const ops = this.#readDelta();
     applyDelta(this.document, ops);
     return ops;
+  }
+
+  /**
+   * Append while updating `document` in-place without materializing hot-path
+   * delta objects. Falls back to the normal decoder for structural changes.
+   */
+  appendInPlace(chunk) {
+    this.#assertActive();
+    if (typeof chunk !== "string") throw new TypeError("appendInPlace() expects a string");
+    const written = this.#appendWasm(chunk);
+    if (!this.#applyHotDeltaInPlace(chunk, written)) {
+      applyDelta(this.document, this.#readDelta());
+    }
+    return this.document;
   }
 
   /** Append several text chunks while preserving streaming parser semantics. */
@@ -337,8 +319,12 @@ export class Streamdown {
       if (!source.body) {
         const text = await source.text();
         throwIfAborted(signal);
-        const operations = this.append(text);
-        onDelta?.(operations, this.document);
+        if (onDelta) {
+          const operations = this.append(text);
+          onDelta(operations, this.document);
+        } else {
+          this.appendInPlace(text);
+        }
         if (finalize) {
           const finalOperations = this.finish();
           if (finalOperations.length) onDelta?.(finalOperations, this.document);
@@ -367,8 +353,12 @@ export class Streamdown {
         decodingBytes = true;
       }
       if (text) {
-        const operations = this.append(text);
-        onDelta?.(operations, this.document);
+        if (onDelta) {
+          const operations = this.append(text);
+          onDelta(operations, this.document);
+        } else {
+          this.appendInPlace(text);
+        }
       }
     };
 
@@ -401,8 +391,12 @@ export class Streamdown {
     if (decodingBytes) {
       const tail = decoder.decode();
       if (tail) {
-        const operations = this.append(tail);
-        onDelta?.(operations, this.document);
+        if (onDelta) {
+          const operations = this.append(tail);
+          onDelta(operations, this.document);
+        } else {
+          this.appendInPlace(tail);
+        }
       }
     }
     if (finalize) {
@@ -502,6 +496,97 @@ export class Streamdown {
     if (this.handle) this.exports.md_destroy(this.handle);
     this.handle = 0;
     this.document.length = 0;
+  }
+
+  #appendWasm(chunk) {
+    let ok;
+    let written;
+    if (this.exports.md_input_reserve && this.exports.md_append_input && utf8.encodeInto) {
+      const needed = chunk.length * 3;
+      if (needed > this.inputCapacity) {
+        const capacity = Math.max(64, needed, this.inputCapacity * 2);
+        this.inputPtr = this.exports.md_input_reserve(this.handle, capacity);
+        this.inputCapacity = capacity;
+        this.inputMemory = null;
+        this.inputView = null;
+      }
+      const memory = this.exports.memory.buffer;
+      if (this.inputCapacity && this.inputMemory !== memory) {
+        this.inputMemory = memory;
+        this.inputView = new Uint8Array(memory, this.inputPtr, this.inputCapacity);
+      }
+      written = 0;
+      if (needed) {
+        const encoded = utf8.encodeInto(chunk, this.inputView);
+        if (encoded.read !== chunk.length) throw new Error("WASM input buffer was too small");
+        written = encoded.written;
+      }
+      ok = this.exports.md_append_input(this.handle, written);
+    } else {
+      const input = utf8.encode(chunk);
+      const ptr = this.exports.md_alloc(input.length);
+      if (input.length) new Uint8Array(this.exports.memory.buffer, ptr, input.length).set(input);
+      ok = this.exports.md_append(this.handle, ptr, input.length);
+      this.exports.md_free(ptr);
+      written = input.length;
+    }
+    if (!ok) throw new Error("WASM parser rejected the input");
+    return written;
+  }
+
+  #applyHotDeltaInPlace(chunk, written) {
+    const outPtr = this.exports.md_delta_ptr(this.handle);
+    const outLen = this.exports.md_delta_len(this.handle);
+    if (outLen < 9) return false;
+
+    const memory = this.exports.memory.buffer;
+    if (this.outputMemory !== memory) {
+      this.outputMemory = memory;
+      this.outputView = new DataView(memory);
+    }
+    const view = this.outputView;
+    if (view.getUint32(outPtr, true) !== 0x3141444d || view.getUint32(outPtr + 4, true) !== 1) {
+      return false;
+    }
+
+    const tag = view.getUint8(outPtr + 8);
+    // Reuse the original JS string only for ASCII. For non-ASCII, the Rust
+    // input may contain U+FFFD normalization for malformed UTF-16, so fall back
+    // to the canonical MDA1 decoder.
+    if (written !== chunk.length) return false;
+
+    if (tag === 5 || tag === 6) {
+      if (outLen < 17 || view.getUint32(outPtr + 13, true) !== written || outLen !== 17 + written) {
+        return false;
+      }
+      const block = view.getUint32(outPtr + 9, true);
+      const node = this.document[block];
+      if (node?.type !== "paragraph") return false;
+      if (tag === 5) {
+        if (node.children.length !== 1 || node.children[0].type !== "text") return false;
+        node.children[0].value += chunk;
+      } else {
+        const tail = node.children[node.children.length - 1];
+        if (tail?.type === "text") tail.value += chunk;
+        else node.children.push({ type: "text", value: chunk });
+      }
+      return true;
+    }
+
+    if (tag === 3) {
+      if (outLen < 21
+          || view.getUint32(outPtr + 13, true) !== 0
+          || view.getUint32(outPtr + 17, true) !== written
+          || outLen !== 21 + written) {
+        return false;
+      }
+      const block = view.getUint32(outPtr + 9, true);
+      const node = this.document[block];
+      if (node?.type !== "codeBlock") return false;
+      node.value += chunk;
+      return true;
+    }
+    return false;
   }
 
   #assertActive() {

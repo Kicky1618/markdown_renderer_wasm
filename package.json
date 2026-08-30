@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/wasm.mjs"
+    "test": "node tests/wasm.mjs && node tests/append_in_place.mjs"
   }
 }
