@@ -57,3 +57,7 @@ edge delta ui apply
 ```
 
 `node <id> <label...>` と `edge <from> <to> <label...>` のみを認識し、DAGは決定的なlayered layout、cycleは末尾layerへ安全に配置します。
+
+## Visible latency metrics
+
+ヘッダには各sessionの `chars/s` と `first UI` を表示します。`first UI` はreset/接続開始から最初の生成component (`ui-card` / layout / tabs / form) がDOMへ現れるまでの時間です。HTTP/SSE入力でも同じ計測経路を使うため、パーサーの逐次性をデモ画面上で確認できます。

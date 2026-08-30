@@ -138,6 +138,8 @@ const deltaStatus = document.querySelector("#delta-status");
 const blockCount = document.querySelector("#blocks");
 const parseMs = document.querySelector("#parse-ms");
 const renderMs = document.querySelector("#render-ms");
+const inputRate = document.querySelector("#input-rate");
+const firstUi = document.querySelector("#first-ui");
 const remoteForm = document.querySelector("#remote-stream");
 const streamUrl = document.querySelector("#stream-url");
 const streamFormat = document.querySelector("#stream-format");
@@ -149,6 +151,9 @@ let animation = 0;
 let generation = 0;
 let structuresComposed = false;
 let remoteController = null;
+let sessionStartedAt = 0;
+let sessionChars = 0;
+let firstUiAt = null;
 const state = new Map();
 
 source.value = DEMO;
@@ -1050,6 +1055,11 @@ function renderOperations(ops) {
 
 function resetRuntime() {
   state.clear();
+  sessionStartedAt = performance.now();
+  sessionChars = 0;
+  firstUiAt = null;
+  inputRate.textContent = "0";
+  firstUi.textContent = "—";
   const start = performance.now();
   const ops = parser.reset();
   parseMs.textContent = (performance.now() - start).toFixed(3);
@@ -1062,6 +1072,13 @@ function appendChunk(chunk) {
   const ops = parser.append(chunk);
   parseMs.textContent = (performance.now() - start).toFixed(3);
   renderOperations(ops);
+  sessionChars += chunk.length;
+  const elapsedMs = Math.max(0.01, performance.now() - sessionStartedAt);
+  inputRate.textContent = Math.round(sessionChars * 1000 / elapsedMs).toLocaleString("en-US");
+  if (firstUiAt === null && preview.querySelector(".ui-card, .generated-layout, .generated-tabs, .generated-form")) {
+    firstUiAt = performance.now() - sessionStartedAt;
+    firstUi.textContent = `${firstUiAt.toFixed(1)}ms`;
+  }
 }
 
 function renderAll() {
