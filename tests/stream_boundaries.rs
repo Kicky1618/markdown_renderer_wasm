@@ -85,6 +85,13 @@ fn inline_tail_fast_path_respects_escape_and_link_completion() {
 }
 
 #[test]
+fn opener_heavy_inline_fast_path_is_chunk_boundary_independent() {
+    assert_every_single_split(
+        "prefix [[[[[@[@[source:id] suffix (((( [label](https://example.test)",
+    );
+}
+
+#[test]
 fn table_separator_becoming_valid_during_plain_append_reparses() {
     let markdown = "a|b\n---|---";
     let expected = parse_whole(markdown);

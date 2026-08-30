@@ -278,12 +278,7 @@ impl Parser {
             || !matches!(self.mode, Mode::Normal)
             || !self.has_live
             || !self.live_inline_appendable
-            || !input.bytes().all(is_plain_stream_byte)
-            || (self.line.ends_with('\\')
-                && input
-                    .as_bytes()
-                    .first()
-                    .is_some_and(|&byte| is_escapable_punctuation(byte)))
+            || !inline_tail_append_is_safe(&self.line, input)
         {
             return false;
         }
@@ -541,6 +536,38 @@ fn is_plain_stream_byte(b: u8) -> bool {
         b,
         b'\n' | b'\r' | b'\\' | b'$' | b'`' | b'*' | b'_' | b'[' | b']' | b'(' | b')' | b'@'
     )
+}
+
+fn inline_tail_append_is_safe(line: &str, input: &str) -> bool {
+    let bytes = input.as_bytes();
+    if line.ends_with('\\')
+        && bytes
+            .first()
+            .is_some_and(|&byte| is_escapable_punctuation(byte))
+    {
+        return false;
+    }
+
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            // These bytes can complete syntax that began anywhere in the live
+            // paragraph, so they must force a full reparse.
+            b'\n' | b'\r' | b'$' | b'`' | b'*' | b'_' | b']' | b')' => return false,
+            // A backslash only changes the current AST when it escapes the next
+            // punctuation byte. A trailing/unpaired backslash is still literal.
+            b'\\'
+                if bytes
+                    .get(i + 1)
+                    .is_some_and(|&byte| is_escapable_punctuation(byte)) =>
+            {
+                return false;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    true
 }
 
 fn is_escapable_punctuation(byte: u8) -> bool {
@@ -1143,6 +1170,38 @@ $$
         let delta = parser.append("-\n");
         assert!(matches!(delta.ops.first(), Some(Op::Truncate { from: 0 })));
         assert!(matches!(parser.blocks(), [Block::ThematicBreak]));
+    }
+
+    #[test]
+    fn unmatched_inline_openers_append_without_reparse() {
+        let mut parser = Parser::new();
+        parser.append("[");
+        let delta = parser.append("[@[");
+        assert_eq!(
+            delta.ops,
+            vec![Op::AppendInlineText {
+                block: 0,
+                append: "[@[".to_owned(),
+            }]
+        );
+        assert!(matches!(
+            parser.blocks(),
+            [Block::Paragraph(nodes)]
+                if matches!(nodes.as_slice(), [Inline::Text(text)] if text == "[[@[")
+        ));
+
+        // A closing delimiter can complete syntax from arbitrarily far back, so
+        // it must leave the append-only path and rebuild the live paragraph.
+        let delta = parser.append("source:id]");
+        assert!(matches!(delta.ops.first(), Some(Op::Truncate { from: 0 })));
+        assert!(matches!(
+            parser.blocks(),
+            [Block::Paragraph(nodes)]
+                if nodes.iter().any(|node| matches!(
+                    node,
+                    Inline::Link { destination, .. } if destination == "llm:source:id"
+                ))
+        ));
     }
 
     #[test]
