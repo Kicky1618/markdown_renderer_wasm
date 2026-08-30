@@ -167,3 +167,43 @@ grep -q '>POST<' "$post_html" || {
 }
 
 echo "generative browser smoke: Chat POST -> SSE -> WASM -> semantic UI pass"
+
+interaction_html="$WORK/interaction-dom.html"
+interaction_err="$WORK/interaction-chrome.err"
+attempt=1
+while :; do
+  "$CHROME" \
+    --headless=new \
+    --no-sandbox \
+    --disable-dev-shm-usage \
+    --virtual-time-budget=14000 \
+    --dump-dom \
+    "http://127.0.0.1:$PORT/generative/?interaction_smoke=1" \
+    >"$interaction_html" 2>"$interaction_err" || true
+  if grep -q 'data-interaction-smoke="pass"' "$interaction_html"; then
+    break
+  fi
+  if [ "$attempt" -ge 3 ]; then
+    echo "generative browser smoke: action=llm round trip failed"
+    grep -o '<html[^>]*>' "$interaction_html" | head -1 || true
+    tail -30 "$interaction_err" || true
+    exit 1
+  fi
+  attempt=$((attempt + 1))
+  sleep 0.1
+done
+
+grep -q 'data-ui-id="interaction-result"' "$interaction_html" || {
+  echo "generative browser smoke: action=llm continuation metric missing"
+  exit 1
+}
+grep -q '>42<' "$interaction_html" || {
+  echo "generative browser smoke: action=llm continuation value missing"
+  exit 1
+}
+grep -q 'Model continuation' "$interaction_html" || {
+  echo "generative browser smoke: action=llm source continuation missing"
+  exit 1
+}
+
+echo "generative browser smoke: action=llm state -> POST -> SSE -> appended UI pass"

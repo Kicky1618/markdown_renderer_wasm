@@ -54,14 +54,36 @@ class Handler(BaseHTTPRequestHandler):
         messages = body.get("messages", []) if isinstance(body, dict) else []
         system = messages[0].get("content", "") if len(messages) > 0 else ""
         user = messages[1].get("content", "") if len(messages) > 1 else ""
-        valid = (
+        common = (
             isinstance(body, dict)
             and body.get("stream") is True
             and body.get("model") == "fixture-model"
             and "Streamdown" in system
             and "Never emit JavaScript" in system
-            and user == "Build the POST smoke dashboard"
         )
+        interaction = "Current local UI state" in user
+        if interaction:
+            valid = (
+                common
+                and "Use the current state to append one compact recommendation card" in user
+                and '"temperature":42' in user
+                and "password" not in user.lower()
+                and "api_token" not in user.lower()
+            )
+            chunks = [
+                "\n## Model continuation\n\n",
+                ":::llm ui type=metric id=interaction-result\nlabel=State-aware continuation\n",
+                "value=42\nunit=°C\n",
+                ":::\n",
+            ]
+        else:
+            valid = common and user == "Build the POST smoke dashboard"
+            chunks = [
+                "# POST LLM smoke\n\n",
+                ":::llm ui type=metric id=post-remote\nlabel=Proxy generated\n",
+                "value=POST\nunit=SSE\n",
+                ":::\n",
+            ]
         if not valid:
             payload = json.dumps({"error": "bad request payload"}).encode()
             self.headers_out(400, "application/json", len(payload))
@@ -73,12 +95,6 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("Connection", "close")
         self.end_headers()
-        chunks = [
-            "# POST LLM smoke\n\n",
-            ":::llm ui type=metric id=post-remote\nlabel=Proxy generated\n",
-            "value=POST\nunit=SSE\n",
-            ":::\n",
-        ]
         for text in chunks:
             event = "data: " + json.dumps({"choices": [{"delta": {"content": text}}]}) + "\n\n"
             self.wfile.write(event.encode())

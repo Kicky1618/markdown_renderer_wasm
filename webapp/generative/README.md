@@ -71,3 +71,29 @@ edge delta ui apply
 ## Visible latency metrics
 
 ヘッダには各sessionの `chars/s` と `first UI` を表示します。`first UI` はreset/接続開始から最初の生成component (`ui-card` / layout / tabs / form) がDOMへ現れるまでの時間です。HTTP/SSE入力でも同じ計測経路を使うため、パーサーの逐次性をデモ画面上で確認できます。
+
+## Model round trips (`action=llm:`)
+
+Generated buttons/forms can explicitly ask the currently configured POST proxy to continue the application:
+
+```md
+:::llm ui type=button id=refine
+label=Generate next view
+action=llm:Use the current state to append one compact recommendation card
+:::
+```
+
+This only runs after a user click/submit. The generated Markdown cannot choose the endpoint, model, headers, credentials, or HTTP method; the runtime reuses the connection settings the user configured in the left pane. The continuation is appended through the same `Parser::append` delta path, so existing state/UI remains live while the new response streams in.
+
+Only a bounded state snapshot is sent: at most 64 primitive values (`string`/finite `number`/`boolean`/`null`), strings are capped at 512 characters, and keys resembling passwords, secrets, tokens, API keys, credentials, or auth values are omitted. Objects/arrays are not serialized.
+
+The browser smoke covers the complete interaction path:
+
+```text
+explicit generated button click
+  -> bounded local state snapshot
+  -> Chat-compatible POST proxy
+  -> SSE deltas
+  -> Streamdown WASM append-after-finish
+  -> new semantic UI appended to the existing application
+```

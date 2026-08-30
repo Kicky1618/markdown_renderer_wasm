@@ -8,7 +8,7 @@ import { tabFor, tabsSpec } from "./tabs.js";
 import { formSpec } from "./form.js";
 import { layoutGraph, parseGraph } from "./graph.js";
 import { consumeHttpResponse, decodeNdjsonLine, decodeSseEvent, extractDeltaText } from "./stream.js";
-import { buildLlmRequest, GENERATIVE_UI_SYSTEM_PROMPT } from "./llm_request.js";
+import { buildInteractionPrompt, buildLlmRequest, GENERATIVE_UI_SYSTEM_PROMPT, snapshotUiState } from "./llm_request.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
   id: "",
@@ -115,6 +115,20 @@ const responsesRequest = buildLlmRequest({ protocol: "responses", prompt: "Expla
 assert.equal(JSON.parse(responsesRequest.body).input, "Explain parsers");
 assert.throws(() => buildLlmRequest({ protocol: "chat", prompt: "   " }), /Prompt is required/);
 
+const interactionState = new Map([
+  ["temperature", 65],
+  ["mode", "safe"],
+  ["api_token", "do-not-send"],
+  ["password", "also-do-not-send"],
+  ["nested", { unsafe: true }],
+]);
+assert.deepEqual({ ...snapshotUiState(interactionState) }, { temperature: 65, mode: "safe" });
+const interactionPrompt = buildInteractionPrompt({ instruction: "Refine the dashboard", state: interactionState });
+assert.match(interactionPrompt, /Refine the dashboard/);
+assert.match(interactionPrompt, /"temperature":65/);
+assert.doesNotMatch(interactionPrompt, /do-not-send|also-do-not-send/);
+assert.match(GENERATIVE_UI_SYSTEM_PROMPT, /action=llm:/);
+
 const wasm = await fs.readFile(new URL("./streamdown.wasm", import.meta.url));
 const instance = await WebAssembly.instantiate(wasm, {});
 const parser = new Streamdown(instance.instance);
@@ -129,6 +143,11 @@ assert.equal(parseLlmDescriptor(parser.document[1].language).attributes.type, "m
 assert.equal(parseLlmDescriptor(parser.document[2].language).attributes.type, "chart");
 assert.match(blocks[0].value, /columns=2/);
 assert.match(blocks[2].value, /values=1,2,3/);
+
+const followOps = parser.append(`\n:::llm ui type=metric id=followup\nvalue=2\n:::\n`);
+assert.ok(followOps.length > 0);
+parser.finish();
+assert.ok(parser.getLlmBlocks({ kind: "ui", closed: true }).some(block => block.attributes.id === "followup"));
 parser.dispose();
 
 console.log("webapp generative tests: ok");

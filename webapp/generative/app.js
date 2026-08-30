@@ -5,7 +5,7 @@ import { safeEvaluate } from "./expression.js";
 import { tabFor, tabsSpec } from "./tabs.js";
 import { formSpec } from "./form.js";
 import { consumeHttpResponse } from "./stream.js";
-import { buildLlmRequest } from "./llm_request.js";
+import { buildInteractionPrompt, buildLlmRequest } from "./llm_request.js";
 import { layoutGraph, parseGraph } from "./graph.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
@@ -120,6 +120,16 @@ value=COMMITTED
 trend=submit action executed locally
 :::
 
+## Model round trip
+
+Configure a POST proxy above, then this generated control can explicitly ask the same model to continue the application from the current local state.
+
+:::llm ui type=button id=ask-model
+title=Model continuation
+label=Generate next view from current state
+action=llm:Use the current state to append one compact recommendation card
+:::
+
 ## The document keeps going
 
 The layout ends automatically when ordinary Markdown resumes. The chart above grows before its closing fence arrives.
@@ -159,6 +169,7 @@ let remoteController = null;
 let sessionStartedAt = 0;
 let sessionChars = 0;
 let firstUiAt = null;
+let sessionUiBaseline = 0;
 const state = new Map();
 
 source.value = DEMO;
@@ -491,12 +502,110 @@ function renderInvisibleMarker(kind) {
   return marker;
 }
 
-function executeAction(action) {
-  const [verb, key, raw] = String(action || "").split(":");
+async function runLlmInteraction(instruction) {
+  if (remoteController) throw new Error("another remote stream is already active");
+  if (requestProtocol.value === "get") throw new Error("action=llm requires a POST proxy protocol");
+
+  let url;
+  try {
+    url = new URL(streamUrl.value.trim(), location.href);
+    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("HTTP(S) URL required");
+  } catch (error) {
+    throw new Error(`LLM action has no valid configured endpoint: ${error.message || error}`);
+  }
+
+  const requested = streamFormat.value;
+  const accept = requested === "sse" ? "text/event-stream"
+    : requested === "ndjson" ? "application/x-ndjson"
+    : "text/plain, text/event-stream, application/x-ndjson;q=0.9, */*;q=0.5";
+  const prompt = buildInteractionPrompt({ instruction, state });
+  const request = buildLlmRequest({
+    protocol: requestProtocol.value,
+    prompt,
+    model: streamModel.value,
+  });
+
+  cancelStreaming();
+  beginInputSession(generatedUiCount());
+  const controller = new AbortController();
+  remoteController = controller;
+  connectStreamButton.textContent = "■ Stop";
+  setRuntimeState("LLM ACTION");
+  deltaStatus.textContent = `Sending state to ${url.host}…`;
+  let received = "";
+  let prefix = "";
+
+  try {
+    const response = await fetch(url, {
+      ...request,
+      credentials: "omit",
+      cache: "no-store",
+      headers: { ...request.headers, Accept: accept },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`stream request failed: HTTP ${response.status}`);
+    prefix = parser.blockCount ? "\n\n" : "";
+    if (prefix) appendChunk(prefix);
+    setRuntimeState("LLM CONTINUATION");
+    const result = await consumeHttpResponse(response, {
+      format: requested,
+      signal: controller.signal,
+      onText(text) {
+        received += text;
+        appendChunk(text);
+        preview.scrollTop = preview.scrollHeight;
+      },
+    });
+    renderOperations(parser.finish());
+    source.value += prefix + received;
+    setRuntimeState("LIVE");
+    deltaStatus.textContent = `LLM ${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
+    return result;
+  } catch (error) {
+    if (controller.signal.aborted || error?.name === "AbortError") {
+      if (received) source.value += prefix + received;
+      setRuntimeState("PAUSED");
+      deltaStatus.textContent = "LLM continuation stopped";
+      return null;
+    }
+    setRuntimeState("ERROR");
+    deltaStatus.textContent = `LLM action failed: ${error.message || error}`;
+    throw error;
+  } finally {
+    if (remoteController === controller) remoteController = null;
+    connectStreamButton.textContent = "Connect";
+  }
+}
+
+async function executeAction(action) {
+  const parts = String(action || "").split(":");
+  const verb = parts.shift() || "";
+  if (verb === "llm") {
+    const instruction = parts.join(":").trim() || "Continue the current application using the latest state.";
+    return runLlmInteraction(instruction);
+  }
+  const key = parts.shift();
+  const raw = parts.join(":");
   if (!key) return;
   if (verb === "increment") updateState(key, number(state.get(key), 0) + number(raw, 1));
   else if (verb === "decrement") updateState(key, number(state.get(key), 0) - number(raw, 1));
   else if (verb === "set") updateState(key, number(raw, raw ?? ""));
+}
+
+async function runControlAction(control, action) {
+  const original = control?.textContent || "";
+  if (control) control.disabled = true;
+  if (control && String(action).startsWith("llm:")) control.textContent = "Generating…";
+  try {
+    await executeAction(action);
+  } catch (error) {
+    console.error("Generated UI action failed", error);
+  } finally {
+    if (control) {
+      control.disabled = false;
+      control.textContent = original;
+    }
+  }
 }
 
 function renderButton(block, config) {
@@ -508,7 +617,7 @@ function renderButton(block, config) {
   button.type = "button";
   button.textContent = config.label || "Run action";
   button.disabled = !config.action;
-  button.addEventListener("click", () => executeAction(config.action));
+  button.addEventListener("click", () => { void runControlAction(button, config.action); });
   card.append(title, button);
   return card;
 }
@@ -901,7 +1010,7 @@ function createFormRoot(block, spec) {
 
   form.addEventListener("submit", event => {
     event.preventDefault();
-    executeAction(spec.action);
+    void runControlAction(submit, spec.action);
   });
   form.append(header, fields, footer);
   return { form, fields };
@@ -1066,13 +1175,22 @@ function renderOperations(ops) {
   deltaStatus.textContent = ops.length ? `${ops.map(op => op.op).join(" · ")}` : "No structural change";
 }
 
-function resetRuntime() {
-  state.clear();
+function generatedUiCount() {
+  return preview.querySelectorAll(".ui-card, .generated-layout, .generated-tabs, .generated-form").length;
+}
+
+function beginInputSession(uiBaseline = generatedUiCount()) {
   sessionStartedAt = performance.now();
   sessionChars = 0;
   firstUiAt = null;
+  sessionUiBaseline = uiBaseline;
   inputRate.textContent = "0";
   firstUi.textContent = "—";
+}
+
+function resetRuntime() {
+  state.clear();
+  beginInputSession(0);
   const start = performance.now();
   const ops = parser.reset();
   parseMs.textContent = (performance.now() - start).toFixed(3);
@@ -1088,7 +1206,7 @@ function appendChunk(chunk) {
   sessionChars += chunk.length;
   const elapsedMs = Math.max(0.01, performance.now() - sessionStartedAt);
   inputRate.textContent = Math.round(sessionChars * 1000 / elapsedMs).toLocaleString("en-US");
-  if (firstUiAt === null && preview.querySelector(".ui-card, .generated-layout, .generated-tabs, .generated-form")) {
+  if (firstUiAt === null && generatedUiCount() > sessionUiBaseline) {
     firstUiAt = performance.now() - sessionStartedAt;
     firstUi.textContent = `${firstUiAt.toFixed(1)}ms`;
   }
@@ -1253,6 +1371,41 @@ async function runRemoteSmoke() {
   root.dataset.remoteSmoke = "fail";
 }
 
+async function runInteractionSmoke() {
+  if (new URLSearchParams(location.search).get("interaction_smoke") !== "1") return;
+  const root = document.documentElement;
+  root.dataset.interactionSmoke = "waiting";
+  streamUrl.value = new URL("/v1/chat/completions", location.origin).href;
+  requestProtocol.value = "chat";
+  streamFormat.value = "sse";
+  streamModel.value = "fixture-model";
+  requestProtocol.dispatchEvent(new Event("change", { bubbles: true }));
+
+  // These keys must never leave the browser through action=llm.
+  updateState("password", "browser-only-password");
+  updateState("api_token", "browser-only-token");
+
+  const button = preview.querySelector('[data-ui-id="ask-model"] button');
+  if (!button) {
+    root.dataset.interactionSmoke = "fail";
+    return;
+  }
+  button.click();
+  for (let attempt = 0; attempt < 300; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    if (streamState.textContent === "ERROR" || streamState.textContent === "BAD URL") break;
+    if (!remoteController && streamState.textContent === "LIVE") {
+      const card = preview.querySelector('[data-ui-id="interaction-result"]');
+      const value = card?.querySelector(".metric-value")?.textContent?.trim();
+      const unit = card?.querySelector(".metric-unit")?.textContent?.trim();
+      const appended = source.value.includes("## Model continuation");
+      root.dataset.interactionSmoke = value === "42" && unit === "°C" && appended ? "pass" : "fail";
+      return;
+    }
+  }
+  root.dataset.interactionSmoke = "fail";
+}
+
 async function runLlmPostSmoke() {
   if (new URLSearchParams(location.search).get("llm_smoke") !== "1") return;
   const root = document.documentElement;
@@ -1332,6 +1485,7 @@ try {
   runGenerativeSmoke();
   runRemoteSmoke();
   runLlmPostSmoke();
+  runInteractionSmoke();
 } catch (error) {
   setRuntimeState("ERROR");
   preview.textContent = `Could not start Streamdown WASM: ${error}`;
