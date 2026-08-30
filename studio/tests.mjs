@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import { Streamdown, parseLlmDescriptor } from "./streamdown.js";
 import { componentSpan, layoutSpec } from "./layout.js";
+import { canvasSpec, parseCanvasScene } from "./canvas.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
   id: "",
@@ -15,6 +16,24 @@ assert.equal(layoutSpec({ columns: "99", gap: "-5", min: "20" }).gap, 0);
 assert.equal(layoutSpec({ columns: "99", gap: "-5", min: "20" }).minWidth, 120);
 assert.equal(componentSpan({ span: "3" }, 2), 2);
 assert.equal(componentSpan({ span: "0" }, 4), 1);
+
+
+assert.deepEqual(canvasSpec({ width: "5000", height: "20", title: "Scene" }), {
+  width: 1200,
+  height: 120,
+  title: "Scene",
+});
+const scene = parseCanvasScene(`width=640
+line 0 1 2 3
+circle 10 20 5
+rect 1 2 3 4
+text 8 9 hello streamed world
+unknown 1 2 3
+`);
+assert.deepEqual(scene.map(command => command.type), ["line", "circle", "rect", "text"]);
+assert.equal(scene[3].text, "hello streamed world");
+assert.equal(parseCanvasScene(`line 1 2
+circle 1`).length, 0);
 
 const wasm = await fs.readFile(new URL("./streamdown.wasm", import.meta.url));
 const instance = await WebAssembly.instantiate(wasm, {});

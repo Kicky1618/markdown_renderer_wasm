@@ -37,6 +37,7 @@ unit=ms
 - `button`: label/action
 - `progress`: state/min/max/unit
 - `layout`: title/columns/gap/min。直後の連続したUI componentをgrid化し、component側の`span`で列結合
+- `canvas`: width/height/title と、本文の `line/circle/rect/text` 描画DSL
 
 `slider` と `button` は runtime state を共有します。Markdown 内の `{{stateName}}` は同じ state を参照します。
 
@@ -83,6 +84,22 @@ unit=ms
 `columns` は1〜4、`gap` は0〜40px、`min` は120〜480pxへ制限されます。LLM出力をそのまま無制限なCSS値として通しません。
 
 `progress` は同名 state に自動追従するため、slider/button/本文bindingと相互作用します。
+
+
+### Streaming canvas
+
+`canvas` は固定命令だけを持つ小さな描画DSLです。未完の命令行は無視され、次のchunkで必要な引数が揃うと描画に現れます。
+
+```md
+:::llm ui type=canvas id=scene width=640 height=220 span=2
+text 28 34 STREAMING SCENE
+line 30 180 610 52
+circle 176 126 34
+rect 330 86 120 72
+:::
+```
+
+座標とサイズには上限を設け、最大512命令までです。任意のCanvas API呼び出しやJavaScriptは実行しません。
 
 ## Streaming behavior
 

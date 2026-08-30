@@ -1,5 +1,6 @@
 import { Streamdown, parseLlmDescriptor } from "./streamdown.js";
 import { componentSpan, layoutSpec } from "./layout.js";
+import { canvasSpec, parseCanvasScene } from "./canvas.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
 
@@ -39,6 +40,15 @@ action=increment:temperature:5
 :::llm ui type=chart id=latency title="Streaming latency" span=2
 values=58,51,47,40,36,31,28,24,21,19,17,16
 unit=ms
+:::
+
+:::llm ui type=canvas id=scene title="A scene drawn token by token" span=2 width=640 height=220
+text 28 34 STREAMING SCENE
+line 30 180 610 52
+circle 176 126 34
+rect 330 86 120 72
+line 450 122 555 160
+circle 570 168 18
 :::
 
 ## The document keeps going
@@ -362,12 +372,85 @@ function renderChart(block, config) {
   wrap.append(canvas);
   const meta = document.createElement("div");
   meta.className = "chart-meta";
-  meta.append(
-    document.createTextNode(`${values.length} streamed points`),
-    document.createTextNode(values.length ? `${values.at(-1)}${config.unit || ""}` : "waiting for data")
-  );
+  const countLabel = document.createElement("span");
+  countLabel.textContent = `${values.length} streamed points`;
+  const lastLabel = document.createElement("span");
+  lastLabel.textContent = values.length ? `${values.at(-1)}${config.unit || ""}` : "waiting for data";
+  meta.append(countLabel, lastLabel);
   card.append(title, wrap, meta);
   requestAnimationFrame(() => drawChart(canvas, values));
+  return card;
+}
+
+function drawCanvasScene(canvas, spec, commands) {
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.max(1, Math.round(rect.width * dpr));
+  canvas.height = Math.max(1, Math.round(rect.height * dpr));
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, rect.width, rect.height);
+  const sx = rect.width / spec.width;
+  const sy = rect.height / spec.height;
+  ctx.save();
+  ctx.scale(sx, sy);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const command of commands) {
+    if (command.type === "line") {
+      ctx.beginPath();
+      ctx.moveTo(command.x1, command.y1);
+      ctx.lineTo(command.x2, command.y2);
+      ctx.strokeStyle = "#6edbcb";
+      ctx.lineWidth = 2 / Math.max(sx, sy);
+      ctx.stroke();
+    } else if (command.type === "circle") {
+      ctx.beginPath();
+      ctx.arc(command.x, command.y, command.r, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(110, 219, 203, .16)";
+      ctx.fill();
+      ctx.strokeStyle = "#72bdf4";
+      ctx.lineWidth = 2 / Math.max(sx, sy);
+      ctx.stroke();
+    } else if (command.type === "rect") {
+      ctx.fillStyle = "rgba(126, 151, 255, .13)";
+      ctx.fillRect(command.x, command.y, command.w, command.h);
+      ctx.strokeStyle = "#8299ef";
+      ctx.lineWidth = 2 / Math.max(sx, sy);
+      ctx.strokeRect(command.x, command.y, command.w, command.h);
+    } else if (command.type === "text") {
+      ctx.fillStyle = "#cbd8e6";
+      ctx.font = `${14 / Math.max(sx, sy)}px ui-monospace, monospace`;
+      ctx.fillText(command.text, command.x, command.y);
+    }
+  }
+  ctx.restore();
+}
+
+function renderCanvas(block, config) {
+  const card = makeUiShell(block, config);
+  const spec = canvasSpec(config);
+  const commands = parseCanvasScene(block.value);
+  const title = document.createElement("h3");
+  title.textContent = spec.title;
+  const wrap = document.createElement("div");
+  wrap.className = "scene-wrap";
+  wrap.style.aspectRatio = `${spec.width} / ${spec.height}`;
+  const canvas = document.createElement("canvas");
+  canvas.dataset.sceneCanvas = "true";
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", `${spec.title}: ${commands.length} streamed drawing commands`);
+  wrap.append(canvas);
+  const meta = document.createElement("div");
+  meta.className = "chart-meta";
+  const countLabel = document.createElement("span");
+  countLabel.textContent = `${commands.length} drawing commands`;
+  const sizeLabel = document.createElement("span");
+  sizeLabel.textContent = `${spec.width}×${spec.height}`;
+  meta.append(countLabel, sizeLabel);
+  card.append(title, wrap, meta);
+  requestAnimationFrame(() => drawCanvasScene(canvas, spec, commands));
   return card;
 }
 
@@ -386,6 +469,7 @@ function renderUi(block, config) {
     case "progress": return renderProgress(block, config);
     case "button": return renderButton(block, config);
     case "chart": return renderChart(block, config);
+    case "canvas": return renderCanvas(block, config);
     default: {
       const card = makeUiShell(block, config);
       card.classList.add("ui-error");
@@ -659,6 +743,8 @@ window.addEventListener("resize", () => {
     if (config?.type === "chart") {
       const values = String(config.values || "").split(",").map(Number).filter(Number.isFinite);
       drawChart(element, values);
+    } else if (config?.type === "canvas") {
+      drawCanvasScene(element, canvasSpec(config), parseCanvasScene(block.value));
     }
   }
 });
