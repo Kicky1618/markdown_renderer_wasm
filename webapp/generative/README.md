@@ -39,3 +39,21 @@ node webapp/generative/tests.mjs
 SSE/NDJSONでは `choices[0].delta.content`、Responses API系の `delta`、`delta.text`、`output_text` など代表的なLLM delta envelopeから文字列だけを抽出し、既存の `Parser::append` に渡します。`[DONE]` も認識します。
 
 実運用では、認証情報を持つサーバ側proxyがLLM providerへ接続し、ブラウザにはMarkdown/SSEだけを返す構成を推奨します。
+
+## Streaming graph
+
+`type=graph` は依存DAGや処理パイプラインを逐次可視化します。本文は固定DSLで、最大128 node / 256 edgeです。DOM/SVGはruntime側が生成し、LLM出力をHTMLとして解釈しません。
+
+```md
+:::llm ui type=graph id=pipeline title="Runtime pipeline" span=2
+node llm LLM tokens
+node parser Incremental parser
+node delta Delta AST
+node ui Generative UI
+edge llm parser stream
+edge parser delta diff
+edge delta ui apply
+:::
+```
+
+`node <id> <label...>` と `edge <from> <to> <label...>` のみを認識し、DAGは決定的なlayered layout、cycleは末尾layerへ安全に配置します。

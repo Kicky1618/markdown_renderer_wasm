@@ -5,6 +5,7 @@ import { safeEvaluate } from "./expression.js";
 import { tabFor, tabsSpec } from "./tabs.js";
 import { formSpec } from "./form.js";
 import { consumeHttpResponse } from "./stream.js";
+import { layoutGraph, parseGraph } from "./graph.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
 
@@ -53,6 +54,18 @@ circle 176 126 34
 rect 330 86 120 72
 line 450 122 555 160
 circle 570 168 18
+:::
+
+:::llm ui type=graph id=pipeline title="The UI grows from the token stream" span=2 height=300
+node llm LLM tokens
+node parser Incremental parser
+node delta Delta AST
+node runtime UI runtime
+node screen Interactive screen
+edge llm parser stream
+edge parser delta diff
+edge delta runtime apply
+edge runtime screen render
 :::
 
 :::llm ui type=derive state=fahrenheit expr="temperature * 9 / 5 + 32"
@@ -629,6 +642,74 @@ function renderCanvas(block, config) {
   return card;
 }
 
+function renderGraph(block, config) {
+  const card = makeUiShell(block, config);
+  const title = document.createElement("h3");
+  title.textContent = config.title || config.label || "Graph";
+  const height = Math.max(180, Math.min(520, number(config.height, 300)));
+  const graph = parseGraph(block.value);
+  const layout = layoutGraph(graph, 640, height);
+  const svgNs = "http://www.w3.org/2000/svg";
+  const wrap = document.createElement("div");
+  wrap.className = "graph-wrap";
+  const svg = document.createElementNS(svgNs, "svg");
+  svg.setAttribute("viewBox", `0 0 ${layout.width} ${layout.height}`);
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", `${title.textContent}: ${layout.nodes.length} nodes, ${layout.edges.length} edges`);
+  const positions = new Map(layout.nodes.map(node => [node.id, node]));
+
+  for (const edge of layout.edges) {
+    const from = positions.get(edge.from);
+    const to = positions.get(edge.to);
+    if (!from || !to) continue;
+    const line = document.createElementNS(svgNs, "line");
+    line.setAttribute("x1", String(from.x));
+    line.setAttribute("y1", String(from.y));
+    line.setAttribute("x2", String(to.x));
+    line.setAttribute("y2", String(to.y));
+    line.setAttribute("class", "graph-edge");
+    svg.append(line);
+    if (edge.label) {
+      const text = document.createElementNS(svgNs, "text");
+      text.setAttribute("x", String((from.x + to.x) / 2));
+      text.setAttribute("y", String((from.y + to.y) / 2 - 7));
+      text.setAttribute("class", "graph-edge-label");
+      text.textContent = edge.label;
+      svg.append(text);
+    }
+  }
+
+  for (const node of layout.nodes) {
+    const group = document.createElementNS(svgNs, "g");
+    group.setAttribute("class", "graph-node");
+    const rect = document.createElementNS(svgNs, "rect");
+    rect.setAttribute("x", String(node.x - 58));
+    rect.setAttribute("y", String(node.y - 22));
+    rect.setAttribute("width", "116");
+    rect.setAttribute("height", "44");
+    rect.setAttribute("rx", "12");
+    const label = document.createElementNS(svgNs, "text");
+    label.setAttribute("x", String(node.x));
+    label.setAttribute("y", String(node.y + 4));
+    label.textContent = node.label.length > 24 ? `${node.label.slice(0, 23)}…` : node.label;
+    const full = document.createElementNS(svgNs, "title");
+    full.textContent = node.label;
+    group.append(rect, label, full);
+    svg.append(group);
+  }
+
+  wrap.append(svg);
+  const meta = document.createElement("div");
+  meta.className = "chart-meta";
+  const nodes = document.createElement("span");
+  nodes.textContent = `${layout.nodes.length} nodes`;
+  const edges = document.createElement("span");
+  edges.textContent = `${layout.edges.length} edges`;
+  meta.append(nodes, edges);
+  card.append(title, wrap, meta);
+  return card;
+}
+
 function renderLayoutMarker() {
   return renderInvisibleMarker("layout");
 }
@@ -647,6 +728,7 @@ function renderUi(block, config) {
     case "button": return renderButton(block, config);
     case "chart": return renderChart(block, config);
     case "canvas": return renderCanvas(block, config);
+    case "graph": return renderGraph(block, config);
     default: {
       const card = makeUiShell(block, config);
       card.classList.add("ui-error");

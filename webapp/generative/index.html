@@ -70,6 +70,12 @@ label=Temperature
 
 :::llm ui type=progress state=temperature min=0 max=100
 label=Thermal load
+:::
+
+:::llm ui type=graph title="Pipeline"
+node llm LLM
+node ui UI
+edge llm ui stream
 :::</pre>
       </details>
     </section>

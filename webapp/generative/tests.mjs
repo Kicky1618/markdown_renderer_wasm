@@ -6,6 +6,7 @@ import { canvasSpec, parseCanvasScene } from "./canvas.js";
 import { evaluateExpression, safeEvaluate } from "./expression.js";
 import { tabFor, tabsSpec } from "./tabs.js";
 import { formSpec } from "./form.js";
+import { layoutGraph, parseGraph } from "./graph.js";
 import { consumeHttpResponse, decodeNdjsonLine, decodeSseEvent, extractDeltaText } from "./stream.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
@@ -41,6 +42,20 @@ assert.deepEqual(formSpec({ id: "launch", title: "Launch", submit: "Go", action:
   action: "set:submitted:1",
 });
 
+
+
+const graph = parseGraph(`node a Parser
+node b Delta AST
+edge a b diff
+edge b c render
+`);
+assert.equal(graph.nodes.length, 3);
+assert.equal(graph.edges.length, 2);
+assert.equal(graph.nodes.find(node => node.id === "c").label, "c");
+const laidOut = layoutGraph(graph, 640, 300);
+assert.equal(laidOut.nodes.length, 3);
+assert.ok(laidOut.nodes.every(node => Number.isFinite(node.x) && Number.isFinite(node.y)));
+assert.ok(laidOut.nodes.find(node => node.id === "a").x < laidOut.nodes.find(node => node.id === "c").x);
 
 assert.deepEqual(canvasSpec({ width: "5000", height: "20", title: "Scene" }), {
   width: 1200,
