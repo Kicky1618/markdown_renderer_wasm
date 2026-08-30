@@ -5,12 +5,17 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 
 RUN_BROWSER=${VERIFY_BROWSER:-0}
-case "${1:-}" in
-  --browser) RUN_BROWSER=1 ;;
-  --no-browser|'') ;;
-  -h|--help)
-    cat <<'EOF'
-Usage: scripts/verify_submission.sh [--browser]
+RUN_BENCH=${VERIFY_BENCH:-0}
+for arg in "$@"; do
+  case "$arg" in
+    --browser) RUN_BROWSER=1 ;;
+    --bench) RUN_BENCH=1 ;;
+    --all) RUN_BROWSER=1; RUN_BENCH=1 ;;
+    --no-browser) RUN_BROWSER=0 ;;
+    --no-bench) RUN_BENCH=0 ;;
+    -h|--help)
+      cat <<'EOF'
+Usage: scripts/verify_submission.sh [--browser] [--bench] [--all]
 
 Runs the reproducible submission checks for Streamdown:
   - Rust parser/unit/integration tests
@@ -19,16 +24,22 @@ Runs the reproducible submission checks for Streamdown:
   - webapp native tests and release build
   - Generative UI Node tests
 
-With --browser (or VERIFY_BROWSER=1), also runs the real Chrome/Chromium
-Viewer, Canvas2D, dynamic language-pack, and Generative UI smoke tests.
+Options:
+  --browser  Also run the real Chrome/Chromium Viewer, Canvas2D, dynamic
+             language-pack, and Generative UI smoke tests.
+  --bench    Also print native parser and semantic-runtime performance snapshots.
+  --all      Enable both --browser and --bench.
+
+VERIFY_BROWSER=1 and VERIFY_BENCH=1 provide equivalent environment toggles.
 EOF
-    exit 0
-    ;;
-  *)
-    echo "unknown argument: $1" >&2
-    exit 2
-    ;;
-esac
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $arg" >&2
+      exit 2
+      ;;
+  esac
+done
 
 for tool in cargo node npm wasm-bindgen; do
   if ! command -v "$tool" >/dev/null 2>&1; then
@@ -73,6 +84,14 @@ section "webapp release build"
 section "Generative UI Node tests"
 node webapp/generative/tests.mjs
 
+if [ "$RUN_BENCH" = "1" ]; then
+  section "native parser benchmark"
+  cargo run --release --bin stream-bench
+
+  section "semantic runtime benchmark"
+  node tools/semantic-runtime-bench.mjs
+fi
+
 if [ "$RUN_BROWSER" = "1" ]; then
   # Keep Chrome's profile/socket paths short. Deep repository-local TMPDIRs can
   # exceed Chromium's Unix-domain socket length limit.
@@ -104,4 +123,11 @@ if [ "$RUN_BROWSER" = "1" ]; then
   browser_smoke generative env TMPDIR="$BROWSER_TMP" ./webapp/generative/browser_smoke.sh
 fi
 
-printf '\nsubmission verify: PASS%s\n' "$( [ "$RUN_BROWSER" = "1" ] && printf ' (including browser smoke)' || true )"
+extras=""
+[ "$RUN_BROWSER" = "1" ] && extras="${extras} browser"
+[ "$RUN_BENCH" = "1" ] && extras="${extras} bench"
+if [ -n "$extras" ]; then
+  printf '\nsubmission verify: PASS (including%s)\n' "$extras"
+else
+  printf '\nsubmission verify: PASS\n'
+fi
