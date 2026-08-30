@@ -1,0 +1,45 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Canvas2D compatibility smoke</title>
+<iframe id="viewer" src="/?renderer=canvas2d&doc=easy&tps=10000&repeat=2" style="width:800px;height:600px;border:0"></iframe>
+<script>
+const root = document.documentElement;
+root.dataset.canvas2dSmoke = "waiting";
+const frame = document.querySelector("#viewer");
+let attempts = 0;
+const fakeTouch = (type, clientY) => {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "touches", { value: clientY == null ? [] : [{ clientY }] });
+  return event;
+};
+const probe = () => {
+  const doc = frame.contentDocument;
+  const canvas = doc?.querySelector("#app");
+  if (!canvas?.dataset.renderer) {
+    if (attempts++ > 400) {
+      root.dataset.canvas2dSmoke = "timeout";
+      return;
+    }
+    setTimeout(probe, 20);
+    return;
+  }
+  const ratioX = canvas.width / Math.max(1, canvas.clientWidth);
+  const ratioY = canvas.height / Math.max(1, canvas.clientHeight);
+  const dprOk = ratioX > 1.5 && ratioX <= 4.01 && ratioY > 1.5 && ratioY <= 4.01;
+
+  canvas.dispatchEvent(fakeTouch("touchstart", 300));
+  const move = fakeTouch("touchmove", 420);
+  canvas.dispatchEvent(move);
+  canvas.dispatchEvent(fakeTouch("touchend", null));
+  const touchOk = move.defaultPrevented && canvas.dataset.autoScroll === "false";
+  const fontOk = canvas.dataset.canvasFontRedraw === "true";
+
+  root.dataset.canvas2dRenderer = canvas.dataset.renderer;
+  root.dataset.canvas2dBackingX = ratioX.toFixed(3);
+  root.dataset.canvas2dBackingY = ratioY.toFixed(3);
+  root.dataset.canvas2dFontsReady = String(fontOk);
+  root.dataset.canvas2dTouch = String(touchOk);
+  root.dataset.canvas2dSmoke = canvas.dataset.renderer === "canvas2d" && dprOk && fontOk && touchOk ? "pass" : "fail";
+};
+setTimeout(probe, 0);
+</script>

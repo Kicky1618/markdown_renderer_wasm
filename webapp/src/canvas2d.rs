@@ -1,7 +1,9 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
+use js_sys::{Promise, Reflect};
 use streamdown::{Block, Inline, Op, Parser};
 use wasm_bindgen::{JsCast, closure::Closure, prelude::JsValue};
+use wasm_bindgen_futures::{JsFuture, spawn_local};
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
 use super::{
@@ -11,6 +13,10 @@ use super::{
 };
 
 type AnimationLoop = Rc<RefCell<Option<Closure<dyn FnMut(f64)>>>>;
+
+#[path = "canvas2d/compat.rs"]
+mod canvas_compat;
+use canvas_compat::{backing_size, wheel_delta_css_pixels};
 
 struct HitLine {
     start: usize,
@@ -41,6 +47,7 @@ struct State {
     content_height: f64,
     dragging_scrollbar: bool,
     selecting_text: bool,
+    touch_last_y: Option<f64>,
     selection_anchor: Option<usize>,
     selection_focus: Option<usize>,
     selection_text: String,
@@ -65,7 +72,6 @@ pub fn start(
     font_size: f32,
     fade_ms: f64,
 ) -> Result<(), JsValue> {
-    resize(&canvas);
     let _ = canvas.set_attribute("data-renderer", "canvas2d");
     let _ = canvas.set_attribute("data-paused", "false");
     let _ = canvas.set_attribute("data-auto-scroll", &auto_scroll.to_string());
@@ -76,6 +82,7 @@ pub fn start(
         .get_context("2d")?
         .ok_or("Canvas2D context unavailable")?
         .dyn_into()?;
+    resize(&canvas, &context);
     let state = Rc::new(RefCell::new(State {
         canvas: canvas.clone(),
         context,
@@ -97,6 +104,7 @@ pub fn start(
         content_height: 0.0,
         dragging_scrollbar: false,
         selecting_text: false,
+        touch_last_y: None,
         selection_anchor: None,
         selection_focus: None,
         selection_text: String::new(),
@@ -111,17 +119,25 @@ pub fn start(
         search_indexed_at: 0.0,
         dirty: true,
     }));
+    install_font_redraw(&state);
 
     let wheel_state = state.clone();
     let wheel = Closure::<dyn FnMut(WheelEvent)>::new(move |event: WheelEvent| {
         event.prevent_default();
         let mut state = wheel_state.borrow_mut();
-        let max = (state.content_height - state.canvas.height() as f64).max(0.0);
-        if event.delta_y() < 0.0 {
+        let viewport = logical_height(&state.canvas);
+        let max = (state.content_height - viewport).max(0.0);
+        let delta = wheel_delta_css_pixels(
+            event.delta_y(),
+            event.delta_mode(),
+            (25.0 * state.font_scale).max(16.0),
+            viewport,
+        );
+        if delta < 0.0 {
             state.auto_scroll = false;
         }
-        state.scroll = (state.scroll + event.delta_y()).clamp(0.0, max);
-        if event.delta_y() > 0.0 && state.scroll >= max - 24.0 {
+        state.scroll = (state.scroll + delta).clamp(0.0, max);
+        if delta > 0.0 && state.scroll >= max - 24.0 {
             state.auto_scroll = true;
         }
         state.dirty = true;
@@ -130,12 +146,61 @@ pub fn start(
     canvas.add_event_listener_with_callback("wheel", wheel.as_ref().unchecked_ref())?;
     wheel.forget();
 
+    // Touch fallback for mobile Safari/Chrome. The canvas intentionally uses
+    // `touch-action: none`, so native page panning is disabled and we must
+    // provide document scrolling ourselves. Generic Event + Reflect keeps this
+    // path working without relying on newer TouchEvent web-sys bindings.
+    let touch_start_state = state.clone();
+    let touch_start = Closure::<dyn FnMut(web_sys::Event)>::new(move |event: web_sys::Event| {
+        if let Some(y) = touch_client_y(&event) {
+            touch_start_state.borrow_mut().touch_last_y = Some(y);
+        }
+    });
+    canvas.add_event_listener_with_callback("touchstart", touch_start.as_ref().unchecked_ref())?;
+    touch_start.forget();
+
+    let touch_move_state = state.clone();
+    let touch_move = Closure::<dyn FnMut(web_sys::Event)>::new(move |event: web_sys::Event| {
+        let Some(y) = touch_client_y(&event) else {
+            return;
+        };
+        let mut state = touch_move_state.borrow_mut();
+        let Some(previous_y) = state.touch_last_y.replace(y) else {
+            return;
+        };
+        let delta = previous_y - y;
+        if delta.abs() < f64::EPSILON {
+            return;
+        }
+        event.prevent_default();
+        let viewport = logical_height(&state.canvas);
+        let max = (state.content_height - viewport).max(0.0);
+        state.auto_scroll = false;
+        state.scroll = (state.scroll + delta).clamp(0.0, max);
+        if delta > 0.0 && state.scroll >= max - 24.0 {
+            state.auto_scroll = true;
+        }
+        state.dirty = true;
+        state.sync_control_state();
+    });
+    canvas.add_event_listener_with_callback("touchmove", touch_move.as_ref().unchecked_ref())?;
+    touch_move.forget();
+
+    for event_name in ["touchend", "touchcancel"] {
+        let touch_end_state = state.clone();
+        let touch_end = Closure::<dyn FnMut(web_sys::Event)>::new(move |_event: web_sys::Event| {
+            touch_end_state.borrow_mut().touch_last_y = None;
+        });
+        canvas.add_event_listener_with_callback(event_name, touch_end.as_ref().unchecked_ref())?;
+        touch_end.forget();
+    }
+
     let down_state = state.clone();
     let down = Closure::<dyn FnMut(MouseEvent)>::new(move |event: MouseEvent| {
         let mut state = down_state.borrow_mut();
         let rect = state.canvas.get_bounding_client_rect();
         let x = event.client_x() as f64 - rect.left();
-        if event.button() == 0 && x >= state.canvas.width() as f64 - 28.0 {
+        if event.button() == 0 && x >= logical_width(&state.canvas) - 28.0 {
             state.dragging_scrollbar = true;
             state.update_scrollbar(event.client_y() as f64);
             let _ = state.canvas.set_attribute("data-cursor", "grabbing");
@@ -167,8 +232,8 @@ pub fn start(
             let y = event.client_y() as f64 - rect.top();
             if y < 92.0 {
                 state.scroll = (state.scroll - 24.0).max(0.0);
-            } else if y > state.canvas.height() as f64 - 54.0 {
-                let max_scroll = (state.content_height - state.canvas.height() as f64).max(0.0);
+            } else if y > logical_height(&state.canvas) - 54.0 {
+                let max_scroll = (state.content_height - logical_height(&state.canvas)).max(0.0);
                 state.scroll = (state.scroll + 24.0).min(max_scroll);
             }
             if let Some(position) = state.nearest_text_position(x, y) {
@@ -179,7 +244,7 @@ pub fn start(
             let rect = state.canvas.get_bounding_client_rect();
             let x = event.client_x() as f64 - rect.left();
             let y = event.client_y() as f64 - rect.top();
-            let cursor = if x >= state.canvas.width() as f64 - 28.0 {
+            let cursor = if x >= logical_width(&state.canvas) - 28.0 {
                 "grab"
             } else if y >= 68.0 {
                 "text"
@@ -222,7 +287,7 @@ pub fn start(
             .and_then(|target| target.dyn_into::<HtmlCanvasElement>().ok())
             .is_some()
         {
-            let viewport = state.canvas.height() as f64;
+            let viewport = logical_height(&state.canvas);
             let max_scroll = (state.content_height - viewport).max(0.0);
             let key = event.key();
             if matches!(key.as_str(), "F3" | "F3Previous") {
@@ -373,7 +438,7 @@ impl State {
             .iter()
             .find(|(start, end, _)| position >= *start && position <= *end)
         {
-            let max_scroll = (self.content_height - self.canvas.height() as f64).max(0.0);
+            let max_scroll = (self.content_height - logical_height(&self.canvas)).max(0.0);
             self.scroll = (self.scroll + *line_y - 104.0).clamp(0.0, max_scroll);
             self.auto_scroll = false;
         }
@@ -409,13 +474,13 @@ impl State {
     }
 
     fn update_scrollbar(&mut self, client_y: f64) {
-        let max_scroll = (self.content_height - self.canvas.height() as f64).max(0.0);
+        let max_scroll = (self.content_height - logical_height(&self.canvas)).max(0.0);
         if max_scroll <= 0.0 {
             return;
         }
         let rect = self.canvas.get_bounding_client_rect();
-        let track_height = (self.canvas.height() as f64 - 84.0).max(20.0);
-        let thumb_height = (track_height * self.canvas.height() as f64 / self.content_height)
+        let track_height = (logical_height(&self.canvas) - 84.0).max(20.0);
+        let thumb_height = (track_height * logical_height(&self.canvas) / self.content_height)
             .clamp(28.0, track_height);
         let ratio = ((client_y - rect.top() - 76.0 - thumb_height * 0.5)
             / (track_height - thumb_height).max(1.0))
@@ -586,7 +651,7 @@ impl State {
         {
             self.dirty = true;
         }
-        if resize(&self.canvas) {
+        if resize(&self.canvas, &self.context) {
             self.dirty = true;
         }
         let dt = if self.last_time == 0.0 {
@@ -616,7 +681,7 @@ impl State {
         if self.dirty {
             self.draw();
             if self.auto_scroll {
-                let max_scroll = (self.content_height - self.canvas.height() as f64).max(0.0);
+                let max_scroll = (self.content_height - logical_height(&self.canvas)).max(0.0);
                 if (self.scroll - max_scroll).abs() > 0.01 {
                     self.scroll = max_scroll;
                     self.draw();
@@ -646,7 +711,8 @@ impl State {
                     Op::SpliceCode { .. }
                     | Op::SealCode { .. }
                     | Op::AppendText { .. }
-                    | Op::AppendInlineText { .. } => {}
+                    | Op::AppendInlineText { .. }
+                    | Op::SpliceInlineTail { .. } => {}
                 }
             }
             appended += end - self.source_offset;
@@ -660,8 +726,8 @@ impl State {
     }
 
     fn draw(&mut self) {
-        let width = self.canvas.width() as f64;
-        let height = self.canvas.height() as f64;
+        let width = logical_width(&self.canvas);
+        let height = logical_height(&self.canvas);
         self.selection_text.clear();
         self.hit_lines.clear();
         self.search_lines.clear();
@@ -1109,15 +1175,147 @@ fn math_spans(mut text: &str) -> Vec<(&str, bool)> {
     spans
 }
 
-fn resize(canvas: &HtmlCanvasElement) -> bool {
-    let width = canvas.client_width().max(1) as u32;
-    let height = canvas.client_height().max(1) as u32;
-    let changed = canvas.width() != width || canvas.height() != height;
-    if canvas.width() != width {
-        canvas.set_width(width);
+fn touch_client_y(event: &web_sys::Event) -> Option<f64> {
+    let touches = Reflect::get(event.as_ref(), &JsValue::from_str("touches")).ok()?;
+    let first = Reflect::get(&touches, &JsValue::from_f64(0.0)).ok()?;
+    Reflect::get(&first, &JsValue::from_str("clientY"))
+        .ok()?
+        .as_f64()
+}
+
+fn request_redraw(state: &Rc<RefCell<State>>, font_redraw_marker: bool) {
+    let mut state = state.borrow_mut();
+    state.dirty = true;
+    if font_redraw_marker {
+        let _ = state
+            .canvas
+            .set_attribute("data-canvas-font-redraw", "true");
     }
-    if canvas.height() != height {
-        canvas.set_height(height);
+}
+
+fn schedule_font_redraw(state: &Rc<RefCell<State>>, delay_ms: i32) {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let redraw_state = state.clone();
+    let callback = Closure::<dyn FnMut()>::new(move || {
+        request_redraw(&redraw_state, false);
+    });
+    if window
+        .set_timeout_with_callback_and_timeout_and_arguments_0(
+            callback.as_ref().unchecked_ref(),
+            delay_ms,
+        )
+        .is_ok()
+    {
+        callback.forget();
+    }
+}
+
+fn schedule_font_redraw_marked(state: &Rc<RefCell<State>>, delay_ms: i32) {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let redraw_state = state.clone();
+    let callback = Closure::<dyn FnMut()>::new(move || {
+        request_redraw(&redraw_state, true);
+    });
+    if window
+        .set_timeout_with_callback_and_timeout_and_arguments_0(
+            callback.as_ref().unchecked_ref(),
+            delay_ms,
+        )
+        .is_ok()
+    {
+        callback.forget();
+    }
+}
+
+fn install_font_redraw(state: &Rc<RefCell<State>>) {
+    // Timed redraws cover older WebKit implementations without FontFaceSet
+    // and pages where a CSS font becomes available after the first frame.
+    schedule_font_redraw(state, 250);
+    schedule_font_redraw_marked(state, 1_500);
+
+    let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+        return;
+    };
+    let Ok(fonts) = Reflect::get(document.as_ref(), &JsValue::from_str("fonts")) else {
+        return;
+    };
+    if fonts.is_null() || fonts.is_undefined() {
+        return;
+    }
+
+    // Modern browsers emit loadingdone when late webfont loads complete.
+    if let Ok(target) = fonts.clone().dyn_into::<web_sys::EventTarget>() {
+        let redraw_state = state.clone();
+        let callback = Closure::<dyn FnMut()>::new(move || {
+            request_redraw(&redraw_state, true);
+        });
+        if target
+            .add_event_listener_with_callback("loadingdone", callback.as_ref().unchecked_ref())
+            .is_ok()
+        {
+            callback.forget();
+        }
+    }
+
+    // `fonts.ready` also handles fonts that were already loading before this
+    // renderer installed its loadingdone listener. Feature-detect it so old
+    // Safari/embedded webviews simply use the timed fallback above.
+    if let Ok(ready) = Reflect::get(&fonts, &JsValue::from_str("ready"))
+        && ready.is_instance_of::<Promise>()
+    {
+        let promise: Promise = ready.unchecked_into();
+        let redraw_state = state.clone();
+        spawn_local(async move {
+            let _ = JsFuture::from(promise).await;
+            request_redraw(&redraw_state, true);
+        });
+    }
+}
+
+fn logical_width(canvas: &HtmlCanvasElement) -> f64 {
+    canvas.client_width().max(1) as f64
+}
+
+fn logical_height(canvas: &HtmlCanvasElement) -> f64 {
+    canvas.client_height().max(1) as f64
+}
+
+fn requested_device_pixel_ratio() -> f64 {
+    web_sys::window()
+        .map(|window| window.device_pixel_ratio())
+        .filter(|ratio| ratio.is_finite() && *ratio > 0.0)
+        .unwrap_or(1.0)
+}
+
+fn resize(canvas: &HtmlCanvasElement, context: &CanvasRenderingContext2d) -> bool {
+    let logical_width = logical_width(canvas);
+    let logical_height = logical_height(canvas);
+    let backing = backing_size(
+        logical_width,
+        logical_height,
+        requested_device_pixel_ratio(),
+    );
+    let changed = canvas.width() != backing.width || canvas.height() != backing.height;
+    if canvas.width() != backing.width {
+        canvas.set_width(backing.width);
+    }
+    if canvas.height() != backing.height {
+        canvas.set_height(backing.height);
+    }
+
+    // Assigning width/height resets the Canvas2D state. Reapply an absolute
+    // transform every frame so DPR changes, browser zoom and monitor moves do
+    // not accumulate scale or leave a stale transform.
+    let _ = context.set_transform(backing.scale_x, 0.0, 0.0, backing.scale_y, 0.0, 0.0);
+    if changed {
+        let _ = canvas.set_attribute(
+            "data-canvas-backing-scale",
+            &format!("{:.3}", backing.scale_x.min(backing.scale_y)),
+        );
     }
     changed
 }
