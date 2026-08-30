@@ -5,6 +5,7 @@ import { safeEvaluate } from "./expression.js";
 import { tabFor, tabsSpec } from "./tabs.js";
 import { formSpec } from "./form.js";
 import { consumeHttpResponse } from "./stream.js";
+import { buildLlmRequest } from "./llm_request.js";
 import { layoutGraph, parseGraph } from "./graph.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
@@ -143,6 +144,10 @@ const firstUi = document.querySelector("#first-ui");
 const remoteForm = document.querySelector("#remote-stream");
 const streamUrl = document.querySelector("#stream-url");
 const streamFormat = document.querySelector("#stream-format");
+const requestProtocol = document.querySelector("#request-protocol");
+const streamModel = document.querySelector("#stream-model");
+const streamPrompt = document.querySelector("#stream-prompt");
+const postOnly = document.querySelector("[data-post-only]");
 const connectStreamButton = document.querySelector("#connect-stream");
 
 let parser;
@@ -160,6 +165,14 @@ source.value = DEMO;
 speed.addEventListener("input", () => {
   speedLabel.value = `${speed.value} chars/s`;
 });
+
+function syncRequestProtocol() {
+  const isPost = requestProtocol.value !== "get";
+  postOnly.hidden = !isPost;
+  streamPrompt.required = isPost;
+}
+requestProtocol.addEventListener("change", syncRequestProtocol);
+syncRequestProtocol();
 
 function setRuntimeState(value) {
   streamState.textContent = value;
@@ -1178,11 +1191,16 @@ remoteForm.addEventListener("submit", async event => {
     const accept = requested === "sse" ? "text/event-stream"
       : requested === "ndjson" ? "application/x-ndjson"
       : "text/plain, text/event-stream, application/x-ndjson;q=0.9, */*;q=0.5";
+    const request = buildLlmRequest({
+      protocol: requestProtocol.value,
+      prompt: streamPrompt.value,
+      model: streamModel.value,
+    });
     const response = await fetch(url, {
-      method: "GET",
+      ...request,
       credentials: "omit",
       cache: "no-store",
-      headers: { Accept: accept },
+      headers: { ...request.headers, Accept: accept },
       signal: controller.signal,
     });
     setRuntimeState("REMOTE STREAM");
@@ -1233,6 +1251,31 @@ async function runRemoteSmoke() {
     }
   }
   root.dataset.remoteSmoke = "fail";
+}
+
+async function runLlmPostSmoke() {
+  if (new URLSearchParams(location.search).get("llm_smoke") !== "1") return;
+  const root = document.documentElement;
+  root.dataset.llmSmoke = "waiting";
+  streamUrl.value = new URL("/v1/chat/completions", location.origin).href;
+  requestProtocol.value = "chat";
+  streamFormat.value = "sse";
+  streamModel.value = "fixture-model";
+  streamPrompt.value = "Build the POST smoke dashboard";
+  requestProtocol.dispatchEvent(new Event("change", { bubbles: true }));
+  remoteForm.requestSubmit();
+  for (let attempt = 0; attempt < 250; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    if (streamState.textContent === "ERROR" || streamState.textContent === "BAD URL") break;
+    if (!remoteController && streamState.textContent === "LIVE") {
+      const card = preview.querySelector('[data-ui-id="post-remote"]');
+      const value = card?.querySelector(".metric-value")?.textContent?.trim();
+      const unit = card?.querySelector(".metric-unit")?.textContent?.trim();
+      root.dataset.llmSmoke = value === "POST" && unit === "SSE" ? "pass" : "fail";
+      return;
+    }
+  }
+  root.dataset.llmSmoke = "fail";
 }
 
 function runGenerativeSmoke() {
@@ -1288,6 +1331,7 @@ try {
   renderAll();
   runGenerativeSmoke();
   runRemoteSmoke();
+  runLlmPostSmoke();
 } catch (error) {
   setRuntimeState("ERROR");
   preview.textContent = `Could not start Streamdown WASM: ${error}`;

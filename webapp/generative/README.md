@@ -7,7 +7,7 @@
 対応する `:::llm ui` component:
 
 - `layout`, `tabs`, `form`
-- `metric`, `chart`, `canvas`, `progress`
+- `metric`, `chart`, `graph`, `canvas`, `progress`
 - `slider`, `input`, `select`, `button`
 - `derive` と `when=` による reactive state
 
@@ -38,7 +38,17 @@ node webapp/generative/tests.mjs
 
 SSE/NDJSONでは `choices[0].delta.content`、Responses API系の `delta`、`delta.text`、`output_text` など代表的なLLM delta envelopeから文字列だけを抽出し、既存の `Parser::append` に渡します。`[DONE]` も認識します。
 
-実運用では、認証情報を持つサーバ側proxyがLLM providerへ接続し、ブラウザにはMarkdown/SSEだけを返す構成を推奨します。
+接続方式は `GET stream` に加えて `Chat-completions proxy` / `Responses proxy` を選べます。POSTモードではpromptとmodelを入力し、runtimeがGenerative UIの安全な構文説明をsystem promptとして自動付与します。Chat互換proxyには `messages`、Responses互換proxyには `instructions` / `input` を送ります。
+
+実運用では、認証情報を持つサーバ側proxyがLLM providerへ接続し、ブラウザにはMarkdown/SSEだけを返す構成を推奨します。ブラウザ側のfetchは `credentials: omit` で、API key入力欄もありません。
+
+POST→SSE→WASM parser→UI生成まで含む実ブラウザsmokeは、build後に次で実行できます。
+
+```sh
+sh webapp/generative/browser_smoke.sh
+```
+
+fixtureはsystem promptにStreamdownの構文・JavaScript禁止制約が含まれること、user promptとmodelが正しいことまで検証してからSSEを返します。
 
 ## Streaming graph
 

@@ -105,19 +105,29 @@ button.primary:hover { background: #84ebdc; }
 .stream-controls output { color: #b7c7da; font: 11px ui-monospace, monospace; }
 .remote-stream {
   display: grid;
-  grid-template-columns: auto minmax(120px, 1fr) auto auto;
-  align-items: center;
   gap: 9px;
-  padding: 10px 16px;
+  padding: 10px 16px 12px;
   border-top: 1px solid #182435;
   background: #080e16;
 }
-.remote-stream label { color: #70dacb; font: 700 10px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
-.remote-stream input, .remote-stream select {
-  min-width: 0; min-height: 38px; padding: 7px 10px; border: 1px solid #263b52; border-radius: 9px;
-  outline: none; color: #cbd9e8; background: #0a1420;
+.remote-stream-row {
+  display: grid;
+  grid-template-columns: auto minmax(160px, 1fr) auto auto;
+  align-items: center;
+  gap: 9px;
 }
-.remote-stream input:focus, .remote-stream select:focus { border-color: #69dfce; box-shadow: 0 0 0 2px #69dfce16; }
+.remote-stream label { color: #70dacb; font: 700 10px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.remote-stream input, .remote-stream select, .remote-stream textarea {
+  min-width: 0; min-height: 38px; padding: 7px 10px; border: 1px solid #263b52; border-radius: 9px;
+  outline: none; color: #cbd9e8; background: #0a1420; font: inherit;
+}
+.remote-stream textarea { resize: vertical; min-height: 70px; line-height: 1.45; }
+.remote-stream input:focus, .remote-stream select:focus, .remote-stream textarea:focus { border-color: #69dfce; box-shadow: 0 0 0 2px #69dfce16; }
+.remote-prompt { display: grid; grid-template-columns: minmax(160px, .35fr) minmax(240px, 1fr); gap: 9px; }
+.remote-prompt[hidden] { display: none; }
+.remote-stream-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.remote-stream-foot span { color: #60758d; font: 10px/1.35 ui-monospace, monospace; }
+.remote-stream-foot button { flex: 0 0 auto; }
 .syntax-help { border-top: 1px solid #182435; padding: 10px 16px 16px; color: #8093aa; font-size: 12px; }
 .syntax-help summary { cursor: pointer; }
 .syntax-help pre {
@@ -335,9 +345,10 @@ footer {
   .preview-pane { min-height: 80vh; }
   .stream-controls { grid-template-columns: 1fr auto; }
   .stream-controls button { grid-column: 1 / -1; }
-  .remote-stream { grid-template-columns: 1fr auto; }
-  .remote-stream label { grid-column: 1 / -1; }
-  .remote-stream input { grid-column: 1 / -1; }
+  .remote-stream-row { grid-template-columns: 1fr 1fr; }
+  .remote-stream-row label, .remote-stream-row input { grid-column: 1 / -1; }
+  .remote-prompt { grid-template-columns: 1fr; }
+  .remote-stream-foot { align-items: stretch; flex-direction: column; }
 }
 
 @media (max-width: 640px) {

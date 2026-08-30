@@ -50,15 +50,29 @@
       </div>
 
       <form class="remote-stream" id="remote-stream">
-        <label for="stream-url">HTTP stream</label>
-        <input id="stream-url" type="url" inputmode="url" autocomplete="off" placeholder="http://localhost:3000/stream" aria-label="HTTP stream URL">
-        <select id="stream-format" aria-label="HTTP stream format">
-          <option value="auto">Auto</option>
-          <option value="sse">SSE</option>
-          <option value="ndjson">NDJSON</option>
-          <option value="plain">Plain text</option>
-        </select>
-        <button id="connect-stream" type="submit">Connect</button>
+        <div class="remote-stream-row">
+          <label for="stream-url">LLM / HTTP endpoint</label>
+          <input id="stream-url" type="url" inputmode="url" autocomplete="off" placeholder="http://localhost:3000/v1/chat/completions" aria-label="HTTP stream URL">
+          <select id="request-protocol" aria-label="Request protocol">
+            <option value="get">GET stream</option>
+            <option value="chat">Chat-completions proxy</option>
+            <option value="responses">Responses proxy</option>
+          </select>
+          <select id="stream-format" aria-label="HTTP stream format">
+            <option value="auto">Auto format</option>
+            <option value="sse">SSE</option>
+            <option value="ndjson">NDJSON</option>
+            <option value="plain">Plain text</option>
+          </select>
+        </div>
+        <div class="remote-prompt" data-post-only hidden>
+          <input id="stream-model" autocomplete="off" placeholder="Model (optional if proxy has a default)" aria-label="Model name">
+          <textarea id="stream-prompt" rows="3" maxlength="12000" placeholder="Build an interactive dashboard explaining this system…" aria-label="Prompt"></textarea>
+        </div>
+        <div class="remote-stream-foot">
+          <span>No credentials are stored or sent automatically. Use a trusted proxy or CORS-enabled endpoint.</span>
+          <button id="connect-stream" type="submit">Connect</button>
+        </div>
       </form>
 
       <details class="syntax-help">

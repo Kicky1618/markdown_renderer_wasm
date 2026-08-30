@@ -2,6 +2,10 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+[ -f "$ROOT/generative/streamdown.wasm" ] && [ -f "$ROOT/generative/streamdown.js" ] || {
+  echo "generative browser smoke: run ./webapp/build.sh first" >&2
+  exit 2
+}
 CHROME=${CHROME:-}
 if [ -z "$CHROME" ]; then
   for candidate in google-chrome-stable google-chrome chromium chromium-browser; do
@@ -36,7 +40,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$ROOT" >"$WORK/http.log" 2>&1 &
+python3 "$ROOT/generative/fixtures/llm_proxy.py" --port "$PORT" >"$WORK/http.log" 2>&1 &
 SERVER_PID=$!
 python3 - "$PORT" <<'PY'
 import sys, time, urllib.request
@@ -127,3 +131,39 @@ grep -q 'REMOTE' "$remote_html" || {
 }
 
 echo "generative browser smoke: SSE -> WASM -> semantic UI pass"
+
+post_html="$WORK/post-dom.html"
+post_err="$WORK/post-chrome.err"
+attempt=1
+while :; do
+  "$CHROME" \
+    --headless=new \
+    --no-sandbox \
+    --disable-dev-shm-usage \
+    --virtual-time-budget=12000 \
+    --dump-dom \
+    "http://127.0.0.1:$PORT/generative/?llm_smoke=1" \
+    >"$post_html" 2>"$post_err" || true
+  if grep -q 'data-llm-smoke="pass"' "$post_html"; then
+    break
+  fi
+  if [ "$attempt" -ge 3 ]; then
+    echo "generative browser smoke: Chat POST failed"
+    grep -o '<html[^>]*>' "$post_html" | head -1 || true
+    tail -30 "$post_err" || true
+    exit 1
+  fi
+  attempt=$((attempt + 1))
+  sleep 0.1
+done
+
+grep -q 'data-ui-id="post-remote"' "$post_html" || {
+  echo "generative browser smoke: POST metric missing"
+  exit 1
+}
+grep -q '>POST<' "$post_html" || {
+  echo "generative browser smoke: POST metric value missing"
+  exit 1
+}
+
+echo "generative browser smoke: Chat POST -> SSE -> WASM -> semantic UI pass"

@@ -8,6 +8,7 @@ import { tabFor, tabsSpec } from "./tabs.js";
 import { formSpec } from "./form.js";
 import { layoutGraph, parseGraph } from "./graph.js";
 import { consumeHttpResponse, decodeNdjsonLine, decodeSseEvent, extractDeltaText } from "./stream.js";
+import { buildLlmRequest, GENERATIVE_UI_SYSTEM_PROMPT } from "./llm_request.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
   id: "",
@@ -98,6 +99,21 @@ const sseResult = await consumeHttpResponse(sseResponse, { onText: text => { sse
 assert.equal(sseText, "# Hi");
 assert.equal(sseResult.format, "sse");
 assert.equal(sseResult.chunks, 2);
+
+const getRequest = buildLlmRequest({ protocol: "get" });
+assert.equal(getRequest.method, "GET");
+assert.equal(getRequest.body, undefined);
+const chatRequest = buildLlmRequest({ protocol: "chat", prompt: "Build a dashboard", model: "demo-model" });
+assert.equal(chatRequest.method, "POST");
+const chatBody = JSON.parse(chatRequest.body);
+assert.equal(chatBody.stream, true);
+assert.equal(chatBody.model, "demo-model");
+assert.equal(chatBody.messages.at(-1).content, "Build a dashboard");
+assert.match(chatBody.messages[0].content, /streaming Markdown application/);
+assert.match(GENERATIVE_UI_SYSTEM_PROMPT, /type=graph/);
+const responsesRequest = buildLlmRequest({ protocol: "responses", prompt: "Explain parsers" });
+assert.equal(JSON.parse(responsesRequest.body).input, "Explain parsers");
+assert.throws(() => buildLlmRequest({ protocol: "chat", prompt: "   " }), /Prompt is required/);
 
 const wasm = await fs.readFile(new URL("./streamdown.wasm", import.meta.url));
 const instance = await WebAssembly.instantiate(wasm, {});
