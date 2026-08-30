@@ -91,3 +91,39 @@ grep -q 'data-ui-id="warning"' "$html" || {
 }
 
 echo "generative browser smoke: semantic UI + reactive interactions pass"
+
+remote_html="$WORK/remote-dom.html"
+remote_err="$WORK/remote-chrome.err"
+attempt=1
+while :; do
+  "$CHROME" \
+    --headless=new \
+    --no-sandbox \
+    --disable-dev-shm-usage \
+    --virtual-time-budget=12000 \
+    --dump-dom \
+    "http://127.0.0.1:$PORT/generative/?remote_smoke=1" \
+    >"$remote_html" 2>"$remote_err" || true
+  if grep -q 'data-remote-smoke="pass"' "$remote_html"; then
+    break
+  fi
+  if [ "$attempt" -ge 3 ]; then
+    echo "generative browser smoke: remote SSE failed"
+    grep -o '<html[^>]*>' "$remote_html" | head -1 || true
+    tail -30 "$remote_err" || true
+    exit 1
+  fi
+  attempt=$((attempt + 1))
+  sleep 0.1
+done
+
+grep -q 'data-ui-id="remote"' "$remote_html" || {
+  echo "generative browser smoke: remote metric missing"
+  exit 1
+}
+grep -q 'REMOTE' "$remote_html" || {
+  echo "generative browser smoke: remote metric value missing"
+  exit 1
+}
+
+echo "generative browser smoke: SSE -> WASM -> semantic UI pass"
