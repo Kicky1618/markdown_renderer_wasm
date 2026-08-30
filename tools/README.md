@@ -32,3 +32,14 @@ Example from stdin:
 printf '%s\n' 'Fact [[cite:doc-1|spec]].' | \
   node tools/streamdown-inspect.mjs --chunk=1 --verify
 ```
+
+## `wasm-bench.mjs`
+
+`wasm-bench.mjs` measures the JavaScript-facing hot path end to end: UTF-8 encoding, WASM input transport, Rust parsing, MDA1 encoding/decoding, and JavaScript AST mirror updates. This complements `cargo run --release --bin stream-bench`, which measures the Rust parser itself.
+
+```sh
+node tools/wasm-bench.mjs --rounds=100000 --warmup=5000
+node tools/wasm-bench.mjs --rounds=100000 --json
+```
+
+It currently measures plain token streaming, syntax-heavy Markdown boundaries, an open fenced code block, and a `:::llm` semantic payload. Use `--wasm=PATH` to compare two WASM builds without changing the tool.
