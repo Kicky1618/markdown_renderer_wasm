@@ -1,4 +1,4 @@
 STREAMDOWN_LANGPACK	1
 aliases	jasmin-assembly
-keywords	mov	load	store	add	sub	mul	div	and	or	xor	cmp	test	call	ret	jmp	br	push	pop	phi
-flags	semicolon_comments	hash_comments
+keywords	class	super	implements	field	method	end	limit	throws	catch	var	aload	astore	iload	istore	fload	fstore	dload	dstore	lload	lstore	iconst	bipush	sipush	ldc	iadd	isub	imul	idiv	irem	ineg	iand	ior	ixor	ishl	ishr	iushr	ifeq	ifne	iflt	ifge	ifgt	ifle	if_icmpeq	if_icmpne	goto	tableswitch	lookupswitch	getstatic	putstatic	getfield	putfield	invokevirtual	invokespecial	invokestatic	invokeinterface	new	newarray	anewarray	checkcast	instanceof	return	ireturn	areturn
+flags	semicolon_comments

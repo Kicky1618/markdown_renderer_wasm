@@ -1,4 +1,5 @@
 STREAMDOWN_LANGPACK	1
 aliases	amdgpu-llvm-ir
-keywords	module	func	function	define	declare	type	block	region	op	let	var	const	phi	br	cond_br	call	ret	return	load	store	alloc	add	sub	mul	div	cmp	select	cast
-flags	slash_comments	hash_comments	semicolon_comments
+keywords	define	declare	global	constant	private	internal	external	available_externally	linkonce	linkonce_odr	weak	weak_odr	common	appending	extern_weak	thread_local	unnamed_addr	local_unnamed_addr	dso_local	dso_preemptable	dllimport	dllexport	hidden	protected	default	section	comdat	align	gc	personality	prefix	prologue	addrspace	ret	br	switch	indirectbr	invoke	callbr	resume	catchswitch	catchret	cleanupret	unreachable	fneg	add	fadd	sub	fsub	mul	fmul	udiv	sdiv	fdiv	urem	srem	frem	shl	lshr	ashr	and	or	xor	extractelement	insertelement	shufflevector	extractvalue	insertvalue	alloca	load	store	fence	cmpxchg	atomicrmw	getelementptr	trunc	zext	sext	fptrunc	fpext	fptoui	fptosi	uitofp	sitofp	ptrtoint	inttoptr	bitcast	addrspacecast	icmp	fcmp	phi	select	freeze	call	va_arg	landingpad	catchpad	cleanuppad
+builtin_types	void	half	bfloat	float	double	fp128	x86_fp80	ppc_fp128	label	metadata	x86_mmx	token	ptr
+flags	semicolon_comments

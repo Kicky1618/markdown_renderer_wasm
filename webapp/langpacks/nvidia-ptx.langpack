@@ -1,4 +1,4 @@
 STREAMDOWN_LANGPACK	1
 aliases	nvidia-ptx
-keywords	mov	load	store	add	sub	mul	div	and	or	xor	cmp	test	call	ret	jmp	br	push	pop	phi
-flags	semicolon_comments	hash_comments
+keywords	version	target	address_size	entry	func	visible	extern	weak	common	global	const	shared	local	param	reg	align	maxntid	minnctapersm	reqntid	mov	ld	ldu	st	cvta	cvt	add	sub	mul	mad	fma	div	rem	abs	neg	min	max	set	setp	selp	bra	brx	idx	call	ret	exit	bar	membar	atom	red	vote	activemask	shfl
+flags	slash_comments	block_comments

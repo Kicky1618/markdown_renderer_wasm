@@ -1,4 +1,4 @@
 STREAMDOWN_LANGPACK	1
 aliases	baksmali
-keywords	mov	load	store	add	sub	mul	div	and	or	xor	cmp	test	call	ret	jmp	br	push	pop	phi
-flags	semicolon_comments	hash_comments
+keywords	class	super	source	implements	field	method	end	locals	registers	param	annotation	catch	line	move	move-result	return	const	monitor-check	check-cast	instance-of	array-length	new-instance	new-array	filled-new-array	fill-array-data	throw	goto	packed-switch	sparse-switch	cmpl	cmpg	if-eq	if-ne	if-lt	if-ge	if-gt	if-le	aget	aput	iget	iput	sget	sput	invoke-virtual	invoke-super	invoke-direct	invoke-static	invoke-interface
+flags	hash_comments	hyphen_identifiers
