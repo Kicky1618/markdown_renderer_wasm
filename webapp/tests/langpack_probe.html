@@ -16,11 +16,15 @@
     );
     const first = await loadLanguagePack("typescript");
     const duplicate = await loadLanguagePack("ts");
+    delete root.dataset.languagePackError;
+    const concurrentAliases = await Promise.all([loadLanguagePack("c++"), loadLanguagePack("cpp")]);
+    const concurrentOk = concurrentAliases.filter(Boolean).length === 1 && !root.dataset.languagePackError;
     const unsafe = await loadLanguagePack("../rust");
-    root.dataset.langpackProbe = flood.every(value => !value) && first && !duplicate && !unsafe ? "pass" : "fail";
+    root.dataset.langpackProbe = flood.every(value => !value) && first && !duplicate && concurrentOk && !unsafe ? "pass" : "fail";
     root.dataset.langpackFloodSuccesses = String(flood.filter(Boolean).length);
     root.dataset.langpackFirst = String(first);
     root.dataset.langpackDuplicate = String(duplicate);
+    root.dataset.langpackConcurrent = concurrentAliases.join(",");
     root.dataset.langpackUnsafe = String(unsafe);
   } catch (error) {
     root.dataset.langpackProbe = "error";

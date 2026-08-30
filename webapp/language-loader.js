@@ -65,6 +65,10 @@ export function loadLanguagePack(name) {
       const binary = new Uint8Array(await response.arrayBuffer());
       const packAliases = readPackAliases(binary);
       const wasm = await import("./pkg/streamdown_web.js");
+      if (packAliases.some(packAlias => loadedAliases.has(packAlias))) {
+        for (const packAlias of packAliases) loadedAliases.add(packAlias);
+        return false;
+      }
       const registeredNow = wasm.register_language_pack_binary(binary);
       if (registeredNow) {
         for (const packAlias of packAliases) loadedAliases.add(packAlias);
@@ -74,7 +78,7 @@ export function loadLanguagePack(name) {
         root.dataset.languagePackRegisteredCount = String(registered.size);
         root.dataset.languagePacks = [...registered].sort().join(",");
         invalidateRenderer();
-      } else {
+      } else if (!packAliases.some(packAlias => loadedAliases.has(packAlias))) {
         rememberFailure(alias);
         document.documentElement.dataset.languagePackError = `${alias}:wasm-rejected`;
       }
