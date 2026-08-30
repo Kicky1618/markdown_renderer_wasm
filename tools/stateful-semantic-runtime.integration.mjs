@@ -65,6 +65,7 @@ const compactJournal = new SemanticJournal();
 const journalRuntime = await StatefulSemanticRuntime.load(wasm, {
   journal: compactJournal,
   journalScheduler: "terminal",
+  journalStateEncoding: "delta",
   runners: { artifact: async (_node, { dependencyResults }) => dependencyResults["patch:ready"] },
 });
 try {
@@ -77,6 +78,10 @@ try {
   assert.ok(schedulerStatuses.length > 0);
   assert.ok(schedulerStatuses.every((status) => ["completed", "failed", "blocked"].includes(status)));
   assert.equal(journalRuntime.journal, compactJournal);
+  const patchEntry = compactJournal.snapshot().find((entry) => entry.type === "state" && entry.action === "patch");
+  assert.equal(patchEntry.encoding, "patch");
+  assert.deepEqual(patchEntry.patch, { count: 1, status: "ready" });
+  assert.equal(Object.prototype.hasOwnProperty.call(patchEntry, "value"), false);
 } finally {
   journalRuntime.dispose();
 }

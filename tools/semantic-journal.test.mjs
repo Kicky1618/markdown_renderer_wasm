@@ -71,4 +71,49 @@ assert.deepEqual(stateOnlyJournal.snapshot().map((entry) => entry.type), ["state
 assert.deepEqual(stateOnlyJournal.replayState(), { values: { "state:compact": { n: 1 } }, revisions: { "state:compact": 1 } });
 assert.throws(() => createSemanticJournalHooks(new SemanticJournal(), { scheduler: "verbose" }), /journal mode/);
 
+const deltaJournal = new SemanticJournal();
+const deltaHooks = createSemanticJournalHooks(deltaJournal, { scheduler: "terminal", stateEncoding: "delta" });
+deltaHooks.onStateChange({
+  key: "state:delta",
+  revision: 1,
+  type: "initialize",
+  node: "state:delta",
+  value: { big: "x".repeat(1024), nested: { a: 1 }, count: 0 },
+});
+deltaHooks.onTransition({
+  key: "state:delta",
+  status: "completed",
+  sequence: 1,
+  result: { big: "x".repeat(1024), nested: { a: 1 }, count: 0 },
+});
+deltaHooks.onStateChange({
+  key: "state:delta",
+  revision: 2,
+  type: "patch",
+  node: "patch:delta",
+  format: "merge",
+  patch: { count: 1, nested: { a: null, b: 2 } },
+  value: { big: "x".repeat(1024), nested: { b: 2 }, count: 1 },
+});
+deltaHooks.onTransition({
+  key: "patch:delta",
+  status: "completed",
+  sequence: 2,
+  result: { big: "x".repeat(1024), nested: { b: 2 }, count: 1 },
+});
+const deltaStateEntries = deltaJournal.snapshot().filter((entry) => entry.type === "state");
+assert.equal(deltaStateEntries[0].encoding, "snapshot");
+assert.equal(deltaStateEntries[1].encoding, "patch");
+assert.equal(Object.prototype.hasOwnProperty.call(deltaStateEntries[1], "value"), false);
+assert.deepEqual(deltaStateEntries[1].patch, { count: 1, nested: { a: null, b: 2 } });
+assert.deepEqual(deltaJournal.verify(), { ok: true, errors: [] });
+assert.deepEqual(deltaJournal.replayState(), {
+  values: { "state:delta": { big: "x".repeat(1024), nested: { b: 2 }, count: 1 } },
+  revisions: { "state:delta": 2 },
+});
+const tamperedDelta = new SemanticJournal(deltaJournal.snapshot());
+tamperedDelta.entries.find((entry) => entry.encoding === "patch").patch.count = 9;
+assert.match(tamperedDelta.verify().errors.join("\n"), /does not match recorded state change/);
+assert.throws(() => createSemanticJournalHooks(new SemanticJournal(), { stateEncoding: "binary" }), /state journal encoding/);
+
 console.log("semantic journal: ok");

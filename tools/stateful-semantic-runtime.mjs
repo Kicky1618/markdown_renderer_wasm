@@ -17,6 +17,7 @@ export class StatefulSemanticRuntime {
     onTransition = null,
     journal = null,
     journalScheduler = "all",
+    journalStateEncoding = "snapshot",
     runners = {},
     ...runtimeOptions
   } = {}) {
@@ -34,6 +35,7 @@ export class StatefulSemanticRuntime {
       ? { onTransition, onStateChange }
       : createSemanticJournalHooks(journal, {
           scheduler: journalScheduler,
+          stateEncoding: journalStateEncoding,
           onTransition,
           onStateChange,
         });

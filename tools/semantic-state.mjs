@@ -141,7 +141,12 @@ export class SemanticStateStore {
     } else {
       throw new Error(`${node.key}: unsupported patch format ${JSON.stringify(format)}`);
     }
-    return this.#commit(target, next, { type: "patch", node: node.key, format });
+    return this.#commit(target, next, {
+      type: "patch",
+      node: node.key,
+      format,
+      patch: cloneJson(patch),
+    });
   }
 
   #commit(key, value, metadata) {

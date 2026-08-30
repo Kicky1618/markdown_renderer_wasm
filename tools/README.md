@@ -160,12 +160,13 @@ const runtime = await SemanticRuntime.load(wasm, {
 });
 ```
 
-The detector tracks split headers such as `:::ll` + `m tool id=x`, arbitrarily long header attributes, UTF-8 byte offsets, and semantic references without retaining ordinary long lines. Regression tests compare incremental and always-scan events across multiple chunk widths.
+The detector tracks split headers such as `:::ll` + `m tool id=x`, arbitrarily long header attributes, UTF-8 byte offsets, and semantic references without retaining ordinary long lines. A small `@[kind:id]` recognizer prevents ordinary Markdown links, checkboxes, and citations from causing graph rebuilds merely because they contain `]`. Regression tests compare incremental and always-scan events across fixed and pseudo-random chunk boundaries.
 
 ```sh
 node tools/semantic-detector.test.mjs
 node tools/semantic-runtime.incremental.mjs target/wasm32-unknown-unknown/release/streamdown.wasm
 N=500000 REPEATS=7 node tools/semantic-runtime-bench.mjs
+CHUNK="token " N=500000 REPEATS=7 node tools/semantic-runtime-bench.mjs
 ```
 
 On the i7-12700 development host, the 500k-token / 7-repeat median measured about 6.10M append/s for incremental `SemanticRuntime` versus 1.21M append/s for always-scan mode and 6.71M append/s for bare `appendInPlace()` (about 5.0x over always-scan and 91% of bare-parser throughput).
@@ -238,11 +239,14 @@ const journal = new SemanticJournal();
 const runtime = await StatefulSemanticRuntime.load(wasm, {
   journal,
   journalScheduler: "terminal",
+  journalStateEncoding: "delta",
   runners,
 });
 await runtime.consume(providerChunks);
 console.log(journal.toNDJSON());
 ```
+
+`journalStateEncoding: "snapshot"` (the compatibility default) stores the full canonical state at every revision. `"delta"` stores the initial state snapshot once and then records the original Merge Patch / replace payload for later revisions. Replay reconstructs the same canonical state and journal verification compares reconstructed patch results with scheduler completion results. Delta encoding is especially useful when a large state receives many small patches.
 
 ```sh
 node tools/stateful-semantic-runtime.integration.mjs
@@ -279,6 +283,8 @@ const replayOnlyHooks = createSemanticJournalHooks(journal, { scheduler: "none" 
 ```
 
 A synthetic 50k-update benchmark can be reproduced with `node tools/semantic-journal-bench.mjs`. On the development host, full journaling used about 713 bytes/update, terminal-only about 342 bytes/update, and state-only about 168 bytes/update. These entries are emitted on semantic transitions, not on ordinary LLM token appends.
+
+For state-size scaling, `node tools/semantic-journal-state-bench.mjs` compares full state snapshots with delta encoding. With a 64 KiB state and 1000 small patches, the local run produced about 65.8 MB of snapshot NDJSON versus 226 KB of delta NDJSON, a 99.66% reduction. Override `STATE_BYTES` and `N` to reproduce other workloads.
 
 ```sh
 node tools/semantic-replay.mjs run.ndjson

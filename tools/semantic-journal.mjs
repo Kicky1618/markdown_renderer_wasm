@@ -1,3 +1,5 @@
+import { applyJsonMergePatch } from "./semantic-state.mjs";
+
 function cloneJson(value) {
   if (value === undefined) return undefined;
   return JSON.parse(JSON.stringify(value));
@@ -21,6 +23,19 @@ function assertJournal(journal) {
   return journal;
 }
 
+function applyStateEntry(entry, current) {
+  const encoding = entry.encoding ?? "snapshot";
+  if (encoding === "snapshot") return cloneJson(entry.value);
+  if (encoding !== "patch") throw new Error(`${entry.key}: unknown state journal encoding ${JSON.stringify(encoding)}`);
+  if (current === undefined) throw new Error(`${entry.key}: patch journal entry has no prior state snapshot`);
+  const format = entry.format ?? "merge";
+  if (["merge", "merge-patch", "application/merge-patch+json"].includes(format)) {
+    return applyJsonMergePatch(current, entry.patch);
+  }
+  if (format === "replace") return cloneJson(entry.patch);
+  throw new Error(`${entry.key}: unsupported journal patch format ${JSON.stringify(format)}`);
+}
+
 /**
  * Append-only execution journal for semantic scheduler and state transitions.
  *
@@ -34,21 +49,31 @@ export class SemanticJournal {
     this.sequence = this.entries.reduce((max, entry) => Math.max(max, Number(entry?.seq) || 0), 0);
   }
 
-  recordStateChange(change) {
+  recordStateChange(change, { encoding = "snapshot" } = {}) {
     if (!change || typeof change !== "object") throw new TypeError("state change must be an object");
     if (typeof change.key !== "string" || change.key.length === 0) throw new TypeError("state change requires key");
     if (!Number.isSafeInteger(change.revision) || change.revision <= 0) throw new TypeError("state change requires a positive integer revision");
-    const value = cloneJson(change.value);
+    if (encoding !== "snapshot" && encoding !== "delta") throw new TypeError(`state journal encoding must be "snapshot" or "delta", got ${JSON.stringify(encoding)}`);
+    const action = change.type ?? "update";
     const entry = {
       seq: ++this.sequence,
       type: "state",
       key: change.key,
       revision: change.revision,
-      action: change.type ?? "update",
+      action,
       node: change.node ?? null,
-      value,
     };
     if (change.format !== undefined) entry.format = change.format;
+    if (encoding === "delta" && action === "patch") {
+      if (!Object.prototype.hasOwnProperty.call(change, "patch")) {
+        throw new TypeError(`${change.key}: delta journal encoding requires patch metadata`);
+      }
+      entry.encoding = "patch";
+      entry.patch = cloneJson(change.patch);
+    } else {
+      entry.encoding = "snapshot";
+      entry.value = cloneJson(change.value);
+    }
     this.entries.push(entry);
     return cloneJson(entry);
   }
@@ -92,6 +117,7 @@ export class SemanticJournal {
   verify() {
     const errors = [];
     const stateRevisions = new Map();
+    const stateValues = new Map();
     const stateByNode = new Map();
     let schedulerSequence = 0;
 
@@ -106,7 +132,13 @@ export class SemanticJournal {
           errors.push(`${entry.key}: expected revision ${previous + 1}, got ${JSON.stringify(entry.revision)}`);
         }
         stateRevisions.set(entry.key, Number(entry.revision) || previous);
-        if (entry.node) stateByNode.set(entry.node, entry.value);
+        try {
+          const next = applyStateEntry(entry, stateValues.get(entry.key));
+          stateValues.set(entry.key, next);
+          if (entry.node) stateByNode.set(entry.node, next);
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
+        }
         continue;
       }
 
@@ -142,7 +174,7 @@ export class SemanticJournal {
     const revisions = new Map();
     for (const entry of this.entries) {
       if (entry.type !== "state") continue;
-      values.set(entry.key, cloneJson(entry.value));
+      values.set(entry.key, applyStateEntry(entry, values.get(entry.key)));
       revisions.set(entry.key, entry.revision);
     }
     return {
@@ -184,10 +216,14 @@ export function createSemanticJournalHooks(journal, {
   onTransition = null,
   onStateChange = null,
   scheduler = "all",
+  stateEncoding = "snapshot",
 } = {}) {
   assertJournal(journal);
   if (!JOURNAL_SCHEDULER_MODES.has(scheduler)) {
     throw new TypeError(`scheduler journal mode must be "all", "terminal", or "none", got ${JSON.stringify(scheduler)}`);
+  }
+  if (stateEncoding !== "snapshot" && stateEncoding !== "delta") {
+    throw new TypeError(`state journal encoding must be "snapshot" or "delta", got ${JSON.stringify(stateEncoding)}`);
   }
   return {
     onTransition(transition) {
@@ -197,7 +233,7 @@ export function createSemanticJournalHooks(journal, {
       onTransition?.(transition);
     },
     onStateChange(change) {
-      journal.recordStateChange(change);
+      journal.recordStateChange(change, { encoding: stateEncoding });
       onStateChange?.(change);
     },
   };
