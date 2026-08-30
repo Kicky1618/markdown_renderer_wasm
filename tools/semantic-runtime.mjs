@@ -1,6 +1,6 @@
 import { Streamdown } from "../js/streamdown.js";
 import { buildSemanticGraph, graphDiagnostics } from "./semantic-graph.mjs";
-import { createTimelineState, observeSemanticState } from "./semantic-timeline-core.mjs";
+import { IncrementalSemanticTimeline } from "./semantic-timeline-incremental.mjs";
 import { SemanticScheduler } from "./semantic-scheduler.mjs";
 import { SemanticChangeDetector } from "./semantic-detector.mjs";
 import { SemanticRuntimeSummary } from "./semantic-runtime-summary.mjs";
@@ -29,7 +29,8 @@ export class SemanticRuntime {
     semanticScan = "incremental",
   } = {}) {
     this.parser = parser;
-    this.timelineState = createTimelineState();
+    this.semanticTimeline = new IncrementalSemanticTimeline();
+    this.timelineState = this.semanticTimeline;
     this.scheduler = new SemanticScheduler({ concurrency, runners, onTransition });
     this.onSemanticEvent = onSemanticEvent;
     if (semanticScan !== "incremental" && semanticScan !== "always") {
@@ -146,9 +147,10 @@ export class SemanticRuntime {
 
   #observe(summary = this.semanticSummary.current()) {
     this.semanticScans += 1;
-    const observation = observeSemanticState(summary, this.timelineState, this.observedAtByte, this.chunkIndex);
-    this.graph = observation.graph;
-    this.scheduler.updateGraph(this.graph);
+    const observation = this.semanticTimeline.observe(summary, this.observedAtByte, this.chunkIndex);
+    for (const { node, dependencies } of observation.changedNodes) {
+      this.scheduler.upsertNode(node, dependencies);
+    }
     for (const event of observation.events) {
       this.onSemanticEvent?.(event);
       this.scheduler.accept(event);

@@ -117,4 +117,25 @@ function node(key) {
   assert.equal(scheduler.get("artifact:y").status, "blocked");
 }
 
+{
+  const calls = [];
+  const scheduler = new SemanticScheduler({
+    runners: {
+      tool: async () => { calls.push("tool:a"); return 1; },
+      artifact: async (_node, context) => { calls.push("artifact:b"); return context.dependencyResults["tool:a"] + 1; },
+      ui: async (_node, context) => { calls.push("ui:c"); return context.dependencyResults["artifact:b"] + 1; },
+    },
+  });
+  scheduler.upsertNode(node("ui:c"), ["artifact:b"]);
+  scheduler.upsertNode(node("artifact:b"), ["tool:a"]);
+  scheduler.accept({ type: "ready", key: "ui:c" });
+  scheduler.accept({ type: "ready", key: "artifact:b" });
+  // The dependency may arrive after its already-ready dependent.
+  scheduler.upsertNode(node("tool:a"), []);
+  scheduler.accept({ type: "ready", key: "tool:a" });
+  const state = await scheduler.idle();
+  assert.deepEqual(calls, ["tool:a", "artifact:b", "ui:c"]);
+  assert.equal(state["ui:c"].result, 3);
+}
+
 console.log("semantic scheduler: ok");
