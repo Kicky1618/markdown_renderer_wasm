@@ -10,13 +10,14 @@ mod search;
 use bytemuck::{Pod, Zeroable};
 use compat::{
     RendererBackend, RendererPreference, SurfaceAction, SurfaceEvent, SurfaceFailureTracker,
-    gpu_canvas_metrics, runtime_recovery_search, runtime_recovery_trace,
+    gpu_canvas_metrics, prefer_display_encoded_format, runtime_recovery_search,
+    runtime_recovery_trace,
 };
 use futures_util::{
     FutureExt,
     future::{Either, select},
 };
-use js_sys::Promise;
+use js_sys::{Function, Promise, Reflect};
 use search::SearchTrie;
 use std::{
     cell::RefCell,
@@ -44,15 +45,22 @@ const DEFAULT_FONT_SIZE: f32 = 16.0;
 const DEFAULT_FADE_MS: f64 = 180.0;
 const MAX_TOKENS_PER_FRAME: usize = 250_000;
 const GPU_INIT_TIMEOUT_MS: i32 = 5_000;
-const BG: [f32; 4] = [0.035, 0.047, 0.071, 1.0];
-const FG: [f32; 4] = [0.82, 0.86, 0.91, 1.0];
-const MUTED: [f32; 4] = [0.47, 0.53, 0.62, 1.0];
-const CYAN: [f32; 4] = [0.25, 0.86, 0.88, 1.0];
-const GREEN: [f32; 4] = [0.45, 0.88, 0.62, 1.0];
-const ORANGE: [f32; 4] = [0.95, 0.67, 0.38, 1.0];
-const PURPLE: [f32; 4] = [0.78, 0.62, 0.95, 1.0];
-const BLUE: [f32; 4] = [0.45, 0.72, 0.98, 1.0];
-const YELLOW: [f32; 4] = [0.92, 0.84, 0.48, 1.0];
+const fn rgb(r: u8, g: u8, b: u8) -> [f32; 4] {
+    [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0]
+}
+
+// Exact Canvas2D CSS palette. Keeping these byte-authored values exact avoids
+// backend-specific one-LSB shifts after presentation.
+const BG: [f32; 4] = rgb(0x09, 0x0c, 0x12);
+const PANEL: [f32; 4] = rgb(0x0e, 0x1a, 0x25);
+const FG: [f32; 4] = rgb(0xd1, 0xdb, 0xe8);
+const MUTED: [f32; 4] = rgb(0x78, 0x87, 0x9e);
+const CYAN: [f32; 4] = rgb(0x40, 0xdc, 0xdf);
+const GREEN: [f32; 4] = rgb(0x73, 0xe0, 0x9e);
+const ORANGE: [f32; 4] = rgb(0xf2, 0xab, 0x61);
+const PURPLE: [f32; 4] = rgb(0xc7, 0x9e, 0xf2);
+const BLUE: [f32; 4] = rgb(0x73, 0xb8, 0xfa);
+const YELLOW: [f32; 4] = rgb(0xea, 0xd6, 0x7a);
 
 #[derive(Debug)]
 struct BrowserDisplay;
@@ -482,6 +490,23 @@ fn request_runtime_recovery(backend: RendererBackend, reason: &str) {
         )
         .into(),
     );
+    let recovery_probe = search
+        .trim_start_matches('?')
+        .split('&')
+        .any(|part| matches!(part, "recovery_probe=1" | "recovery_probe=true"));
+    if recovery_probe {
+        if let Some(root) = window
+            .document()
+            .and_then(|document| document.document_element())
+        {
+            let _ = root.set_attribute("data-recovery-probe", "pass");
+            let _ = root.set_attribute("data-recovery-from", backend.as_str());
+            let _ = root.set_attribute("data-recovery-to", next.fallback_chain()[0].as_str());
+            let _ = root.set_attribute("data-recovery-reason", reason);
+            let _ = root.set_attribute("data-recovery-target-search", &next_search);
+        }
+        return;
+    }
     if let Err(error) = window.location().set_search(&next_search) {
         web_sys::console::error_1(&error);
     }
@@ -506,6 +531,43 @@ fn should_simulate_gpu_loss(backend: RendererBackend) -> bool {
             RendererBackend::Canvas2d => false,
         }
     })
+}
+
+fn should_simulate_webgl_context_loss(backend: RendererBackend) -> bool {
+    if backend != RendererBackend::WebGl2 {
+        return false;
+    }
+    let search = web_sys::window()
+        .and_then(|window| window.location().search().ok())
+        .unwrap_or_default();
+    search.trim_start_matches('?').split('&').any(|part| {
+        let Some((key, value)) = part.split_once('=') else {
+            return false;
+        };
+        key == "simulate_webgl_context_loss"
+            && (value == "1"
+                || value.eq_ignore_ascii_case("webgl")
+                || value.eq_ignore_ascii_case("webgl2"))
+    })
+}
+
+fn lose_webgl_context(canvas: &HtmlCanvasElement) -> Result<bool, JsValue> {
+    let get_context =
+        Reflect::get(canvas.as_ref(), &JsValue::from_str("getContext"))?.dyn_into::<Function>()?;
+    let context = get_context.call1(canvas.as_ref(), &JsValue::from_str("webgl2"))?;
+    if context.is_null() || context.is_undefined() {
+        return Ok(false);
+    }
+    let get_extension =
+        Reflect::get(&context, &JsValue::from_str("getExtension"))?.dyn_into::<Function>()?;
+    let extension = get_extension.call1(&context, &JsValue::from_str("WEBGL_lose_context"))?;
+    if extension.is_null() || extension.is_undefined() {
+        return Ok(false);
+    }
+    let lose_context =
+        Reflect::get(&extension, &JsValue::from_str("loseContext"))?.dyn_into::<Function>()?;
+    lose_context.call0(&extension)?;
+    Ok(true)
 }
 
 impl App {
@@ -559,14 +621,25 @@ impl App {
             web_sys::console::warn_1(&format!("GPU device lost ({reason:?}): {message}").into());
             lost_signal.store(true, Ordering::Release);
         });
+        if backend == RendererBackend::WebGl2 {
+            // wgpu's WebGL backend does not consistently surface browser
+            // context-loss events through the device-lost callback. Bridge the
+            // browser-native signal into the same recovery path explicitly.
+            let context_lost_signal = device_lost.clone();
+            let context_lost =
+                Closure::<dyn FnMut(web_sys::Event)>::new(move |event: web_sys::Event| {
+                    event.prevent_default();
+                    context_lost_signal.store(true, Ordering::Release);
+                });
+            canvas.add_event_listener_with_callback(
+                "webglcontextlost",
+                context_lost.as_ref().unchecked_ref(),
+            )?;
+            context_lost.forget();
+        }
         let metrics = resize_gpu_canvas(&canvas, device.limits().max_texture_dimension_2d);
         let caps = surface.get_capabilities(&adapter);
-        let format = caps
-            .formats
-            .iter()
-            .copied()
-            .find(|x| x.is_srgb())
-            .or_else(|| caps.formats.first().copied())
+        let format = prefer_display_encoded_format(&caps.formats, |format| format.is_srgb())
             .ok_or_else(|| JsValue::from_str("renderer surface exposes no texture formats"))?;
         let alpha_mode = caps
             .alpha_modes
@@ -676,6 +749,17 @@ impl App {
             // Test injection targets the same signal as the real device-lost callback.
             // `Device::destroy()` is not a reliable loss trigger on the WebGL backend.
             device_lost.store(true, Ordering::Release);
+        }
+        if should_simulate_webgl_context_loss(backend) {
+            match lose_webgl_context(&canvas) {
+                Ok(true) => {
+                    let _ = canvas.set_attribute("data-simulated-webgl-context-loss", "true");
+                }
+                Ok(false) => {
+                    web_sys::console::warn_1(&"WEBGL_lose_context extension unavailable".into());
+                }
+                Err(error) => web_sys::console::warn_1(&error),
+            }
         }
         Ok(Self {
             canvas,
@@ -1374,7 +1458,7 @@ impl App {
             0.0,
             self.logical_width as f32,
             68.0,
-            [0.055, 0.075, 0.105, 0.98],
+            [PANEL[0], PANEL[1], PANEL[2], 0.98],
             1.0,
         );
         let renderer_title = if self.logical_width < 480 {
@@ -2068,7 +2152,7 @@ impl Scene {
                     self.y - 12.0,
                     self.width - 2.0 * x,
                     block_height + 7.0 * font_scale,
-                    [0.055, 0.075, 0.105, 1.0],
+                    PANEL,
                     0.0,
                 );
                 if let Some(lang) = language {

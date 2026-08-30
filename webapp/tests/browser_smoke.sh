@@ -121,6 +121,9 @@ run_swiftshader_exact() {
       --headless=new \
       --no-sandbox \
       --disable-dev-shm-usage \
+      --disable-extensions \
+      --disable-background-networking \
+      --user-data-dir="$WORK/profile-$name-$attempt" \
       --use-angle=swiftshader \
       --enable-unsafe-swiftshader \
       --enable-logging=stderr \
@@ -141,6 +144,7 @@ run_swiftshader_exact() {
       exit 1
     fi
     attempt=$((attempt + 1))
+    sleep 0.2
   done
   grep -q "data-renderer-requested=\"$requested\"" "$html" || {
     echo "browser smoke: $name final requested renderer mismatch"
@@ -219,9 +223,74 @@ run_swiftshader_hidpi() {
 }
 
 run_swiftshader_hidpi
-run_swiftshader_exact webgl2-runtime-recovery \
-  'renderer=webgl2&simulate_gpu_loss=webgl2' canvas2d canvas2d 0 1 webgl2 60000
-grep -q 'WEBGL2 failed at runtime (device-lost); restarting with CANVAS2D' "$WORK/webgl2-runtime-recovery.err" || {
-  echo "browser smoke: runtime recovery transition log missing"
-  exit 1
+
+# Chromium --dump-dom is intentionally not used to wait across a navigation:
+# that snapshot point is racy. `recovery_probe=1` exercises the exact recovery
+# callback and URL calculation but records the transition on <html>. A second
+# fresh-page smoke verifies the post-recovery Canvas2D state and controls.
+run_swiftshader_recovery_probe() {
+  name=$1
+  query=$2
+  html="$WORK/$name-probe.html"
+  err="$WORK/$name-probe.err"
+  "$CHROME" \
+    --headless=new \
+    --no-sandbox \
+    --disable-dev-shm-usage \
+    --disable-extensions \
+    --disable-background-networking \
+    --user-data-dir="$WORK/profile-$name-probe" \
+    --use-angle=swiftshader \
+    --enable-unsafe-swiftshader \
+    --enable-logging=stderr \
+    --v=0 \
+    --run-all-compositor-stages-before-draw \
+    --virtual-time-budget=10000 \
+    --dump-dom \
+    "http://127.0.0.1:$PORT/?$query&recovery_probe=1&doc=easy&tps=1000&repeat=1" \
+    >"$html" 2>"$err" || true
+  grep -q 'data-recovery-probe="pass"' "$html" || {
+    echo "browser smoke: $name recovery probe missing"
+    grep -o '<html[^>]*>' "$html" | head -1 || true
+    tail -30 "$err" || true
+    exit 1
+  }
+  grep -q 'data-recovery-from="webgl"' "$html" || {
+    echo "browser smoke: $name recovery source mismatch"
+    exit 1
+  }
+  grep -q 'data-recovery-to="canvas2d"' "$html" || {
+    echo "browser smoke: $name recovery destination mismatch"
+    exit 1
+  }
+  grep -q 'data-recovery-reason="device-lost"' "$html" || {
+    echo "browser smoke: $name recovery reason mismatch"
+    exit 1
+  }
+  grep -q 'renderer_runtime_origin=webgl2' "$html" || {
+    echo "browser smoke: $name runtime origin missing from target search"
+    exit 1
+  }
+  grep -q 'renderer_runtime_depth=1' "$html" || {
+    echo "browser smoke: $name runtime depth missing from target search"
+    exit 1
+  }
+  grep -q 'WEBGL2 failed at runtime (device-lost); restarting with CANVAS2D' "$err" || {
+    echo "browser smoke: $name transition log missing"
+    tail -30 "$err" || true
+    exit 1
+  }
+  echo "browser smoke: $name recovery-probe WebGL2->Canvas2D runtime_depth=1 pass"
 }
+
+run_swiftshader_recovery_probe webgl2-runtime-recovery \
+  'renderer=webgl2&simulate_gpu_loss=webgl2'
+run_swiftshader_exact webgl2-runtime-recovery-final \
+  'renderer=canvas2d&simulate_gpu_loss=webgl2&renderer_runtime_origin=webgl2&renderer_runtime_depth=1' \
+  canvas2d canvas2d 0 1 webgl2 10000
+
+run_swiftshader_recovery_probe webgl2-context-loss \
+  'renderer=webgl2&simulate_webgl_context_loss=1'
+run_swiftshader_exact webgl2-context-loss-final \
+  'renderer=canvas2d&simulate_webgl_context_loss=1&renderer_runtime_origin=webgl2&renderer_runtime_depth=1' \
+  canvas2d canvas2d 0 1 webgl2 10000
