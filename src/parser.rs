@@ -629,8 +629,12 @@ impl Parser {
             return false;
         }
 
+        if self.try_append_complete_list_item_chunk(block_index, kind, input, delta) {
+            return true;
+        }
+
         if input == "\n" {
-            if self.line.is_empty() {
+            if self.line.is_empty() || !line_is_complete_list_item(kind, &self.line) {
                 return false;
             }
             self.pending_kind = Some(kind);
@@ -653,6 +657,81 @@ impl Parser {
             PendingKind::Ordered => self.try_append_ordered_tail(block_index, input, delta),
             _ => false,
         }
+    }
+
+    fn try_append_complete_list_item_chunk(
+        &mut self,
+        block_index: usize,
+        kind: PendingKind,
+        input: &str,
+        delta: &mut Delta,
+    ) -> bool {
+        // Only start a whole-item fast path between completed list lines. A
+        // partial current item remains owned by the existing tail machinery.
+        if !self.line.is_empty() || self.pending_kind != Some(kind) {
+            return false;
+        }
+
+        let (raw, sealed) = if let Some(raw) = input.strip_suffix('\n') {
+            if raw.contains('\n') {
+                return false;
+            }
+            (raw, true)
+        } else {
+            if input.contains('\n') {
+                return false;
+            }
+            (input, false)
+        };
+        if raw.is_empty() || is_thematic(raw) {
+            return false;
+        }
+
+        let trimmed = raw.trim_start();
+        let item = match kind {
+            PendingKind::Unordered
+                if trimmed.starts_with("- ")
+                    || trimmed.starts_with("* ")
+                    || trimmed.starts_with("+ ") =>
+            {
+                parse_inlines(trimmed.get(2..).unwrap_or(""))
+            }
+            PendingKind::Ordered => {
+                let Some((_, body)) = ordered_item(trimmed) else {
+                    return false;
+                };
+                parse_inlines(body)
+            }
+            _ => return false,
+        };
+
+        match self.blocks.get_mut(block_index) {
+            Some(Block::UnorderedList(items)) if kind == PendingKind::Unordered => {
+                items.push(item.clone());
+            }
+            Some(Block::OrderedList { items, .. }) if kind == PendingKind::Ordered => {
+                items.push(item.clone());
+            }
+            _ => return false,
+        }
+        delta.ops.push(Op::AppendListItem {
+            block: block_index as u32,
+            item,
+        });
+
+        if sealed {
+            self.pending.push_str(raw);
+            self.pending.push('\n');
+            self.line.clear();
+            self.live_plain = false;
+            self.live_inline_appendable = false;
+            self.trailing_backslash_odd = false;
+            self.reset_delimiter_runs();
+            self.live_tail_pending = None;
+        } else {
+            self.line.push_str(raw);
+        }
+        true
     }
 
     fn try_append_unordered_tail(
@@ -1694,6 +1773,17 @@ impl Parser {
     }
 
     fn publish_live(&mut self, delta: &mut Delta) {
+        // A pending list ends once the unfinished next line can no longer
+        // become another item of that same list kind. Marker prefixes such as
+        // `3.` remain live until the following space arrives.
+        if let Some(pending_kind @ (PendingKind::Unordered | PendingKind::Ordered)) =
+            self.pending_kind
+            && !self.line.is_empty()
+            && !line_can_continue_list_kind(pending_kind, &self.line)
+        {
+            self.finish_pending(delta);
+        }
+
         let mut source = self.pending.clone();
         source.push_str(&self.line);
         if source.is_empty() {
@@ -2607,6 +2697,46 @@ fn quote_line_body(line: &str) -> &str {
     let trimmed = line.trim_start();
     let body = trimmed.strip_prefix('>').unwrap_or(trimmed);
     body.trim_start()
+}
+
+fn line_can_continue_list_kind(kind: PendingKind, line: &str) -> bool {
+    let trimmed = line.trim_start();
+    match kind {
+        PendingKind::Unordered => {
+            matches!(trimmed, "-" | "*" | "+")
+                || trimmed.starts_with("- ")
+                || trimmed.starts_with("* ")
+                || trimmed.starts_with("+ ")
+        }
+        PendingKind::Ordered => {
+            let digits = trimmed
+                .as_bytes()
+                .iter()
+                .take_while(|byte| byte.is_ascii_digit())
+                .count();
+            (digits != 0 && digits <= 9 && digits == trimmed.len())
+                || (digits != 0
+                    && digits <= 9
+                    && digits + 1 == trimmed.len()
+                    && trimmed.as_bytes()[digits] == b'.')
+                || ordered_item(trimmed).is_some()
+        }
+        _ => false,
+    }
+}
+
+fn line_is_complete_list_item(kind: PendingKind, line: &str) -> bool {
+    if is_thematic(line) {
+        return false;
+    }
+    let trimmed = line.trim_start();
+    match kind {
+        PendingKind::Unordered => {
+            trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("+ ")
+        }
+        PendingKind::Ordered => ordered_item(trimmed).is_some(),
+        _ => false,
+    }
 }
 
 fn classify(line: &str) -> PendingKind {
@@ -3876,6 +4006,85 @@ $$
                 Inline::Text("日本語".to_owned()),
             ]
         ));
+    }
+
+    #[test]
+    fn complete_list_item_chunks_append_without_republishing_list() {
+        let mut unordered = Parser::new();
+        unordered.append("- one\n");
+        let rich = unordered.append("- **two** [x](u)\n");
+        assert!(matches!(
+            rich.ops.as_slice(),
+            [Op::AppendListItem { item, .. }]
+                if matches!(item.as_slice(),
+                    [Inline::Strong(_), Inline::Text(space), Inline::Link { destination, .. }]
+                        if space == " " && destination == "u")
+        ));
+        let open = unordered.append("- three");
+        assert!(matches!(open.ops.as_slice(), [Op::AppendListItem { .. }]));
+        assert!(unordered.append("\n").ops.is_empty());
+        let mut whole = Parser::new();
+        whole.append("- one\n- **two** [x](u)\n- three\n");
+        assert_eq!(unordered.blocks(), whole.blocks());
+
+        let mut ordered = Parser::new();
+        ordered.append("1. one\n");
+        let second = ordered.append("7. `two`\n");
+        assert!(matches!(
+            second.ops.as_slice(),
+            [Op::AppendListItem { item, .. }]
+                if matches!(item.as_slice(), [Inline::Code(code)] if code == "two")
+        ));
+        let mut whole = Parser::new();
+        whole.append("1. one\n7. `two`\n");
+        assert_eq!(ordered.blocks(), whole.blocks());
+    }
+
+    #[test]
+    fn complete_list_item_chunk_fast_path_is_conservative() {
+        let mut thematic = Parser::new();
+        thematic.append("- one\n");
+        let delta = thematic.append("- - -\n");
+        assert!(matches!(delta.ops.first(), Some(Op::Truncate { .. })));
+        let mut whole = Parser::new();
+        whole.append("- one\n- - -\n");
+        assert_eq!(thematic.blocks(), whole.blocks());
+
+        let mut mixed = Parser::new();
+        mixed.append("- one\n");
+        let delta = mixed.append("2. two\n");
+        assert!(matches!(delta.ops.first(), Some(Op::Truncate { .. })));
+        let mut whole = Parser::new();
+        whole.append("- one\n2. two\n");
+        assert_eq!(mixed.blocks(), whole.blocks());
+
+        let mut multiline = Parser::new();
+        multiline.append("- one\n");
+        let delta = multiline.append("- two\n- three\n");
+        assert!(matches!(delta.ops.first(), Some(Op::Truncate { .. })));
+        let mut whole = Parser::new();
+        whole.append("- one\n- two\n- three\n");
+        assert_eq!(multiline.blocks(), whole.blocks());
+    }
+
+    #[test]
+    fn streamed_list_kind_switch_finalizes_pending_block_before_newline() {
+        for markdown in [
+            "1. one\n2. two\n- other\n",
+            "- one\n- two\n3. other\n",
+            "- one\n- two\nparagraph tail",
+            "- one\n- two\n- - -\n",
+        ] {
+            let cut = markdown.len() - usize::from(markdown.ends_with('\n'));
+            let mut streamed = Parser::new();
+            streamed.append(&markdown[..cut]);
+            if cut != markdown.len() {
+                streamed.append(&markdown[cut..]);
+            }
+            let mut whole = Parser::new();
+            whole.append(markdown);
+            assert_eq!(streamed.blocks(), whole.blocks(), "markdown={markdown:?}");
+        }
     }
 
     #[test]
