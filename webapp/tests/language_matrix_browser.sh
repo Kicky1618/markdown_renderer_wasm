@@ -80,10 +80,17 @@ grep -q 'data-language-matrix-probe="pass"' "$HTML" || {
   exit 1
 }
 
-for pack in kt c%23 c%2B%2B f%23 rb hs sv webgpu tf ps1; do
-  count=$(grep -c "GET /langpacks/$pack.slp HTTP/1.1.* 200" "$WORK/http.log" || true)
+index_count=$(grep -c 'GET /langpacks/_index.slp HTTP/1.1.* 200' "$WORK/http.log" || true)
+if [ "$index_count" -ne 1 ]; then
+  echo "language matrix browser: alias index fetched $index_count times (expected once)"
+  cat "$WORK/http.log"
+  exit 1
+fi
+
+for alias in kt c%23 c%2B%2B f%23 rb hs sv webgpu tf ps1; do
+  count=$(grep -c "GET /langpacks/$alias.slp HTTP/1.1.* 200" "$WORK/http.log" || true)
   if [ "$count" -ne 1 ]; then
-    echo "language matrix browser: $pack fetched $count times (expected once)"
+    echo "language matrix browser: alias $alias pack fetched $count times (expected once)"
     cat "$WORK/http.log"
     exit 1
   fi

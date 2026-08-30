@@ -19,12 +19,19 @@
     delete root.dataset.languagePackError;
     const concurrentAliases = await Promise.all([loadLanguagePack("c++"), loadLanguagePack("cpp")]);
     const concurrentOk = concurrentAliases.filter(Boolean).length === 1 && !root.dataset.languagePackError;
-    const unsafe = await loadLanguagePack("../rust");
-    root.dataset.langpackProbe = flood.every(value => !value) && first && !duplicate && concurrentOk && !unsafe ? "pass" : "fail";
+    const unsafe = await loadLanguagePack("../unsafe-probe");
+    const queuedLanguages = [
+      "rust", "python", "shell", "java", "go", "json", "css", "sql", "yaml", "toml",
+      "kotlin", "csharp", "ruby", "haskell", "verilog", "wgsl", "terraform", "powershell", "swift", "zig",
+    ];
+    const queued = await Promise.all(queuedLanguages.map(loadLanguagePack));
+    const queuedOk = queued.every(Boolean);
+    root.dataset.langpackProbe = flood.every(value => !value) && first && !duplicate && concurrentOk && !unsafe && queuedOk ? "pass" : "fail";
     root.dataset.langpackFloodSuccesses = String(flood.filter(Boolean).length);
     root.dataset.langpackFirst = String(first);
     root.dataset.langpackDuplicate = String(duplicate);
     root.dataset.langpackConcurrent = concurrentAliases.join(",");
+    root.dataset.langpackQueued = `${queued.filter(Boolean).length}/${queued.length}`;
     root.dataset.langpackUnsafe = String(unsafe);
   } catch (error) {
     root.dataset.langpackProbe = "error";

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const LANGPACK_DIR = path.join(ROOT, "langpacks");
+const INDEX_NAME = "_index.slp";
 const SAFE_ALIAS = /^[a-z0-9_+#-]+$/;
 
 const sections = [
@@ -125,6 +126,12 @@ export function buildAll({ check = false } = {}) {
     }
   }
 
+  if (outputs.has(INDEX_NAME)) throw new Error(`${INDEX_NAME} is reserved`);
+  const aliasCount = outputs.size;
+  const emittedBytes = [...outputs.values()].reduce((sum, binary) => sum + binary.byteLength, 0);
+  const index = encoder.encode(JSON.stringify([...outputs.keys()].map(name => name.slice(0, -4)).sort()));
+  outputs.set(INDEX_NAME, index);
+
   const stale = [];
   const existing = fs.readdirSync(LANGPACK_DIR).filter(name => name.endsWith(".slp"));
   for (const name of existing) {
@@ -142,12 +149,18 @@ export function buildAll({ check = false } = {}) {
     }
   }
   if (stale.length) throw new Error(`stale generated langpacks: ${stale.join(", ")}`);
-  const emittedBytes = [...outputs.values()].reduce((sum, binary) => sum + binary.byteLength, 0);
-  return { count: sources.length, aliases: outputs.size, sourceBytes: totalSource, binaryBytes: totalBinary, emittedBytes };
+  return {
+    count: sources.length,
+    aliases: aliasCount,
+    sourceBytes: totalSource,
+    binaryBytes: totalBinary,
+    emittedBytes,
+    indexBytes: index.byteLength,
+  };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const check = process.argv.includes("--check");
   const result = buildAll({ check });
-  console.log(`langpacks ${check ? "checked" : "built"}: ${result.count} packs / ${result.aliases} aliases, ${result.sourceBytes} text bytes -> ${result.binaryBytes} canonical SLP1 bytes (${result.emittedBytes} alias-file bytes)`);
+  console.log(`langpacks ${check ? "checked" : "built"}: ${result.count} packs / ${result.aliases} aliases, ${result.sourceBytes} text bytes -> ${result.binaryBytes} canonical SLP1 bytes (${result.emittedBytes} alias-file bytes + ${result.indexBytes} index bytes)`);
 }

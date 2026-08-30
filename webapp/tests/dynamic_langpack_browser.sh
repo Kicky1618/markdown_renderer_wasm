@@ -80,22 +80,44 @@ grep -q 'data-langpack-probe="pass"' "$HTML" || {
   exit 1
 }
 
+index_count=$(grep -c 'GET /langpacks/_index.slp HTTP/1.1.* 200' "$WORK/http.log" || true)
+if [ "$index_count" -ne 1 ]; then
+  echo "dynamic langpack browser: alias index fetched $index_count times (expected once)"
+  cat "$WORK/http.log"
+  exit 1
+fi
+
 flood_count=$(grep -c 'GET /langpacks/missing-.*\.slp HTTP/1.1' "$WORK/http.log" || true)
-if [ "$flood_count" -ne 16 ]; then
-  echo "dynamic langpack browser: unknown-language flood issued $flood_count requests (expected concurrency cap 16)"
+if [ "$flood_count" -ne 0 ]; then
+  echo "dynamic langpack browser: unknown-language flood reached pack HTTP $flood_count times (expected zero after SLI1 membership check)"
   cat "$WORK/http.log"
   exit 1
 fi
 
 js_count=$(grep -c 'GET /langpacks/typescript.slp HTTP/1.1.* 200' "$WORK/http.log" || true)
 if [ "$js_count" -ne 1 ]; then
-  echo "dynamic langpack browser: typescript alias fetched $js_count times (expected once; ts must dedupe from SLP1 aliases)"
+  echo "dynamic langpack browser: TypeScript alias fetched $js_count times (expected once; ts must dedupe from SLP1 aliases)"
   cat "$WORK/http.log"
   exit 1
 fi
 
-if grep -q 'GET /langpacks/.*rust' "$WORK/http.log"; then
-  echo "dynamic langpack browser: unsafe ../rust probe reached the HTTP server"
+cpp_alias_count=$(grep -c 'GET /langpacks/c%2B%2B.slp HTTP/1.1.* 200' "$WORK/http.log" || true)
+cpp_count=$(grep -c 'GET /langpacks/cpp.slp HTTP/1.1.* 200' "$WORK/http.log" || true)
+if [ "$cpp_alias_count" -ne 1 ] || [ "$cpp_count" -ne 1 ]; then
+  echo "dynamic langpack browser: concurrent c++/cpp aliases fetched c++=$cpp_alias_count cpp=$cpp_count (expected one each, one WASM registration)"
+  cat "$WORK/http.log"
+  exit 1
+fi
+
+grep -q 'data-langpack-queued="20/20"' "$HTML" || {
+  echo "dynamic langpack browser: >16 known-pack queue did not register all 20 languages"
+  grep -o '<html[^>]*>' "$HTML" | head -1 || true
+  cat "$WORK/http.log"
+  exit 1
+}
+
+if grep -q 'GET /langpacks/.*unsafe-probe' "$WORK/http.log"; then
+  echo "dynamic langpack browser: unsafe path probe reached the HTTP server"
   cat "$WORK/http.log"
   exit 1
 fi

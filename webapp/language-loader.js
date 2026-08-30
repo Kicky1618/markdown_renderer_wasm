@@ -1,12 +1,16 @@
 const MAX_CONCURRENT_PACKS = 16;
-const MAX_FAILED_PACKS = 128;
 const MAX_PACK_BYTES = 16 * 1024;
+const MAX_INDEX_BYTES = 16 * 1024;
 const SAFE_LANGUAGE = /^[a-z0-9_+#-]+$/;
+const INDEX_URL = new URL("./langpacks/_index.slp", import.meta.url);
 const inFlight = new Map();
-const failedAliases = new Map();
+const failedAliases = new Set();
 const loadedAliases = new Set();
 const registered = new Set();
 const decoder = new TextDecoder();
+const packWaiters = [];
+let activePackFetches = 0;
+let aliasIndexPromise;
 
 function normalizeLanguage(name) {
   const normalized = String(name).trim().toLowerCase();
@@ -23,7 +27,7 @@ function readPackAliases(binary) {
   let at = 8; // magic + flags
   const count = view.getUint16(at, true);
   at += 2;
-  if (count === 0 || count > 0xffff) throw new Error("SLP1 pack has no aliases");
+  if (count === 0) throw new Error("SLP1 pack has no aliases");
   const aliases = [];
   for (let i = 0; i < count; i += 1) {
     if (at + 2 > binary.length) throw new Error("truncated SLP1 alias length");
@@ -38,12 +42,51 @@ function readPackAliases(binary) {
   return aliases;
 }
 
-function rememberFailure(alias) {
-  failedAliases.delete(alias);
-  failedAliases.set(alias, true);
-  if (failedAliases.size > MAX_FAILED_PACKS) {
-    failedAliases.delete(failedAliases.keys().next().value);
+async function responseBytes(response, maxBytes, label) {
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new Error(`${label} too large: ${declaredLength} bytes`);
   }
+  const buffer = await response.arrayBuffer();
+  if (buffer.byteLength > maxBytes) throw new Error(`${label} too large: ${buffer.byteLength} bytes`);
+  return new Uint8Array(buffer);
+}
+
+function loadAliasIndex() {
+  if (!aliasIndexPromise) {
+    aliasIndexPromise = (async () => {
+      const response = await fetch(INDEX_URL, { cache: "force-cache" });
+      const bytes = await responseBytes(response, MAX_INDEX_BYTES, "langpack index");
+      const values = JSON.parse(decoder.decode(bytes));
+      if (!Array.isArray(values) || values.length === 0) throw new Error("invalid langpack index");
+      const aliases = new Set();
+      for (const value of values) {
+        const alias = normalizeLanguage(value);
+        if (!alias || alias !== value || aliases.has(alias)) throw new Error("invalid langpack index alias");
+        aliases.add(alias);
+      }
+      return aliases;
+    })().catch(error => {
+      aliasIndexPromise = undefined;
+      throw error;
+    });
+  }
+  return aliasIndexPromise;
+}
+
+function acquirePackSlot() {
+  if (activePackFetches < MAX_CONCURRENT_PACKS) {
+    activePackFetches += 1;
+    return Promise.resolve();
+  }
+  return new Promise(resolve => packWaiters.push(resolve));
+}
+
+function releasePackSlot() {
+  const next = packWaiters.shift();
+  if (next) next();
+  else activePackFetches -= 1;
 }
 
 function invalidateRenderer() {
@@ -58,26 +101,35 @@ function invalidateRenderer() {
   }
 }
 
-export function loadLanguagePack(name) {
+export async function loadLanguagePack(name) {
   const alias = normalizeLanguage(name);
-  if (!alias || loadedAliases.has(alias) || failedAliases.has(alias)) return Promise.resolve(false);
+  if (!alias || loadedAliases.has(alias) || failedAliases.has(alias)) return false;
+
+  let knownAliases;
+  try {
+    knownAliases = await loadAliasIndex();
+  } catch (error) {
+    document.documentElement.dataset.languagePackError = `index:${String(error)}`;
+    console.warn("language pack index unavailable:", error);
+    return false;
+  }
+  if (!knownAliases.has(alias)) {
+    failedAliases.add(alias);
+    return false;
+  }
+
   const existing = inFlight.get(alias);
   if (existing) return existing.then(() => false, () => false);
-  if (inFlight.size >= MAX_CONCURRENT_PACKS) return Promise.resolve(false);
 
   const task = (async () => {
+    await acquirePackSlot();
     try {
+      if (loadedAliases.has(alias)) return false;
       const url = new URL(`./langpacks/${encodeURIComponent(alias)}.slp`, import.meta.url);
       const response = await fetch(url, { cache: "force-cache" });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const declaredLength = Number(response.headers.get("content-length"));
-      if (Number.isFinite(declaredLength) && declaredLength > MAX_PACK_BYTES) {
-        throw new Error(`langpack too large: ${declaredLength} bytes`);
-      }
-      const buffer = await response.arrayBuffer();
-      if (buffer.byteLength > MAX_PACK_BYTES) throw new Error(`langpack too large: ${buffer.byteLength} bytes`);
-      const binary = new Uint8Array(buffer);
+      const binary = await responseBytes(response, MAX_PACK_BYTES, "langpack");
       const packAliases = readPackAliases(binary);
+      if (!packAliases.includes(alias)) throw new Error(`langpack alias mismatch: ${alias}`);
       const wasm = await import("./pkg/streamdown_web.js");
       if (packAliases.some(packAlias => loadedAliases.has(packAlias))) {
         for (const packAlias of packAliases) loadedAliases.add(packAlias);
@@ -93,21 +145,22 @@ export function loadLanguagePack(name) {
         root.dataset.languagePacks = [...registered].sort().join(",");
         invalidateRenderer();
       } else if (!packAliases.some(packAlias => loadedAliases.has(packAlias))) {
-        rememberFailure(alias);
+        failedAliases.add(alias);
         document.documentElement.dataset.languagePackError = `${alias}:wasm-rejected`;
       }
       return registeredNow;
     } catch (error) {
-      rememberFailure(alias);
+      failedAliases.add(alias);
       document.documentElement.dataset.languagePackError = `${alias}:${String(error)}`;
       console.warn(`language pack ${JSON.stringify(alias)} unavailable:`, error);
       return false;
     } finally {
       inFlight.delete(alias);
+      releasePackSlot();
     }
   })();
   inFlight.set(alias, task);
   return task;
 }
 
-export const __test = { normalizeLanguage, readPackAliases, rememberFailure };
+export const __test = { normalizeLanguage, readPackAliases };
