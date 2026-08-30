@@ -88,6 +88,9 @@ if [ "$RUN_BENCH" = "1" ]; then
   section "native parser benchmark"
   node scripts/stream-bench-median.mjs
 
+  section "JavaScript / WASM benchmark"
+  node scripts/wasm-bench-median.mjs
+
   section "semantic runtime benchmark"
   node tools/semantic-runtime-bench.mjs
 fi
