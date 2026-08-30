@@ -6,6 +6,7 @@ import { canvasSpec, parseCanvasScene } from "./canvas.js";
 import { evaluateExpression, safeEvaluate } from "./expression.js";
 import { tabFor, tabsSpec } from "./tabs.js";
 import { formSpec } from "./form.js";
+import { consumeHttpResponse, decodeNdjsonLine, decodeSseEvent, extractDeltaText } from "./stream.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
   id: "",
@@ -57,6 +58,31 @@ assert.deepEqual(scene.map(command => command.type), ["line", "circle", "rect", 
 assert.equal(scene[3].text, "hello streamed world");
 assert.equal(parseCanvasScene(`line 1 2
 circle 1`).length, 0);
+
+
+assert.equal(extractDeltaText({ choices: [{ delta: { content: "hello" } }] }), "hello");
+assert.equal(extractDeltaText({ type: "response.output_text.delta", delta: " world" }), " world");
+assert.deepEqual(decodeSseEvent('data: {"choices":[{"delta":{"content":"# Hi"}}]}'), { text: "# Hi", done: false });
+assert.equal(decodeSseEvent("data: [DONE]").done, true);
+assert.deepEqual(decodeNdjsonLine('{"delta":{"text":" streamed"}}'), { text: " streamed", done: false });
+
+const sseChunks = [
+  'data: {"choices":[{"delta":{"content":"# H"}}]}\n\n',
+  'data: {"choices":[{"delta":{"content":"i"}}]}\n\n',
+  'data: [DONE]\n\n',
+];
+const sseResponse = new Response(new ReadableStream({
+  start(controller) {
+    const encoder = new TextEncoder();
+    for (const chunk of sseChunks) controller.enqueue(encoder.encode(chunk));
+    controller.close();
+  },
+}), { headers: { "content-type": "text/event-stream" } });
+let sseText = "";
+const sseResult = await consumeHttpResponse(sseResponse, { onText: text => { sseText += text; } });
+assert.equal(sseText, "# Hi");
+assert.equal(sseResult.format, "sse");
+assert.equal(sseResult.chunks, 2);
 
 const wasm = await fs.readFile(new URL("./streamdown.wasm", import.meta.url));
 const instance = await WebAssembly.instantiate(wasm, {});

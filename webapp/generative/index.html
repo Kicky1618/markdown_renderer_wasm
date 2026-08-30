@@ -47,6 +47,18 @@
         <button id="reset" type="button">Reset demo</button>
       </div>
 
+      <form class="remote-stream" id="remote-stream">
+        <label for="stream-url">HTTP stream</label>
+        <input id="stream-url" type="url" inputmode="url" autocomplete="off" placeholder="http://localhost:3000/stream" aria-label="HTTP stream URL">
+        <select id="stream-format" aria-label="HTTP stream format">
+          <option value="auto">Auto</option>
+          <option value="sse">SSE</option>
+          <option value="ndjson">NDJSON</option>
+          <option value="plain">Plain text</option>
+        </select>
+        <button id="connect-stream" type="submit">Connect</button>
+      </form>
+
       <details class="syntax-help">
         <summary>Generative UI syntax</summary>
         <pre>:::llm ui type=layout columns=2

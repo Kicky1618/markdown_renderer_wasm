@@ -26,3 +26,16 @@ Generative UI のテストは build 後に次で実行できます。
 ```sh
 node webapp/generative/tests.mjs
 ```
+
+## HTTP / LLM streaming input
+
+左ペインの `HTTP stream` から、CORS許可されたHTTP(S) endpointまたは同一origin proxyへ接続できます。ブラウザ内にAPIキーを保存・注入する機能は持ちません。
+
+- `Auto`: `Content-Type` から判定
+- `SSE`: `text/event-stream` の `data:` envelopeを除去
+- `NDJSON`: 1行1JSONを逐次処理
+- `Plain text`: body chunkをそのままMarkdownへ追加
+
+SSE/NDJSONでは `choices[0].delta.content`、Responses API系の `delta`、`delta.text`、`output_text` など代表的なLLM delta envelopeから文字列だけを抽出し、既存の `Parser::append` に渡します。`[DONE]` も認識します。
+
+実運用では、認証情報を持つサーバ側proxyがLLM providerへ接続し、ブラウザにはMarkdown/SSEだけを返す構成を推奨します。

@@ -67,7 +67,7 @@ button.primary:hover { background: #84ebdc; }
   background: #172233;
 }
 .editor-pane, .preview-pane { min-width: 0; background: #0a1019; }
-.editor-pane { display: grid; grid-template-rows: auto minmax(360px, 1fr) auto auto; }
+.editor-pane { display: grid; grid-template-rows: auto minmax(360px, 1fr) auto auto auto; }
 .preview-pane { display: grid; grid-template-rows: auto 1fr; }
 .pane-head {
   display: flex;
@@ -103,6 +103,21 @@ button.primary:hover { background: #84ebdc; }
 .stream-controls label { display: flex; align-items: center; gap: 10px; color: #899db6; font-size: 12px; }
 .stream-controls input { width: min(260px, 35vw); accent-color: #69dfce; }
 .stream-controls output { color: #b7c7da; font: 11px ui-monospace, monospace; }
+.remote-stream {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) auto auto;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 16px;
+  border-top: 1px solid #182435;
+  background: #080e16;
+}
+.remote-stream label { color: #70dacb; font: 700 10px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.remote-stream input, .remote-stream select {
+  min-width: 0; min-height: 38px; padding: 7px 10px; border: 1px solid #263b52; border-radius: 9px;
+  outline: none; color: #cbd9e8; background: #0a1420;
+}
+.remote-stream input:focus, .remote-stream select:focus { border-color: #69dfce; box-shadow: 0 0 0 2px #69dfce16; }
 .syntax-help { border-top: 1px solid #182435; padding: 10px 16px 16px; color: #8093aa; font-size: 12px; }
 .syntax-help summary { cursor: pointer; }
 .syntax-help pre {
@@ -314,6 +329,9 @@ footer {
   .preview-pane { min-height: 80vh; }
   .stream-controls { grid-template-columns: 1fr auto; }
   .stream-controls button { grid-column: 1 / -1; }
+  .remote-stream { grid-template-columns: 1fr auto; }
+  .remote-stream label { grid-column: 1 / -1; }
+  .remote-stream input { grid-column: 1 / -1; }
 }
 
 @media (max-width: 640px) {

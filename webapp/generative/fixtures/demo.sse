@@ -1,0 +1,10 @@
+data: {"choices": [{"delta": {"content": "# Remote SSE\n\n"}}]}
+
+data: {"choices": [{"delta": {"content": ":::llm ui type=metric id=remote\nlabel=Network generated\n"}}]}
+
+data: {"choices": [{"delta": {"content": "value=REMOTE\nunit=SSE\n"}}]}
+
+data: {"choices": [{"delta": {"content": ":::\n"}}]}
+
+data: [DONE]
+

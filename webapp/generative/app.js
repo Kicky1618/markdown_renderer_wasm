@@ -4,6 +4,7 @@ import { canvasSpec, parseCanvasScene } from "./canvas.js";
 import { safeEvaluate } from "./expression.js";
 import { tabFor, tabsSpec } from "./tabs.js";
 import { formSpec } from "./form.js";
+import { consumeHttpResponse } from "./stream.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
 
@@ -124,12 +125,17 @@ const deltaStatus = document.querySelector("#delta-status");
 const blockCount = document.querySelector("#blocks");
 const parseMs = document.querySelector("#parse-ms");
 const renderMs = document.querySelector("#render-ms");
+const remoteForm = document.querySelector("#remote-stream");
+const streamUrl = document.querySelector("#stream-url");
+const streamFormat = document.querySelector("#stream-format");
+const connectStreamButton = document.querySelector("#connect-stream");
 
 let parser;
 let blockElements = [];
 let animation = 0;
 let generation = 0;
 let structuresComposed = false;
+let remoteController = null;
 const state = new Map();
 
 source.value = DEMO;
@@ -146,6 +152,12 @@ function cancelStreaming() {
   if (animation) cancelAnimationFrame(animation);
   animation = 0;
   streamButton.textContent = "▶ Stream";
+}
+
+function cancelRemoteStream() {
+  if (remoteController) remoteController.abort();
+  remoteController = null;
+  connectStreamButton.textContent = "Connect";
 }
 
 function parseBody(body) {
@@ -971,6 +983,7 @@ function appendChunk(chunk) {
 }
 
 function renderAll() {
+  cancelRemoteStream();
   cancelStreaming();
   setRuntimeState("RENDERING");
   resetRuntime();
@@ -983,6 +996,7 @@ function renderAll() {
 }
 
 function streamAll() {
+  cancelRemoteStream();
   cancelStreaming();
   resetRuntime();
   const text = source.value;
@@ -1027,10 +1041,100 @@ streamButton.addEventListener("click", () => {
 });
 renderNowButton.addEventListener("click", renderAll);
 resetButton.addEventListener("click", () => {
+  cancelRemoteStream();
   cancelStreaming();
   source.value = DEMO;
   renderAll();
 });
+
+remoteForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  if (remoteController) {
+    cancelRemoteStream();
+    setRuntimeState("PAUSED");
+    return;
+  }
+
+  let url;
+  try {
+    url = new URL(streamUrl.value.trim(), location.href);
+    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("HTTP(S) URL required");
+  } catch (error) {
+    setRuntimeState("BAD URL");
+    deltaStatus.textContent = String(error.message || error);
+    return;
+  }
+
+  cancelStreaming();
+  resetRuntime();
+  const controller = new AbortController();
+  remoteController = controller;
+  connectStreamButton.textContent = "■ Stop";
+  setRuntimeState("CONNECTING");
+  deltaStatus.textContent = `Connecting to ${url.host}…`;
+  let received = "";
+
+  try {
+    const requested = streamFormat.value;
+    const accept = requested === "sse" ? "text/event-stream"
+      : requested === "ndjson" ? "application/x-ndjson"
+      : "text/plain, text/event-stream, application/x-ndjson;q=0.9, */*;q=0.5";
+    const response = await fetch(url, {
+      method: "GET",
+      credentials: "omit",
+      cache: "no-store",
+      headers: { Accept: accept },
+      signal: controller.signal,
+    });
+    setRuntimeState("REMOTE STREAM");
+    const result = await consumeHttpResponse(response, {
+      format: requested,
+      signal: controller.signal,
+      onText(text) {
+        received += text;
+        appendChunk(text);
+        preview.scrollTop = preview.scrollHeight;
+      },
+    });
+    renderOperations(parser.finish());
+    source.value = received;
+    setRuntimeState("LIVE");
+    deltaStatus.textContent = `${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
+  } catch (error) {
+    if (controller.signal.aborted || error?.name === "AbortError") {
+      setRuntimeState("PAUSED");
+      deltaStatus.textContent = "Remote stream stopped";
+    } else {
+      setRuntimeState("ERROR");
+      deltaStatus.textContent = `Remote stream failed: ${error.message || error}`;
+      console.error(error);
+    }
+  } finally {
+    if (remoteController === controller) remoteController = null;
+    connectStreamButton.textContent = "Connect";
+  }
+});
+
+async function runRemoteSmoke() {
+  const requested = new URLSearchParams(location.search).get("remote_smoke");
+  if (requested !== "1") return;
+  const root = document.documentElement;
+  root.dataset.remoteSmoke = "waiting";
+  streamUrl.value = new URL("./fixtures/demo.sse", location.href).href;
+  streamFormat.value = "sse";
+  remoteForm.requestSubmit();
+  for (let attempt = 0; attempt < 200; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    if (streamState.textContent === "ERROR" || streamState.textContent === "BAD URL") break;
+    if (!remoteController && streamState.textContent === "LIVE") {
+      const card = preview.querySelector('[data-ui-id="remote"]');
+      const value = card?.querySelector(".metric-value")?.textContent?.trim();
+      root.dataset.remoteSmoke = value === "REMOTE" ? "pass" : "fail";
+      return;
+    }
+  }
+  root.dataset.remoteSmoke = "fail";
+}
 
 function runGenerativeSmoke() {
   if (new URLSearchParams(location.search).get("smoke") !== "1") return;
@@ -1084,6 +1188,7 @@ try {
   setRuntimeState("READY");
   renderAll();
   runGenerativeSmoke();
+  runRemoteSmoke();
 } catch (error) {
   setRuntimeState("ERROR");
   preview.textContent = `Could not start Streamdown WASM: ${error}`;
