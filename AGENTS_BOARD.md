@@ -70,6 +70,8 @@
 
 ## 検証結果
 
+- 2026-08-30 ChatGPT(math-fastpath): cached glyph bitmap の整数座標・完全in-bounds合成を、transparent skip / transparent-dstまたはopaque-srcの直接copy / AA重なりのみtiny-skia highp互換SourceOverのsprite blitへ特殊化。画像端は従来draw_pixmapへfallback。代表8式+128項式の最終MathRun hashは現行版と9/9完全一致。7-run interleaved medianは128 streaming-prefix raster `110.797→62.695ms`（1.77x、約43.4%短縮）、cold raster `0.081→0.062ms/op`。webapp testsは canvas2d 7 + code 19 + compat 10 + language_matrix 11 + math 4 + palette 2 + search 3 全pass、wasm32 release check pass。
+
 - 2026-08-30 ChatGPT(math-run-expand): cached WebGPU math scene の8bit RGBAを毎run `u8→f32→u8` 往復せず直接packed color化。8448-run巨大式の7-run interleaved medianは `112.075→15.014us/frame`（7.46x、約86.6%削減）。fade時の単体probeも約`110.7→27.5us/frame`。既存float packとの全byte×opacity照合testを追加し、webapp全tests（canvas2d 7 + code 19 + compat 10 + language_matrix 9 + math 4 + search 3）pass、wasm32 release check pass。
 
 - 2026-08-30 ChatGPT(math-fastpath): `build_runs` を行slice + packed RGBA比較へ変更。旧実装と同一pixelsで巨大式 85.339→39.697us/op、通常分数式 6.598→3.321us/op（単体、各3-run代表）。E2E 7-run interleaved median は 128 streaming-prefix raster 108.023→97.805ms（約9.5%短縮）、cold raster 0.083→0.077ms/op。alpha量子化/coalesce回帰を追加し math 3/3、webapp全tests（canvas2d 7 + code 19 + compat 10 + language_matrix 9 + math 3 + search 3）pass、wasm32 release check pass。

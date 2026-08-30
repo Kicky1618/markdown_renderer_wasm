@@ -556,13 +556,11 @@ fn render_glyph_with_font(
     if let Some((glyph, base_x, base_y)) =
         get_or_compute_glyph_raster(&path, &g, color, scale, px, py)
     {
-        pixmap.draw_pixmap(
+        blit_cached_glyph(
+            pixmap,
             base_x + glyph.offset_x,
             base_y + glyph.offset_y,
-            glyph.pixmap.as_ref(),
-            &PixmapPaint::default(),
-            Transform::identity(),
-            None,
+            &glyph.pixmap,
         );
         return true;
     }
@@ -573,6 +571,86 @@ fn render_glyph_with_font(
     let transform = Transform::from_row(scale, 0.0, 0.0, -scale, px, py);
     pixmap.fill_path(&path, &paint, tiny_skia::FillRule::Winding, transform, None);
     true
+}
+
+#[inline(always)]
+fn highp_source_over_byte(source: u8, destination: u8, source_alpha: u8) -> u8 {
+    const BYTE_TO_UNIT: f32 = 1.0 / 255.0;
+    let source = source as f32 * BYTE_TO_UNIT;
+    let destination = destination as f32 * BYTE_TO_UNIT;
+    let alpha = source_alpha as f32 * BYTE_TO_UNIT;
+    ((source + destination * (1.0 - alpha)).clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+fn blit_cached_glyph(destination: &mut Pixmap, x: i32, y: i32, source: &Pixmap) {
+    let width = source.width() as i32;
+    let height = source.height() as i32;
+    // tiny-skia's generic draw_pixmap uses special clipping/pattern semantics.
+    // Preserve it at image edges; the sprite path is only for fully in-bounds
+    // integer glyphs, which is the overwhelmingly common math case.
+    if x < 0
+        || y < 0
+        || x + width > destination.width() as i32
+        || y + height > destination.height() as i32
+    {
+        destination.draw_pixmap(
+            x,
+            y,
+            source.as_ref(),
+            &PixmapPaint::default(),
+            Transform::identity(),
+            None,
+        );
+        return;
+    }
+
+    let destination_width = destination.width() as usize;
+    let source_width = source.width() as usize;
+    let source_height = source.height() as usize;
+    let destination_x = x as usize;
+    let destination_y = y as usize;
+    let source_pixels = source.data();
+    let destination_pixels = destination.data_mut();
+
+    for row in 0..source_height {
+        let mut source_index = row * source_width * 4;
+        let mut destination_index = ((destination_y + row) * destination_width + destination_x) * 4;
+        for _ in 0..source_width {
+            let source_alpha = source_pixels[source_index + 3];
+            if source_alpha != 0 {
+                // On a transparent destination SourceOver is exactly source.
+                // Opaque source also replaces destination exactly. Most cached
+                // glyph pixels hit one of these two branches.
+                if destination_pixels[destination_index + 3] == 0 || source_alpha == 255 {
+                    destination_pixels[destination_index..destination_index + 4]
+                        .copy_from_slice(&source_pixels[source_index..source_index + 4]);
+                } else {
+                    destination_pixels[destination_index] = highp_source_over_byte(
+                        source_pixels[source_index],
+                        destination_pixels[destination_index],
+                        source_alpha,
+                    );
+                    destination_pixels[destination_index + 1] = highp_source_over_byte(
+                        source_pixels[source_index + 1],
+                        destination_pixels[destination_index + 1],
+                        source_alpha,
+                    );
+                    destination_pixels[destination_index + 2] = highp_source_over_byte(
+                        source_pixels[source_index + 2],
+                        destination_pixels[destination_index + 2],
+                        source_alpha,
+                    );
+                    destination_pixels[destination_index + 3] = highp_source_over_byte(
+                        source_alpha,
+                        destination_pixels[destination_index + 3],
+                        source_alpha,
+                    );
+                }
+            }
+            source_index += 4;
+            destination_index += 4;
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
