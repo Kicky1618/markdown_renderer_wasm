@@ -33,6 +33,18 @@ pub(crate) fn parse_inlines(source: &str) -> Vec<Inline> {
     let mut no_link_destination_close = false;
 
     while i < b.len() {
+        if !is_inline_syntax_byte(b[i]) {
+            let start = i;
+            i += 1;
+            while i < b.len() && !is_inline_syntax_byte(b[i]) {
+                i += 1;
+            }
+            // All syntax sentinels are ASCII, so hitting one cannot split a
+            // UTF-8 continuation sequence. Copy ordinary text as one span.
+            plain.push_str(&source[start..i]);
+            continue;
+        }
+
         if b[i] == b'\\' && i + 1 < b.len() && is_punctuation(b[i + 1]) {
             plain.push(b[i + 1] as char);
             i += 2;
@@ -294,6 +306,23 @@ mod tests {
     fn plain_fast_path_preserves_unicode_and_punctuation() {
         let source = "日本語 plain text: hello, world! (42) ] } > + -";
         assert_eq!(parse_inlines(source), vec![Inline::Text(source.to_owned())]);
+    }
+
+    #[test]
+    fn rich_plain_spans_preserve_unicode_around_syntax() {
+        assert_eq!(
+            parse_inlines("前半日本語 **bold** 後半かな @[source:id] 終端"),
+            vec![
+                Inline::Text("前半日本語 ".to_owned()),
+                Inline::Strong(vec![Inline::Text("bold".to_owned())]),
+                Inline::Text(" 後半かな ".to_owned()),
+                Inline::Link {
+                    label: vec![Inline::Text("@[source:id]".to_owned())],
+                    destination: "llm:source:id".to_owned(),
+                },
+                Inline::Text(" 終端".to_owned()),
+            ]
+        );
     }
 
     #[test]
