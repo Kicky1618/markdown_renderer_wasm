@@ -91,7 +91,9 @@ fn plain_delimiter_bodies_are_character_stream_independent() {
         "prefix $x+1$ suffix",
         "prefix *bold* suffix",
         "prefix _em_ suffix",
-        "prefix `日本語✅` $数式$ *強調* _文字_ suffix",
+        "prefix **bold** suffix",
+        "prefix __bold__ suffix",
+        "prefix `日本語✅` $数式$ *強調* _文字_ **太字** __強調__ suffix",
     ] {
         let expected = parse_whole(markdown);
         let boundaries = utf8_boundaries(markdown);
