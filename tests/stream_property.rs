@@ -173,6 +173,33 @@ fn apply(document: &mut Vec<Block>, delta: &Delta) {
                     nodes.push(Inline::Text(append.clone()));
                 }
             }
+            Op::SpliceInlineTail {
+                block,
+                truncate_bytes,
+                append,
+            } => {
+                let Block::Paragraph(nodes) = &mut document[*block as usize] else {
+                    panic!("SpliceInlineTail target is not paragraph")
+                };
+                if *truncate_bytes != 0 {
+                    let Some(Inline::Text(text)) = nodes.last_mut() else {
+                        panic!("SpliceInlineTail target has no trailing text")
+                    };
+                    text.truncate(text.len() - *truncate_bytes as usize);
+                    if text.is_empty() {
+                        nodes.pop();
+                    }
+                }
+                for incoming in append {
+                    if let Inline::Text(value) = incoming
+                        && let Some(Inline::Text(text)) = nodes.last_mut()
+                    {
+                        text.push_str(value);
+                    } else {
+                        nodes.push(incoming.clone());
+                    }
+                }
+            }
         }
     }
 }

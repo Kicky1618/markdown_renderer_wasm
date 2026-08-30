@@ -62,6 +62,13 @@ pub enum Op {
     /// Append plain UTF-8 text to the inline tail of a live paragraph.
     /// If the paragraph does not currently end in `Text`, a new text node is created.
     AppendInlineText { block: u32, append: String },
+    /// Remove UTF-8 bytes from the final Text inline and append replacement nodes.
+    /// This keeps delimiter completion local to a live paragraph tail.
+    SpliceInlineTail {
+        block: u32,
+        truncate_bytes: u32,
+        append: Vec<Inline>,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -101,6 +108,10 @@ pub struct Parser {
     live_plain: bool,
     live_inline_appendable: bool,
     trailing_backslash_odd: bool,
+    trailing_backtick_mod2: u8,
+    trailing_backtick_fast: bool,
+    trailing_dollar_mod4: u8,
+    trailing_dollar_fast: bool,
     live_has_open_bracket: bool,
     live_has_link_destination_start: bool,
 }
@@ -124,6 +135,10 @@ impl Parser {
             live_plain: false,
             live_inline_appendable: false,
             trailing_backslash_odd: false,
+            trailing_backtick_mod2: 0,
+            trailing_backtick_fast: true,
+            trailing_dollar_mod4: 0,
+            trailing_dollar_fast: true,
             live_has_open_bracket: false,
             live_has_link_destination_start: false,
         }
@@ -171,6 +186,7 @@ impl Parser {
                 self.live_plain = false;
                 self.live_inline_appendable = false;
                 self.trailing_backslash_odd = false;
+                self.reset_delimiter_runs();
                 self.live_has_open_bracket = false;
                 self.live_has_link_destination_start = false;
                 self.line.clear();
@@ -204,6 +220,7 @@ impl Parser {
                     self.mode = Mode::Normal;
                     self.committed = self.blocks.len();
                     self.trailing_backslash_odd = false;
+                    self.reset_delimiter_runs();
                     self.live_has_open_bracket = false;
                     self.live_has_link_destination_start = false;
                 }
@@ -279,6 +296,7 @@ impl Parser {
         text.push_str(input);
         self.line.push_str(input);
         self.trailing_backslash_odd = false;
+        self.reset_delimiter_runs();
         delta.ops.push(Op::AppendText {
             block: block_index as u32,
             append: input.to_owned(),
@@ -302,6 +320,79 @@ impl Parser {
             return false;
         };
 
+        if input.bytes().all(|byte| byte == b'`') && self.trailing_backtick_fast {
+            let old = self.trailing_backtick_mod2 as usize;
+            let total = old + input.len();
+            let pairs = total / 2;
+            let remainder = total % 2;
+            if pairs == 0 {
+                append_inline_text(nodes, input);
+                self.line.push_str(input);
+                self.trailing_backtick_mod2 = remainder as u8;
+                self.break_dollar_run();
+                self.trailing_backslash_odd = false;
+                delta.ops.push(Op::AppendInlineText {
+                    block: block_index as u32,
+                    append: input.to_owned(),
+                });
+            } else {
+                let mut replacement = Vec::with_capacity(pairs + remainder);
+                replacement.extend((0..pairs).map(|_| Inline::Code(String::new())));
+                if remainder != 0 {
+                    replacement.push(Inline::Text("`".to_owned()));
+                }
+                splice_inline_tail(nodes, old, &replacement);
+                self.line.push_str(input);
+                self.trailing_backtick_mod2 = remainder as u8;
+                self.break_dollar_run();
+                self.trailing_backslash_odd = false;
+                delta.ops.push(Op::SpliceInlineTail {
+                    block: block_index as u32,
+                    truncate_bytes: old as u32,
+                    append: replacement,
+                });
+            }
+            return true;
+        }
+
+        if input.bytes().all(|byte| byte == b'$') && self.trailing_dollar_fast {
+            let old = self.trailing_dollar_mod4 as usize;
+            let total = old + input.len();
+            let groups = total / 4;
+            let remainder = total % 4;
+            if groups == 0 {
+                append_inline_text(nodes, input);
+                self.line.push_str(input);
+                self.trailing_dollar_mod4 = remainder as u8;
+                self.break_backtick_run();
+                self.trailing_backslash_odd = false;
+                delta.ops.push(Op::AppendInlineText {
+                    block: block_index as u32,
+                    append: input.to_owned(),
+                });
+            } else {
+                let mut replacement = Vec::with_capacity(groups + usize::from(remainder != 0));
+                replacement.extend((0..groups).map(|_| Inline::Math {
+                    source: String::new(),
+                    display: true,
+                }));
+                if remainder != 0 {
+                    replacement.push(Inline::Text("$".repeat(remainder)));
+                }
+                splice_inline_tail(nodes, old, &replacement);
+                self.line.push_str(input);
+                self.trailing_dollar_mod4 = remainder as u8;
+                self.break_backtick_run();
+                self.trailing_backslash_odd = false;
+                delta.ops.push(Op::SpliceInlineTail {
+                    block: block_index as u32,
+                    truncate_bytes: old as u32,
+                    append: replacement,
+                });
+            }
+            return true;
+        }
+
         // A closing bracket/paren is inert when the live paragraph has no raw
         // opener that it could possibly complete. Keep these common malformed
         // streaming runs on the append-only path without weakening correctness
@@ -321,6 +412,7 @@ impl Parser {
             }
             self.line.push_str(input);
             self.trailing_backslash_odd = false;
+            self.break_delimiter_runs();
             delta.ops.push(Op::AppendInlineText {
                 block: block_index as u32,
                 append: input.to_owned(),
@@ -355,6 +447,7 @@ impl Parser {
             if input.len() % 2 != 0 {
                 self.trailing_backslash_odd = !self.trailing_backslash_odd;
             }
+            self.break_delimiter_runs();
             return true;
         }
 
@@ -373,11 +466,38 @@ impl Parser {
         self.line.push_str(input);
         self.trailing_backslash_odd =
             trailing_backslash_odd_after(self.trailing_backslash_odd, input);
+        self.break_delimiter_runs();
         delta.ops.push(Op::AppendInlineText {
             block: block_index as u32,
             append: input.to_owned(),
         });
         true
+    }
+
+    fn reset_delimiter_runs(&mut self) {
+        self.trailing_backtick_mod2 = 0;
+        self.trailing_backtick_fast = true;
+        self.trailing_dollar_mod4 = 0;
+        self.trailing_dollar_fast = true;
+    }
+
+    fn break_backtick_run(&mut self) {
+        if self.trailing_backtick_mod2 != 0 {
+            self.trailing_backtick_fast = false;
+        }
+        self.trailing_backtick_mod2 = 0;
+    }
+
+    fn break_dollar_run(&mut self) {
+        if self.trailing_dollar_mod4 != 0 {
+            self.trailing_dollar_fast = false;
+        }
+        self.trailing_dollar_mod4 = 0;
+    }
+
+    fn break_delimiter_runs(&mut self) {
+        self.break_backtick_run();
+        self.break_dollar_run();
     }
 
     fn begin_normal_update(&mut self, delta: &mut Delta) {
@@ -389,6 +509,10 @@ impl Parser {
             self.has_live = false;
             self.live_plain = false;
             self.live_inline_appendable = false;
+            self.trailing_backslash_odd = false;
+            self.reset_delimiter_runs();
+            self.live_has_open_bracket = false;
+            self.live_has_link_destination_start = false;
         }
     }
 
@@ -491,6 +615,7 @@ impl Parser {
         source.push_str(&self.line);
         if source.is_empty() {
             self.trailing_backslash_odd = false;
+            self.reset_delimiter_runs();
             self.live_has_open_bracket = false;
             self.live_has_link_destination_start = false;
             return;
@@ -498,6 +623,7 @@ impl Parser {
         if self.pending_kind.is_none() && is_thematic(&self.line) {
             self.live_plain = false;
             self.trailing_backslash_odd = false;
+            self.reset_delimiter_runs();
             self.live_has_open_bracket = false;
             self.live_has_link_destination_start = false;
             self.live_inline_appendable = false;
@@ -527,6 +653,12 @@ impl Parser {
             .count()
             % 2
             != 0;
+        let (backtick_mod, backtick_fast) = delimiter_run_state(&block, &source, b'`', 2);
+        self.trailing_backtick_mod2 = backtick_mod;
+        self.trailing_backtick_fast = backtick_fast;
+        let (dollar_mod, dollar_fast) = delimiter_run_state(&block, &source, b'$', 4);
+        self.trailing_dollar_mod4 = dollar_mod;
+        self.trailing_dollar_fast = dollar_fast;
         self.live_has_open_bracket = source.as_bytes().contains(&b'[');
         self.live_has_link_destination_start =
             source.as_bytes().windows(2).any(|window| window == b"](");
@@ -632,6 +764,95 @@ fn is_plain_stream_byte(b: u8) -> bool {
         b,
         b'\n' | b'\r' | b'\\' | b'$' | b'`' | b'*' | b'_' | b'[' | b']' | b'(' | b')' | b'@'
     )
+}
+
+fn append_inline_text(nodes: &mut Vec<Inline>, append: &str) {
+    if let Some(Inline::Text(text)) = nodes.last_mut() {
+        text.push_str(append);
+    } else {
+        nodes.push(Inline::Text(append.to_owned()));
+    }
+}
+
+fn splice_inline_tail(nodes: &mut Vec<Inline>, truncate_bytes: usize, append: &[Inline]) {
+    if truncate_bytes != 0 {
+        let Some(Inline::Text(text)) = nodes.last_mut() else {
+            unreachable!("inline tail splice requires trailing text")
+        };
+        let new_len = text
+            .len()
+            .checked_sub(truncate_bytes)
+            .expect("inline tail splice exceeds trailing text");
+        assert!(text.is_char_boundary(new_len));
+        text.truncate(new_len);
+        if text.is_empty() {
+            nodes.pop();
+        }
+    }
+    for node in append {
+        if let Inline::Text(value) = node
+            && let Some(Inline::Text(text)) = nodes.last_mut()
+        {
+            text.push_str(value);
+        } else {
+            nodes.push(node.clone());
+        }
+    }
+}
+
+fn delimiter_run_state(block: &Block, source: &str, delimiter: u8, modulus: usize) -> (u8, bool) {
+    let Block::Paragraph(nodes) = block else {
+        return (0, true);
+    };
+
+    let mut trailing = 0usize;
+    let mut fast = true;
+    for (index, node) in nodes.iter().enumerate() {
+        let Inline::Text(text) = node else {
+            continue;
+        };
+        let is_last = index + 1 == nodes.len();
+        let allowed_tail = if is_last {
+            text.as_bytes()
+                .iter()
+                .rev()
+                .take_while(|&&byte| byte == delimiter)
+                .count()
+        } else {
+            0
+        };
+        let prefix_len = text.len() - allowed_tail;
+        if text.as_bytes()[..prefix_len].contains(&delimiter) {
+            fast = false;
+        }
+        if is_last {
+            trailing = allowed_tail;
+        }
+    }
+
+    if trailing != 0 {
+        let raw_trailing = source
+            .as_bytes()
+            .iter()
+            .rev()
+            .take_while(|&&byte| byte == delimiter)
+            .count();
+        if raw_trailing < trailing {
+            fast = false;
+        } else {
+            let start = source.len() - raw_trailing;
+            let escaped = source.as_bytes()[..start]
+                .iter()
+                .rev()
+                .take_while(|&&byte| byte == b'\\')
+                .count()
+                % 2
+                != 0;
+            fast &= !escaped;
+        }
+    }
+
+    ((trailing % modulus) as u8, fast)
 }
 
 fn inline_tail_append_is_safe(line: &str, input: &str) -> bool {
@@ -1285,6 +1506,84 @@ $$
     }
 
     #[test]
+    fn delimiter_runs_splice_only_the_inline_tail() {
+        let mut code = Parser::new();
+        code.append("`");
+        let close = code.append("`");
+        assert_eq!(
+            close.ops,
+            vec![Op::SpliceInlineTail {
+                block: 0,
+                truncate_bytes: 1,
+                append: vec![Inline::Code(String::new())],
+            }]
+        );
+        assert_eq!(
+            code.blocks(),
+            &[Block::Paragraph(vec![Inline::Code(String::new())])]
+        );
+        let more = code.append("```");
+        assert!(matches!(
+            more.ops.as_slice(),
+            [Op::SpliceInlineTail { truncate_bytes: 0, append, .. }]
+                if append == &vec![Inline::Code(String::new()), Inline::Text("`".to_owned())]
+        ));
+
+        let mut math = Parser::new();
+        math.append("$");
+        math.append("$");
+        math.append("$");
+        let close = math.append("$");
+        assert_eq!(
+            close.ops,
+            vec![Op::SpliceInlineTail {
+                block: 0,
+                truncate_bytes: 3,
+                append: vec![Inline::Math {
+                    source: String::new(),
+                    display: true,
+                }],
+            }]
+        );
+        assert_eq!(
+            math.blocks(),
+            &[Block::Paragraph(vec![Inline::Math {
+                source: String::new(),
+                display: true,
+            }])]
+        );
+
+        let mut normal_code = Parser::new();
+        normal_code.append("`");
+        normal_code.append("body");
+        let close = normal_code.append("`");
+        assert!(matches!(close.ops.first(), Some(Op::Truncate { from: 0 })));
+        let mut whole_code = Parser::new();
+        whole_code.append("`body`");
+        assert_eq!(normal_code.blocks(), whole_code.blocks());
+
+        let mut normal_math = Parser::new();
+        normal_math.append("$");
+        normal_math.append("x+1");
+        let close = normal_math.append("$");
+        assert!(matches!(close.ops.first(), Some(Op::Truncate { from: 0 })));
+        let mut whole_math = Parser::new();
+        whole_math.append("$x+1$");
+        assert_eq!(normal_math.blocks(), whole_math.blocks());
+
+        let mut escaped = Parser::new();
+        escaped.append("\\`");
+        let fallback = escaped.append("`");
+        assert!(matches!(
+            fallback.ops.first(),
+            Some(Op::Truncate { from: 0 })
+        ));
+        let mut whole = Parser::new();
+        whole.append("\\``");
+        assert_eq!(escaped.blocks(), whole.blocks());
+    }
+
+    #[test]
     fn inert_closer_runs_append_until_a_real_opener_exists() {
         let mut parser = Parser::new();
         parser.append("]");
@@ -1453,6 +1752,16 @@ $$
                         panic!("not code")
                     };
                     *closed = true;
+                }
+                Op::SpliceInlineTail {
+                    block,
+                    truncate_bytes,
+                    append,
+                } => {
+                    let Block::Paragraph(nodes) = &mut document[*block as usize] else {
+                        panic!("not paragraph")
+                    };
+                    splice_inline_tail(nodes, *truncate_bytes as usize, append);
                 }
                 Op::SpliceCode {
                     block,

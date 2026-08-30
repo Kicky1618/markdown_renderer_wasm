@@ -12,6 +12,7 @@ count.
 | `SealCode` | 4 | block index |
 | `AppendText` | 5 | paragraph block index, appended UTF-8 string |
 | `AppendInlineText` | 6 | paragraph block index, appended UTF-8 string |
+| `SpliceInlineTail` | 7 | paragraph block index, UTF-8 bytes removed from final Text, replacement inline vector |
 
 Block tags are paragraph (1), heading (2), fenced code (3), quote (4),
 unordered list (5), ordered list (6), thematic break (7), and table (8). Inline tags are
@@ -28,8 +29,11 @@ is a fast path for a live paragraph whose AST is exactly one `Text` node; it
 avoids reparsing and retransmitting the already-generated paragraph prefix.
 `AppendInlineText` extends the same idea to a live paragraph that already contains
 formatted inline nodes: it appends to the final `Text` node, or creates one when
-the current inline tail is non-text. Syntax-sensitive delimiters always fall back
-to suffix reparsing.
+the current inline tail is non-text. `SpliceInlineTail` removes a UTF-8 suffix from
+the final `Text` inline (dropping that node when it becomes empty) and appends a
+small inline vector. This lets a streamed delimiter run become `Code` or `Math`
+without retransmitting the whole paragraph. Consumers should coalesce adjacent
+`Text` nodes while applying the replacement.
 
 ## LLM extensions and wire compatibility
 

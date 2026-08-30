@@ -76,6 +76,30 @@ assert.deepEqual(apiParser.getCitations(), [{ block: 0, source: "doc-42", label:
 assert.ok(apiParser.getLinks().some((link) => link.destination === "llm:artifact:plot-1"));
 
 apiParser.reset();
+apiParser.append("`");
+const inlineSplice = apiParser.append("`");
+assert.deepEqual(inlineSplice, [{
+  op: "spliceInlineTail",
+  block: 0,
+  truncateBytes: 1,
+  append: [{ type: "code", value: "" }],
+}]);
+assert.deepEqual(apiParser.document[0].children, [{ type: "code", value: "" }]);
+
+apiParser.reset();
+apiParser.append("$");
+apiParser.append("$");
+apiParser.append("$");
+const mathSplice = apiParser.append("$");
+assert.deepEqual(mathSplice, [{
+  op: "spliceInlineTail",
+  block: 0,
+  truncateBytes: 3,
+  append: [{ type: "math", display: true, value: "" }],
+}]);
+assert.deepEqual(apiParser.document[0].children, [{ type: "math", display: true, value: "" }]);
+
+apiParser.reset();
 apiParser.append("Answer with **important** context: ");
 const inlineTailOps = apiParser.append("token ");
 assert.deepEqual(inlineTailOps, [{ op: "appendInlineText", block: 0, append: "token " }]);

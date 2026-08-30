@@ -85,6 +85,27 @@ fn inline_tail_fast_path_respects_escape_and_link_completion() {
 }
 
 #[test]
+fn delimiter_run_periods_match_whole_parse_exhaustively() {
+    for delimiter in ['`', '$'] {
+        for length in 1..=128 {
+            let markdown = format!("prefix {}", delimiter.to_string().repeat(length));
+            let expected = parse_whole(&markdown);
+            let actual = parse_chunks((0..markdown.len()).map(|index| &markdown[index..index + 1]));
+            assert_eq!(actual, expected, "delimiter={delimiter:?} length={length}");
+        }
+    }
+}
+
+#[test]
+fn delimiter_run_splice_is_byte_stream_independent() {
+    let markdown = "prefix ```` $$$$$$$$ suffix";
+    let expected = parse_whole(markdown);
+    let actual = parse_chunks((0..markdown.len()).map(|index| &markdown[index..index + 1]));
+    assert_eq!(actual, expected);
+    assert_every_single_split("escaped \\`` and \\$$$$ stay literal");
+}
+
+#[test]
 fn inert_closer_fast_path_is_chunk_boundary_independent() {
     assert_every_single_split("]]]))) prefix [x](https://example.test) suffix ))]");
 }
@@ -150,6 +171,33 @@ fn apply(document: &mut Vec<Block>, delta: &Delta) {
                     text.push_str(append);
                 } else {
                     nodes.push(Inline::Text(append.clone()));
+                }
+            }
+            Op::SpliceInlineTail {
+                block,
+                truncate_bytes,
+                append,
+            } => {
+                let Block::Paragraph(nodes) = &mut document[*block as usize] else {
+                    panic!("SpliceInlineTail target is not paragraph")
+                };
+                if *truncate_bytes != 0 {
+                    let Some(Inline::Text(text)) = nodes.last_mut() else {
+                        panic!("SpliceInlineTail target has no trailing text")
+                    };
+                    text.truncate(text.len() - *truncate_bytes as usize);
+                    if text.is_empty() {
+                        nodes.pop();
+                    }
+                }
+                for incoming in append {
+                    if let Inline::Text(value) = incoming
+                        && let Some(Inline::Text(text)) = nodes.last_mut()
+                    {
+                        text.push_str(value);
+                    } else {
+                        nodes.push(incoming.clone());
+                    }
                 }
             }
         }

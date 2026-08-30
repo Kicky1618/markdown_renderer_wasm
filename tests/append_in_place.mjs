@@ -40,6 +40,16 @@ assert.deepEqual(inPlace.document, regular.document);
 regular.dispose();
 inPlace.dispose();
 
+const regularDelimiters = await Streamdown.load(wasm);
+const inPlaceDelimiters = await Streamdown.load(wasm);
+for (const chunk of ["`", "`", "$", "$", "$", "$", "`", "`"]) {
+  regularDelimiters.append(chunk);
+  inPlaceDelimiters.appendInPlace(chunk);
+  assert.deepEqual(inPlaceDelimiters.document, regularDelimiters.document);
+}
+regularDelimiters.dispose();
+inPlaceDelimiters.dispose();
+
 const consumed = await Streamdown.load(wasm);
 await consumed.consume(["Answer **now**: ", "token ", "token ", "日本語"], { finalize: true });
 assert.equal(consumed.toPlainText(), "Answer now: token token 日本語");
