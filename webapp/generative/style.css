@@ -101,6 +101,12 @@ button.primary:hover { background: #84ebdc; }
 .review-metrics { display: flex; flex-wrap: wrap; gap: 7px 12px; margin-top: 7px; color: #a99167; font-size: 10px; }
 .review-metrics b { color: #f0d8aa; }
 .review-details { margin: 5px 0 0; color: #b6a17d; font: 10px/1.45 ui-monospace, monospace; overflow-wrap: anywhere; }
+.review-diff {
+  margin: 7px 0 0; padding: 0; list-style: none; display: grid; gap: 3px;
+  color: #d8c6a8; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.review-diff li { overflow-wrap: anywhere; }
+.review-diff:empty { display: none; }
 
 .history-controls { display: flex; align-items: center; gap: 7px; }
 .history-controls button {

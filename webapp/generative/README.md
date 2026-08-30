@@ -165,7 +165,7 @@ Preview右上の `Review effects` を有効にすると、`action=llm:` の応�
 
 `Review effects` は既定でONです。ただし応答に有効な `type=state` / `type=patch` が無ければReview画面で停止せず、そのまま通常のMarkdown/新規UI responseとして完了します。自動commitが必要な場合だけユーザーが明示的にOFFへ切り替えます。
 
-Review panelはApply前に、機密風state名を除外した `state` 変更キー、`type=patch` のtarget、追加UI数、semantic block数を要約します。例: `2 state / 1 patch / 1 new UI · state: temperature, mode · patched: throughput`。要約はモデル応答中のsemantic fenceだけから作り、DOMやcredential値は読みません。
+Review panelはApply前に、機密風state名を除外した `state` 変更キー、`type=patch` のtarget、追加UI数、semantic block数を要約します。 さらに現在値とのsemantic差分も表示し、例として `temperature: 42 → 58` や `throughput.value: 2.4M → 3.1M` をApply前に確認できます。差分は今回のresponse開始block以降だけを対象にし、過去responseのpatchを混ぜません。例: `2 state / 1 patch / 1 new UI · state: temperature, mode · patched: throughput`。要約はモデル応答中のsemantic fenceだけから作り、DOMやcredential値は読みません。
 
 保留中は次のLLM round tripとUndo/Redoをロックします。Applyした応答だけがmodel historyへcommitされ、Rejectはhistoryを増やしません。通信が途中で失敗・中断した場合もsemantic barrierをcommitせず、不完全なモデル応答を応答前snapshotへ戻します。実Chrome smokeでは `42°C / original component` のstaging状態からApplyで `58°C / patched component`、その後もう一度stageしてRejectで `42°C / original component` に戻る一連を検証しています。
 

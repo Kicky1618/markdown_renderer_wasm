@@ -12,6 +12,7 @@ import { buildInteractionPrompt, buildLlmRequest, GENERATIVE_UI_SYSTEM_PROMPT, s
 import { statePatch, statePatchSignature } from "./state_patch.js";
 import { componentPatch, componentPatchSignature, mergeComponentPatches } from "./component_patch.js";
 import { summarizeModelCommit, summarizeStagedEffects } from "./commit_summary.js";
+import { buildReviewDiff, formatReviewValue } from "./review_diff.js";
 import { ResponseBudget, ResponseBudgetError } from "./response_budget.js";
 import { auditUiConfig, parseSafeAction, summarizePolicy } from "./policy.js";
 
@@ -259,6 +260,26 @@ assert.deepEqual(stagedSummary.patchTargets, ["throughput"]);
 assert.equal(stagedSummary.patchCount, 1);
 assert.equal(stagedSummary.newUiBlocks, 1);
 assert.equal(stagedSummary.semanticBlocks, 3);
+
+const reviewDiff = buildReviewDiff({
+  state: new Map([["temperature", 42], ["mode", "fast"]]),
+  components: new Map([["throughput", { label: "Current throughput", value: "2.4M", trend: "incremental AST" }]]),
+  statePatches: [[ ["temperature", 58], ["mode", "exact"], ["api_token", "must-not-display"] ]],
+  componentPatches: [{ target: "throughput", values: { label: "Model-updated throughput", value: "3.1M", trend: "patched safely" } }],
+});
+assert.deepEqual(reviewDiff.stateChanges, [
+  { key: "temperature", from: 42, to: 58 },
+  { key: "mode", from: "fast", to: "exact" },
+]);
+assert.deepEqual(reviewDiff.componentChanges, [
+  { target: "throughput", field: "label", from: "Current throughput", to: "Model-updated throughput" },
+  { target: "throughput", field: "value", from: "2.4M", to: "3.1M" },
+  { target: "throughput", field: "trend", from: "incremental AST", to: "patched safely" },
+]);
+assert.equal(reviewDiff.total, 5);
+assert.equal(formatReviewValue(undefined), "∅");
+assert.equal(formatReviewValue(null), "null");
+assert.equal(formatReviewValue(""), '""');
 
 const budget = new ResponseBudget({ maxChars: 4096, maxChunks: 8, maxSemanticBlocks: 2 });
 budget.push("prefix :::ll");

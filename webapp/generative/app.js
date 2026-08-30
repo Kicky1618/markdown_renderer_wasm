@@ -11,6 +11,7 @@ import { statePatch, statePatchSignature } from "./state_patch.js";
 import { componentPatch, componentPatchSignature, mergeComponentPatches } from "./component_patch.js";
 import { parseSafeAction, summarizePolicy } from "./policy.js";
 import { summarizeModelCommit, summarizeStagedEffects } from "./commit_summary.js";
+import { buildReviewDiff, formatReviewValue } from "./review_diff.js";
 import { ResponseBudget } from "./response_budget.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
@@ -177,6 +178,7 @@ const reviewStateCount = document.querySelector("#review-state");
 const reviewPatchCount = document.querySelector("#review-patches");
 const reviewUiCount = document.querySelector("#review-ui");
 const reviewDetails = document.querySelector("#review-details");
+const reviewDiff = document.querySelector("#review-diff");
 const modelCommit = document.querySelector("#model-commit");
 const commitTitle = document.querySelector("#commit-title");
 const commitSource = document.querySelector("#commit-source");
@@ -272,23 +274,66 @@ function renderCommitSummary(summary, status = "applied") {
   commitDetails.textContent = details.join(" · ");
 }
 
+function stagedReviewDiff() {
+  const startBlock = Math.max(0, Number(pendingModelReview?.startBlock) || 0);
+  const components = new Map();
+  for (const block of parser?.document || []) {
+    const config = effectiveUiConfig(block);
+    if (!config?.id || config.type === "patch" || config.type === "state") continue;
+    components.set(config.id, config);
+  }
+  const statePatches = [];
+  const componentPatches = [];
+  for (let index = startBlock; index < (parser?.document?.length || 0); index++) {
+    const block = parser.document[index];
+    if (!block?.closed) continue;
+    const config = uiConfig(block);
+    if (config?.type === "state") {
+      const patch = statePatch(config);
+      if (patch.length) statePatches.push(patch);
+    } else if (config?.type === "patch") {
+      const patch = componentPatch(config);
+      if (patch) componentPatches.push(patch);
+    }
+  }
+  return buildReviewDiff({ state, components, statePatches, componentPatches });
+}
+
 function renderPendingReviewSummary() {
+  reviewDiff.replaceChildren();
   if (!pendingModelReview || !semanticReviewPending) {
     reviewStateCount.textContent = "0";
     reviewPatchCount.textContent = "0";
     reviewUiCount.textContent = "0";
     reviewDetails.textContent = "";
+    reviewDiff.dataset.changes = "0";
     return;
   }
   const summary = summarizeStagedEffects(pendingModelReview.meta?.responseText || "");
+  const diff = stagedReviewDiff();
   reviewStateCount.textContent = String(summary.stateCount);
   reviewPatchCount.textContent = String(summary.patchCount);
   reviewUiCount.textContent = String(summary.newUiBlocks);
+  reviewDiff.dataset.changes = String(diff.total);
   const details = [];
   if (summary.stateKeys.length) details.push(`state: ${summary.stateKeys.join(", ")}`);
   if (summary.patchTargets.length) details.push(`patched: ${summary.patchTargets.join(", ")}`);
   details.push(`${summary.semanticBlocks} semantic block${summary.semanticBlocks === 1 ? "" : "s"}`);
   reviewDetails.textContent = details.join(" · ");
+  const rows = [
+    ...diff.stateChanges.map(change => `state ${change.key}: ${formatReviewValue(change.from)} → ${formatReviewValue(change.to)}`),
+    ...diff.componentChanges.map(change => `${change.target}.${change.field}: ${formatReviewValue(change.from)} → ${formatReviewValue(change.to)}`),
+  ].slice(0, 12);
+  for (const text of rows) {
+    const item = document.createElement("li");
+    item.textContent = text;
+    reviewDiff.append(item);
+  }
+  if (diff.truncated) {
+    const item = document.createElement("li");
+    item.textContent = "Additional staged changes omitted from preview.";
+    reviewDiff.append(item);
+  }
 }
 
 function updateReviewControls() {
@@ -748,6 +793,7 @@ async function runLlmInteraction(instruction) {
     model: streamModel.value,
   });
   const historyBefore = runtimeHistorySnapshot();
+  const responseStartBlock = parser.blockCount;
 
   cancelStreaming();
   beginInputSession(generatedUiCount());
@@ -788,7 +834,7 @@ async function runLlmInteraction(instruction) {
     source.value += prefix + received;
     const meta = { responseText: received, format: result.format, chunks: result.chunks, firstUiMs: firstUiAt };
     if (responseNeedsHumanReview(received)) {
-      pendingModelReview = { before: historyBefore, meta };
+      pendingModelReview = { before: historyBefore, meta, startBlock: responseStartBlock };
       endSemanticCommitBarrier({ review: true });
       setRuntimeState("REVIEW");
       deltaStatus.textContent = `LLM ${result.format.toUpperCase()} staged · review state/patch effects`;
@@ -1717,6 +1763,7 @@ remoteForm.addEventListener("submit", async event => {
   const historyBefore = runtimeHistorySnapshot();
   cancelStreaming();
   resetRuntime();
+  const responseStartBlock = parser.blockCount;
   const controller = new AbortController();
   remoteController = controller;
   updateHistoryControls();
@@ -1759,7 +1806,7 @@ remoteForm.addEventListener("submit", async event => {
     source.value = received;
     const meta = { responseText: received, format: result.format, chunks: result.chunks, firstUiMs: firstUiAt };
     if (responseNeedsHumanReview(received)) {
-      pendingModelReview = { before: historyBefore, meta };
+      pendingModelReview = { before: historyBefore, meta, startBlock: responseStartBlock };
       endSemanticCommitBarrier({ review: true });
       setRuntimeState("REVIEW");
       deltaStatus.textContent = `${result.format.toUpperCase()} staged · review state/patch effects`;
@@ -1922,6 +1969,12 @@ async function runReviewSmoke() {
     const slider = preview.querySelector('input[data-state-input="temperature"]');
     const throughput = preview.querySelector('[data-ui-id="throughput"]');
     const result = preview.querySelector('[data-ui-id="interaction-result"]');
+    const diffPreviewPassed = reviewDiff.dataset.changes === "5"
+      && reviewDiff.textContent.includes("state temperature: 42 → 58")
+      && reviewDiff.textContent.includes("state mode: fast → exact")
+      && reviewDiff.textContent.includes("throughput.value: 2.4M → 3.1M")
+      && !reviewDiff.textContent.toLowerCase().includes("api_token");
+    root.dataset.reviewDiffSmoke = diffPreviewPassed ? "pass" : "fail";
     return root.dataset.semanticCommit === "review"
       && semanticReview.hidden === false
       && reviewStateCount.textContent === "2"
@@ -1929,6 +1982,7 @@ async function runReviewSmoke() {
       && reviewUiCount.textContent === "1"
       && reviewDetails.textContent.includes("state: temperature, mode")
       && reviewDetails.textContent.includes("patched: throughput")
+      && diffPreviewPassed
       && !reviewDetails.textContent.toLowerCase().includes("api_token")
       && slider?.value === "42"
       && throughput?.querySelector("h3")?.textContent?.trim() === "Current throughput"
