@@ -5,7 +5,6 @@ import json
 import mimetypes
 import pathlib
 import socketserver
-import time
 from http.server import BaseHTTPRequestHandler
 
 WEBAPP = pathlib.Path(__file__).resolve().parents[2]
@@ -67,6 +66,10 @@ class Handler(BaseHTTPRequestHandler):
                 common
                 and "Use the current state to append one compact recommendation card" in user
                 and '"temperature":42' in user
+                and "Current generated UI components" in user
+                and '"type":"slider"' in user
+                and '"id":"temp"' in user
+                and '"id":"ask-model"' in user
                 and "password" not in user.lower()
                 and "api_token" not in user.lower()
             )
@@ -99,7 +102,6 @@ class Handler(BaseHTTPRequestHandler):
             event = "data: " + json.dumps({"choices": [{"delta": {"content": text}}]}) + "\n\n"
             self.wfile.write(event.encode())
             self.wfile.flush()
-            time.sleep(0.01)
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
         self.close_connection = True

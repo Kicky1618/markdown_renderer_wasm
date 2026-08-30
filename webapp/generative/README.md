@@ -87,6 +87,8 @@ This only runs after a user click/submit. The generated Markdown cannot choose t
 
 Only a bounded state snapshot is sent: at most 64 primitive values (`string`/finite `number`/`boolean`/`null`), strings are capped at 512 characters, and keys resembling passwords, secrets, tokens, API keys, credentials, or auth values are omitted. Objects/arrays are not serialized.
 
+For stateless proxies, the interaction prompt also contains a bounded semantic inventory of the current generated UI (up to 64 components). Only whitelisted descriptor fields such as `type`, `id`, `label`, `title`, `state`, `tab`, `when`, and `unit` are included. Component bodies, `action` strings, arbitrary attributes, and sensitive-looking state names are not included. This gives the model enough structure to extend the existing screen without retransmitting raw DOM or executable content.
+
 The browser smoke covers the complete interaction path:
 
 ```text

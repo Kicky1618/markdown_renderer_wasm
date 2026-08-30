@@ -8,7 +8,7 @@ import { tabFor, tabsSpec } from "./tabs.js";
 import { formSpec } from "./form.js";
 import { layoutGraph, parseGraph } from "./graph.js";
 import { consumeHttpResponse, decodeNdjsonLine, decodeSseEvent, extractDeltaText } from "./stream.js";
-import { buildInteractionPrompt, buildLlmRequest, GENERATIVE_UI_SYSTEM_PROMPT, snapshotUiState } from "./llm_request.js";
+import { buildInteractionPrompt, buildLlmRequest, GENERATIVE_UI_SYSTEM_PROMPT, snapshotUiComponents, snapshotUiState } from "./llm_request.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
   id: "",
@@ -123,10 +123,27 @@ const interactionState = new Map([
   ["nested", { unsafe: true }],
 ]);
 assert.deepEqual({ ...snapshotUiState(interactionState) }, { temperature: 65, mode: "safe" });
-const interactionPrompt = buildInteractionPrompt({ instruction: "Refine the dashboard", state: interactionState });
+const componentSnapshot = snapshotUiComponents([
+  { type: "slider", id: "temp", state: "temperature", label: "Temperature", action: "ignored" },
+  { type: "input", id: "secret", state: "api_token", label: "Token", body: "ignored" },
+  { type: "button", id: "refine", label: "Refine", when: "temperature >= 40" },
+]);
+assert.deepEqual(componentSnapshot.map(item => ({ ...item })), [
+  { type: "slider", id: "temp", label: "Temperature", state: "temperature" },
+  { type: "input", id: "secret", label: "Token" },
+  { type: "button", id: "refine", label: "Refine", when: "temperature >= 40" },
+]);
+assert.ok(componentSnapshot.every(item => !("action" in item) && !("body" in item)));
+const interactionPrompt = buildInteractionPrompt({
+  instruction: "Refine the dashboard",
+  state: interactionState,
+  components: componentSnapshot,
+});
 assert.match(interactionPrompt, /Refine the dashboard/);
 assert.match(interactionPrompt, /"temperature":65/);
-assert.doesNotMatch(interactionPrompt, /do-not-send|also-do-not-send/);
+assert.match(interactionPrompt, /"type":"slider"/);
+assert.match(interactionPrompt, /"id":"temp"/);
+assert.doesNotMatch(interactionPrompt, /do-not-send|also-do-not-send|ignored/);
 assert.match(GENERATIVE_UI_SYSTEM_PROMPT, /action=llm:/);
 
 const wasm = await fs.readFile(new URL("./streamdown.wasm", import.meta.url));

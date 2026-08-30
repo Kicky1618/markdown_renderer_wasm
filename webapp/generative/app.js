@@ -502,6 +502,23 @@ function renderInvisibleMarker(kind) {
   return marker;
 }
 
+function currentUiContext() {
+  return (parser?.document || []).flatMap(block => {
+    const config = uiConfig(block);
+    if (!config?.type) return [];
+    return [{
+      type: config.type,
+      id: config.id,
+      label: config.label,
+      title: config.title,
+      state: config.state,
+      tab: config.tab,
+      when: config.when,
+      unit: config.unit,
+    }];
+  });
+}
+
 async function runLlmInteraction(instruction) {
   if (remoteController) throw new Error("another remote stream is already active");
   if (requestProtocol.value === "get") throw new Error("action=llm requires a POST proxy protocol");
@@ -518,7 +535,11 @@ async function runLlmInteraction(instruction) {
   const accept = requested === "sse" ? "text/event-stream"
     : requested === "ndjson" ? "application/x-ndjson"
     : "text/plain, text/event-stream, application/x-ndjson;q=0.9, */*;q=0.5";
-  const prompt = buildInteractionPrompt({ instruction, state });
+  const prompt = buildInteractionPrompt({
+    instruction,
+    state,
+    components: currentUiContext(),
+  });
   const request = buildLlmRequest({
     protocol: requestProtocol.value,
     prompt,

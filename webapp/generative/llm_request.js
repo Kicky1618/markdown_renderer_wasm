@@ -54,10 +54,34 @@ export function snapshotUiState(state, maxEntries = 64) {
   return snapshot;
 }
 
-export function buildInteractionPrompt({ instruction = "", state } = {}) {
+const COMPONENT_FIELDS = ["type", "id", "label", "title", "state", "tab", "when", "unit"];
+
+/** Bounded semantic inventory of the UI; never includes component bodies or actions. */
+export function snapshotUiComponents(components, maxEntries = 64) {
+  if (!components || typeof components[Symbol.iterator] !== "function") return [];
+  const limit = Math.max(0, Math.min(64, Number(maxEntries) || 64));
+  const result = [];
+  for (const component of components) {
+    if (result.length >= limit) break;
+    if (!component || typeof component !== "object") continue;
+    const entry = Object.create(null);
+    for (const field of COMPONENT_FIELDS) {
+      const raw = component[field];
+      if (raw === undefined || raw === null || raw === "") continue;
+      if (field === "state" && SENSITIVE_KEY.test(String(raw))) continue;
+      const value = String(raw).trim().slice(0, field === "when" ? 240 : 160);
+      if (value) entry[field] = value;
+    }
+    if (entry.type) result.push(entry);
+  }
+  return result;
+}
+
+export function buildInteractionPrompt({ instruction = "", state, components = [] } = {}) {
   const task = clean(instruction || "Continue the application using the latest UI state.", 2000);
-  const snapshot = snapshotUiState(state);
-  return `The user explicitly activated an interactive control in the current Streamdown application.\n\nRequested continuation:\n${task}\n\nCurrent local UI state (bounded JSON; sensitive-looking keys are omitted):\n${JSON.stringify(snapshot)}\n\nAppend a concise Markdown continuation that updates or extends the application. Use only the safe Streamdown Generative UI syntax from the system instructions. Do not emit JavaScript or HTML. Do not ask for or expose credentials.`;
+  const stateSnapshot = snapshotUiState(state);
+  const componentSnapshot = snapshotUiComponents(components);
+  return `The user explicitly activated an interactive control in the current Streamdown application.\n\nRequested continuation:\n${task}\n\nCurrent local UI state (bounded JSON; sensitive-looking keys are omitted):\n${JSON.stringify(stateSnapshot)}\n\nCurrent generated UI components (bounded semantic inventory; no bodies/actions/credentials):\n${JSON.stringify(componentSnapshot)}\n\nAppend a concise Markdown continuation that updates or extends the application. Use only the safe Streamdown Generative UI syntax from the system instructions. Do not emit JavaScript or HTML. Do not ask for or expose credentials.`;
 }
 
 export function buildLlmRequest({ protocol = "get", prompt = "", model = "" } = {}) {
