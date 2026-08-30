@@ -260,6 +260,15 @@ await fs.writeFile("run.ndjson", journal.toNDJSON());
 
 `verify()` checks global entry ordering, monotonic state revisions, scheduler sequence ordering, and consistency between state changes and completed state/patch runner results. `replayState()` reconstructs final state/revisions from journal entries only. Non-JSON tool results are marked `resultOmitted` instead of breaking journal recording.
 
+For long-lived sessions, `createSemanticJournalHooks()` can reduce persisted scheduler detail without changing downstream callbacks. The default `scheduler: "all"` records every transition. `scheduler: "terminal"` keeps only `completed` / `failed` / `blocked`, while `scheduler: "none"` stores state revisions only and remains sufficient for deterministic state replay.
+
+```js
+const compactHooks = createSemanticJournalHooks(journal, { scheduler: "terminal" });
+const replayOnlyHooks = createSemanticJournalHooks(journal, { scheduler: "none" });
+```
+
+A synthetic 50k-update benchmark can be reproduced with `node tools/semantic-journal-bench.mjs`. On the development host, full journaling used about 713 bytes/update, terminal-only about 342 bytes/update, and state-only about 168 bytes/update. These entries are emitted on semantic transitions, not on ordinary LLM token appends.
+
 ```sh
 node tools/semantic-replay.mjs run.ndjson
 node tools/semantic-replay.mjs run.ndjson --state-only

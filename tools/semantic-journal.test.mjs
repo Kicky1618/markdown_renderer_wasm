@@ -51,4 +51,24 @@ assert.doesNotThrow(() => nonJson.toNDJSON());
 
 assert.throws(() => SemanticJournal.fromNDJSON('{"seq":1}\n{bad}\n'), /line 2/);
 
+const terminalJournal = new SemanticJournal();
+const terminalObserved = [];
+const terminalHooks = createSemanticJournalHooks(terminalJournal, {
+  scheduler: "terminal",
+  onTransition: (entry) => terminalObserved.push(entry.status),
+});
+for (const [sequence, status] of ["ready", "queued", "running", "completed"].entries()) {
+  terminalHooks.onTransition({ key: "tool:t", status, sequence: sequence + 1 });
+}
+assert.deepEqual(terminalObserved, ["ready", "queued", "running", "completed"]);
+assert.deepEqual(terminalJournal.snapshot().map((entry) => entry.status), ["completed"]);
+
+const stateOnlyJournal = new SemanticJournal();
+const stateOnlyHooks = createSemanticJournalHooks(stateOnlyJournal, { scheduler: "none" });
+stateOnlyHooks.onTransition({ key: "state:compact", status: "completed", sequence: 1, result: { n: 1 } });
+stateOnlyHooks.onStateChange({ key: "state:compact", revision: 1, type: "initialize", node: "state:compact", value: { n: 1 } });
+assert.deepEqual(stateOnlyJournal.snapshot().map((entry) => entry.type), ["state"]);
+assert.deepEqual(stateOnlyJournal.replayState(), { values: { "state:compact": { n: 1 } }, revisions: { "state:compact": 1 } });
+assert.throws(() => createSemanticJournalHooks(new SemanticJournal(), { scheduler: "verbose" }), /journal mode/);
+
 console.log("semantic journal: ok");

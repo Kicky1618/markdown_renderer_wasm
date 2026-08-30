@@ -171,14 +171,29 @@ export class SemanticJournal {
 }
 
 /** Compose journal recording with optional existing callbacks. */
+const JOURNAL_SCHEDULER_MODES = new Set(["all", "terminal", "none"]);
+const TERMINAL_SCHEDULER_STATUSES = new Set(["completed", "failed", "blocked"]);
+
+/** Compose journal recording with optional existing callbacks.
+ *
+ * `scheduler` controls only persisted scheduler entries; callbacks still see
+ * every transition. `terminal` keeps completed/failed/blocked outcomes while
+ * `none` produces a compact state-replay journal containing state changes only.
+ */
 export function createSemanticJournalHooks(journal, {
   onTransition = null,
   onStateChange = null,
+  scheduler = "all",
 } = {}) {
   assertJournal(journal);
+  if (!JOURNAL_SCHEDULER_MODES.has(scheduler)) {
+    throw new TypeError(`scheduler journal mode must be "all", "terminal", or "none", got ${JSON.stringify(scheduler)}`);
+  }
   return {
     onTransition(transition) {
-      journal.recordSchedulerTransition(transition);
+      if (scheduler === "all" || (scheduler === "terminal" && TERMINAL_SCHEDULER_STATUSES.has(transition?.status))) {
+        journal.recordSchedulerTransition(transition);
+      }
       onTransition?.(transition);
     },
     onStateChange(change) {
