@@ -18,6 +18,7 @@ fn main() {
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(20_000usize);
+    run("plain text", "token abcdef 12345. ".repeat(n / 20));
     run("unclosed brackets", "[".repeat(n));
     run("broken destinations", "[x](".repeat(n / 4));
     let mut late_broken = "[".repeat(n);

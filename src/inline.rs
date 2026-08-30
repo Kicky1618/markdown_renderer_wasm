@@ -2,6 +2,17 @@ use crate::parser::Inline;
 
 /// Deliberately single-pass and bounded: malformed delimiters never backtrack.
 pub(crate) fn parse_inlines(source: &str) -> Vec<Inline> {
+    // The overwhelmingly common LLM tail is ordinary text. Avoid the
+    // character-by-character staging buffer when no inline construct can
+    // possibly start in this slice; one scan plus one owned copy is enough.
+    if !source.bytes().any(is_inline_syntax_byte) {
+        return if source.is_empty() {
+            Vec::new()
+        } else {
+            vec![Inline::Text(source.to_owned())]
+        };
+    }
+
     let mut out = Vec::new();
     let mut plain = String::new();
     let mut i = 0;
@@ -189,6 +200,13 @@ fn flush(plain: &mut String, out: &mut Vec<Inline>) {
     }
 }
 
+fn is_inline_syntax_byte(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'\\' | b'$' | b'\n' | b'`' | b'*' | b'_' | b'[' | b'@'
+    )
+}
+
 fn is_punctuation(b: u8) -> bool {
     matches!(b, b'!'..=b'/' | b':'..=b'@' | b'['..=b'`' | b'{'..=b'~')
 }
@@ -271,6 +289,12 @@ fn valid_reference_atom(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plain_fast_path_preserves_unicode_and_punctuation() {
+        let source = "日本語 plain text: hello, world! (42) ] } > + -";
+        assert_eq!(parse_inlines(source), vec![Inline::Text(source.to_owned())]);
+    }
 
     #[test]
     fn llm_citation_reuses_link_ast() {
