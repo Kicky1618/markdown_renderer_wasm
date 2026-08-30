@@ -62,7 +62,7 @@ fn quote_hard_break_boundary_falls_back_to_reparse() {
 }
 
 #[test]
-fn empty_or_formatted_quote_boundaries_fall_back_safely() {
+fn empty_or_ambiguous_quote_boundaries_fall_back_safely() {
     let mut empty = Parser::new();
     empty.append("> seed\n");
     assert!(empty.append(">\n").ops.is_empty());
@@ -79,6 +79,6 @@ fn empty_or_formatted_quote_boundaries_fall_back_safely() {
     let mut current = Parser::new();
     current.append("> seed\n");
     let delta = current.append("> **bold**\n");
-    assert!(matches!(delta.ops.first(), Some(Op::Truncate { from: 0 })));
+    assert!(matches!(delta.ops.as_slice(), [Op::SpliceQuoteTail { .. }]));
     assert_eq!(current.blocks(), whole("> seed\n> **bold**\n"));
 }

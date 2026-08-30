@@ -206,6 +206,7 @@ pub struct Parser {
     has_live: bool,
     live_plain: bool,
     live_inline_appendable: bool,
+    live_quote_ambiguous: bool,
     trailing_backslash_odd: bool,
     trailing_backtick_mod2: u8,
     trailing_backtick_fast: bool,
@@ -246,6 +247,7 @@ impl Parser {
             has_live: false,
             live_plain: false,
             live_inline_appendable: false,
+            live_quote_ambiguous: false,
             trailing_backslash_odd: false,
             trailing_backtick_mod2: 0,
             trailing_backtick_fast: true,
@@ -310,6 +312,7 @@ impl Parser {
                 self.has_live = false;
                 self.live_plain = false;
                 self.live_inline_appendable = false;
+                self.live_quote_ambiguous = false;
                 self.trailing_backslash_odd = false;
                 self.reset_delimiter_runs();
                 self.live_special_bracket = SpecialBracketKind::None;
@@ -744,49 +747,12 @@ impl Parser {
         let Some(block_index) = self.blocks.len().checked_sub(1) else {
             return false;
         };
+        if self.try_append_complete_quote_line(block_index, input, delta) {
+            return true;
+        }
         let Some(Block::BlockQuote(nodes)) = self.blocks.get_mut(block_index) else {
             return false;
         };
-
-        if self.line.is_empty() {
-            let (raw, sealed) = if let Some(raw) = input.strip_suffix('\n') {
-                if raw.contains('\n') {
-                    return false;
-                }
-                (raw, true)
-            } else {
-                if input.contains('\n') {
-                    return false;
-                }
-                (input, false)
-            };
-            if classify(raw) == PendingKind::Quote {
-                let body = quote_line_body(raw);
-                if !body.bytes().all(is_plain_stream_byte) {
-                    return false;
-                }
-                if !body.is_empty() {
-                    if !quote_previous_line_can_append_break(&self.pending) {
-                        return false;
-                    }
-                    let append = vec![Inline::SoftBreak, Inline::Text(body.to_owned())];
-                    splice_inline_tail(nodes, 0, 0, &append);
-                    delta.ops.push(Op::SpliceQuoteTail {
-                        block: block_index as u32,
-                        remove_nodes: 0,
-                        truncate_bytes: 0,
-                        append,
-                    });
-                }
-                if sealed {
-                    self.pending.push_str(raw);
-                    self.pending.push('\n');
-                } else {
-                    self.line.push_str(raw);
-                }
-                return true;
-            }
-        }
 
         let old_body = quote_line_body(&self.line);
         if !old_body.bytes().all(is_plain_stream_byte) {
@@ -816,13 +782,15 @@ impl Parser {
         if append_text.is_empty() {
             return true;
         }
-        if old_body_len == 0 && !quote_previous_line_can_append_break(&self.pending) {
+
+        let starts_new_line = old_body_len == 0 && !self.pending.is_empty();
+        if starts_new_line && !quote_previous_line_can_append_break(&self.pending) {
             self.line.truncate(self.line.len() - input.len());
             return false;
         }
 
         let mut append = Vec::with_capacity(2);
-        if old_body_len == 0 && !nodes.is_empty() {
+        if starts_new_line {
             append.push(Inline::SoftBreak);
         }
         append.push(Inline::Text(append_text.to_owned()));
@@ -833,6 +801,71 @@ impl Parser {
             truncate_bytes: 0,
             append,
         });
+        true
+    }
+
+    fn try_append_complete_quote_line(
+        &mut self,
+        block_index: usize,
+        input: &str,
+        delta: &mut Delta,
+    ) -> bool {
+        if !self.line.is_empty() {
+            return false;
+        }
+        let Some(raw) = input.strip_suffix('\n') else {
+            return false;
+        };
+        if raw.contains('\n') || classify(raw) != PendingKind::Quote {
+            return false;
+        }
+        let body = quote_line_body(raw);
+
+        // A new quote line can be appended locally only when the previous
+        // source line truly contributes a SoftBreak. HardBreaks, empty lines,
+        // or delimiter state that can cross the newline must fall back to a
+        // full parse before we publish any new inline nodes.
+        if !quote_previous_line_can_append_break(&self.pending) {
+            return false;
+        }
+
+        // Keep an empty quote line pending but unpublished. Whole parsing of a
+        // trailing empty quote line does not expose a SoftBreak until another
+        // line arrives, so publishing one here would break chunk equivalence.
+        if body.is_empty() {
+            self.pending.push_str(raw);
+            self.pending.push('\n');
+            return true;
+        }
+
+        let append_nodes = if body.bytes().all(is_plain_stream_byte) {
+            vec![Inline::Text(body.to_owned())]
+        } else {
+            if self.live_quote_ambiguous {
+                return false;
+            }
+            let parsed = parse_inlines(body);
+            if !quote_line_source_is_self_contained(body, &parsed) {
+                return false;
+            }
+            parsed
+        };
+
+        let Some(Block::BlockQuote(nodes)) = self.blocks.get_mut(block_index) else {
+            return false;
+        };
+        let mut append = Vec::with_capacity(1 + append_nodes.len());
+        append.push(Inline::SoftBreak);
+        append.extend(append_nodes);
+        splice_inline_tail(nodes, 0, 0, &append);
+        delta.ops.push(Op::SpliceQuoteTail {
+            block: block_index as u32,
+            remove_nodes: 0,
+            truncate_bytes: 0,
+            append,
+        });
+        self.pending.push_str(raw);
+        self.pending.push('\n');
         true
     }
 
@@ -2015,6 +2048,7 @@ impl Parser {
             self.has_live = false;
             self.live_plain = false;
             self.live_inline_appendable = false;
+            self.live_quote_ambiguous = false;
             self.trailing_backslash_odd = false;
             self.reset_delimiter_runs();
             self.live_special_bracket = SpecialBracketKind::None;
@@ -2138,6 +2172,7 @@ impl Parser {
         let mut source = self.pending.clone();
         source.push_str(&self.line);
         if source.is_empty() {
+            self.live_quote_ambiguous = false;
             self.trailing_backslash_odd = false;
             self.reset_delimiter_runs();
             self.live_special_bracket = SpecialBracketKind::None;
@@ -2153,6 +2188,7 @@ impl Parser {
         }
         if self.pending_kind.is_none() && is_thematic(&self.line) {
             self.live_plain = false;
+            self.live_quote_ambiguous = false;
             self.trailing_backslash_odd = false;
             self.reset_delimiter_runs();
             self.live_special_bracket = SpecialBracketKind::None;
@@ -2170,7 +2206,10 @@ impl Parser {
             return;
         }
         let kind = self.pending_kind.unwrap_or_else(|| classify(&self.line));
-        let block = block_from_complete(source.trim_end_matches('\n'), kind);
+        let normalized_source = source.trim_end_matches('\n');
+        let block = block_from_complete(normalized_source, kind);
+        self.live_quote_ambiguous = kind == PendingKind::Quote
+            && !quote_source_boundary_is_self_contained(normalized_source);
         let literal_link_openers = paragraph_literal_link_opener_count(&block);
         let is_paragraph = matches!(block, Block::Paragraph(_));
         let stable_single_line_paragraph = is_paragraph
@@ -3078,15 +3117,80 @@ fn quote_previous_line_can_append_break(pending: &str) -> bool {
     let source = pending.strip_suffix('\n').unwrap_or(pending);
     let previous = source.rsplit('\n').next().unwrap_or("");
     let body = quote_line_body(previous);
-    !body.is_empty()
-        && body.bytes().all(is_plain_stream_byte)
-        && body
-            .as_bytes()
-            .iter()
-            .rev()
-            .take_while(|&&byte| byte == b' ')
-            .count()
-            < 2
+    if body.is_empty() {
+        return false;
+    }
+    let trailing_spaces = body
+        .as_bytes()
+        .iter()
+        .rev()
+        .take_while(|&&byte| byte == b' ')
+        .count();
+    if trailing_spaces >= 2 {
+        return false;
+    }
+    if body.bytes().all(is_plain_stream_byte) {
+        return true;
+    }
+    let parsed = parse_inlines(body);
+    quote_line_source_is_self_contained(body, &parsed)
+}
+
+fn quote_source_boundary_is_self_contained(source: &str) -> bool {
+    let mut body = String::with_capacity(source.len());
+    for (index, line) in source.lines().enumerate() {
+        if index != 0 {
+            body.push('\n');
+        }
+        body.push_str(quote_line_body(line));
+    }
+    let parsed = parse_inlines(&body);
+    quote_line_source_is_self_contained(&body, &parsed)
+}
+
+fn quote_line_source_is_self_contained(source: &str, nodes: &[Inline]) -> bool {
+    quote_line_inlines_are_self_contained(nodes)
+        && quote_emphasis_runs_are_self_contained(source, b'*')
+        && quote_emphasis_runs_are_self_contained(source, b'_')
+}
+
+fn quote_line_inlines_are_self_contained(nodes: &[Inline]) -> bool {
+    nodes.iter().all(|node| match node {
+        // A syntax byte that survives as top-level text may still pair with a
+        // delimiter on the next quote line. Structured nodes closed locally.
+        Inline::Text(text) => text.bytes().all(is_plain_stream_byte),
+        _ => true,
+    })
+}
+
+fn quote_emphasis_runs_are_self_contained(source: &str, delimiter: u8) -> bool {
+    let bytes = source.as_bytes();
+    let mut stack = Vec::with_capacity(4);
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != delimiter {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < bytes.len() && bytes[i] == delimiter {
+            i += 1;
+        }
+        let run = i - start;
+        // Runs of three or more have multiple valid decompositions under the
+        // inline parser. They are uncommon in generated Markdown; reparse them
+        // rather than carrying ambiguous delimiter state across quote lines.
+        if run > 2 {
+            return false;
+        }
+        let kind = run as u8;
+        if stack.last() == Some(&kind) {
+            stack.pop();
+        } else {
+            stack.push(kind);
+        }
+    }
+    stack.is_empty()
 }
 
 fn line_can_continue_list_kind(kind: PendingKind, line: &str) -> bool {
