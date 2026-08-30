@@ -61,6 +61,7 @@ const wasm = await readFile(resolve(wasmPath));
 const scenarios = [
   { name: "plain-token", chunk: "token " },
   { name: "markdown-boundary", chunk: " **fast**\n\n" },
+  { name: "markdown-link", chunk: "[x](url) " },
   { name: "semantic-reference", chunk: "@[source:bench] " },
   { name: "semantic-citation", chunk: "[[cite:doc|Spec]] " },
   { name: "open-code", setup: "```text\n", chunk: "0123456789abcdef0123456789abcdef\n" },
