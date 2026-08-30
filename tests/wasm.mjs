@@ -160,6 +160,25 @@ assert.deepEqual(apiParser.document[0], {
 });
 
 apiParser.reset();
+apiParser.append("a|b\n---|---\n");
+apiParser.append("x");
+const tableRow = apiParser.append("|");
+assert.deepEqual(tableRow, [{
+  op: "appendTableRow", block: 0,
+  row: [[{ type: "text", value: "x" }]],
+}]);
+const tableCell = apiParser.append("y");
+assert.deepEqual(tableCell, [{
+  op: "appendTableCell", block: 0,
+  cell: [{ type: "text", value: "y" }],
+}]);
+const tableTail = apiParser.append("z");
+assert.deepEqual(tableTail, [{
+  op: "spliceTableCellTail", block: 0, removeNodes: 0, truncateBytes: 0,
+  append: [{ type: "text", value: "z" }],
+}]);
+
+apiParser.reset();
 apiParser.append("> one\n");
 apiParser.append(">");
 apiParser.append(" ");

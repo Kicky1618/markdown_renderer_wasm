@@ -86,6 +86,17 @@ pub enum Op {
         truncate_bytes: u32,
         append: Vec<Inline>,
     },
+    /// Append a parsed data row to a live table.
+    AppendTableRow { block: u32, row: Vec<Vec<Inline>> },
+    /// Append one parsed cell to the final row of a live table.
+    AppendTableCell { block: u32, cell: Vec<Inline> },
+    /// Edit only the inline tail of the final cell in the final live table row.
+    SpliceTableCellTail {
+        block: u32,
+        remove_nodes: u32,
+        truncate_bytes: u32,
+        append: Vec<Inline>,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -355,6 +366,9 @@ impl Parser {
         if self.try_append_quote_tail(input, delta) {
             return;
         }
+        if self.try_append_table_tail(input, delta) {
+            return;
+        }
         if self.try_append_plain(input, delta) {
             return;
         }
@@ -408,6 +422,129 @@ impl Parser {
             return false;
         }
         self.line.push_str(input);
+        true
+    }
+
+    fn try_append_table_tail(&mut self, input: &str, delta: &mut Delta) -> bool {
+        if input.is_empty()
+            || !matches!(self.mode, Mode::Normal)
+            || !self.has_live
+            || self.pending_kind != Some(PendingKind::Paragraph)
+            || input.contains('\r')
+            || !pending_has_two_complete_lines(&self.pending)
+        {
+            return false;
+        }
+        let Some(block_index) = self.blocks.len().checked_sub(1) else {
+            return false;
+        };
+        if !matches!(self.blocks.get(block_index), Some(Block::Table { .. })) {
+            return false;
+        }
+
+        if input == "\n" {
+            if self.line.is_empty() {
+                return false;
+            }
+            self.pending.push_str(&self.line);
+            self.pending.push('\n');
+            self.line.clear();
+            return true;
+        }
+        if input.contains('\n') || input.chars().count() != 1 {
+            return false;
+        }
+
+        let old_row = split_table_row(&self.line);
+        let mut candidate = self.line.clone();
+        candidate.push_str(input);
+        let new_row = split_table_row(&candidate);
+
+        let Some(new_row) = new_row else {
+            self.line = candidate;
+            return true;
+        };
+        if !table_stream_row_is_plain(&new_row)
+            || old_row
+                .as_ref()
+                .is_some_and(|row| !table_stream_row_is_plain(row))
+        {
+            return false;
+        }
+
+        let transition = match old_row {
+            None => TableTailTransition::AppendRow(
+                new_row
+                    .iter()
+                    .map(|cell| plain_cell_inlines(cell))
+                    .collect(),
+            ),
+            Some(old_row) if new_row.len() == old_row.len() => {
+                if old_row.is_empty()
+                    || old_row[..old_row.len() - 1] != new_row[..new_row.len() - 1]
+                {
+                    return false;
+                }
+                let old_last = &old_row[old_row.len() - 1];
+                let new_last = &new_row[new_row.len() - 1];
+                if new_last == old_last {
+                    TableTailTransition::None
+                } else if let Some(suffix) = new_last.strip_prefix(old_last) {
+                    TableTailTransition::AppendCellText(suffix.to_owned())
+                } else {
+                    return false;
+                }
+            }
+            Some(old_row) if new_row.len() == old_row.len() + 1 => {
+                if old_row != new_row[..old_row.len()] {
+                    return false;
+                }
+                TableTailTransition::AppendCell(plain_cell_inlines(&new_row[new_row.len() - 1]))
+            }
+            Some(_) => return false,
+        };
+
+        let Some(Block::Table { rows, .. }) = self.blocks.get_mut(block_index) else {
+            unreachable!()
+        };
+        match transition {
+            TableTailTransition::None => {}
+            TableTailTransition::AppendRow(row) => {
+                rows.push(row.clone());
+                delta.ops.push(Op::AppendTableRow {
+                    block: block_index as u32,
+                    row,
+                });
+            }
+            TableTailTransition::AppendCell(cell) => {
+                let Some(row) = rows.last_mut() else {
+                    return false;
+                };
+                row.push(cell.clone());
+                delta.ops.push(Op::AppendTableCell {
+                    block: block_index as u32,
+                    cell,
+                });
+            }
+            TableTailTransition::AppendCellText(append_text) => {
+                let Some(cell) = rows.last_mut().and_then(|row| row.last_mut()) else {
+                    return false;
+                };
+                let append = if append_text.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![Inline::Text(append_text)]
+                };
+                splice_inline_tail(cell, 0, 0, &append);
+                delta.ops.push(Op::SpliceTableCellTail {
+                    block: block_index as u32,
+                    remove_nodes: 0,
+                    truncate_bytes: 0,
+                    append,
+                });
+            }
+        }
+        self.line = candidate;
         true
     }
 
@@ -2439,6 +2576,33 @@ fn first_line_paragraph_is_stable(line: &str) -> bool {
     true
 }
 
+enum TableTailTransition {
+    None,
+    AppendRow(Vec<Vec<Inline>>),
+    AppendCell(Vec<Inline>),
+    AppendCellText(String),
+}
+
+fn pending_has_two_complete_lines(pending: &str) -> bool {
+    let Some(first) = pending.find('\n') else {
+        return false;
+    };
+    pending[first + 1..].contains('\n')
+}
+
+fn table_stream_row_is_plain(row: &[String]) -> bool {
+    row.iter()
+        .all(|cell| cell.bytes().all(is_plain_stream_byte))
+}
+
+fn plain_cell_inlines(cell: &str) -> Vec<Inline> {
+    if cell.is_empty() {
+        Vec::new()
+    } else {
+        vec![Inline::Text(cell.to_owned())]
+    }
+}
+
 fn quote_line_body(line: &str) -> &str {
     let trimmed = line.trim_start();
     let body = trimmed.strip_prefix('>').unwrap_or(trimmed);
@@ -3668,6 +3832,27 @@ $$
     }
 
     #[test]
+    fn table_tail_deltas_match_streamed_rows() {
+        let markdown = "a|b\n---|---\nx|y\nz|日本語";
+        let mut parser = Parser::new();
+        let mut mirror = Vec::new();
+        for ch in markdown.chars() {
+            let mut buf = [0; 4];
+            let chunk = ch.encode_utf8(&mut buf);
+            let delta = parser.append(chunk);
+            apply(&mut mirror, &delta);
+            assert_eq!(
+                mirror,
+                parser.blocks(),
+                "table mirror diverged after {chunk:?}"
+            );
+        }
+        let mut whole = Parser::new();
+        whole.append(markdown);
+        assert_eq!(parser.blocks(), whole.blocks());
+    }
+
+    #[test]
     fn quote_tail_deltas_match_streamed_quote() {
         let mut parser = Parser::new();
         let mut mirror = Vec::new();
@@ -3778,6 +3963,40 @@ $$
                     }
                     _ => panic!("not list"),
                 },
+                Op::AppendTableRow { block, row } => {
+                    let Block::Table { rows, .. } = &mut document[*block as usize] else {
+                        panic!("not table")
+                    };
+                    rows.push(row.clone());
+                }
+                Op::AppendTableCell { block, cell } => {
+                    let Block::Table { rows, .. } = &mut document[*block as usize] else {
+                        panic!("not table")
+                    };
+                    rows.last_mut()
+                        .expect("table row missing")
+                        .push(cell.clone());
+                }
+                Op::SpliceTableCellTail {
+                    block,
+                    remove_nodes,
+                    truncate_bytes,
+                    append,
+                } => {
+                    let Block::Table { rows, .. } = &mut document[*block as usize] else {
+                        panic!("not table")
+                    };
+                    let cell = rows
+                        .last_mut()
+                        .and_then(|row| row.last_mut())
+                        .expect("table cell missing");
+                    splice_inline_tail(
+                        cell,
+                        *truncate_bytes as usize,
+                        *remove_nodes as usize,
+                        append,
+                    );
+                }
                 Op::SpliceQuoteTail {
                     block,
                     remove_nodes,

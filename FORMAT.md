@@ -16,6 +16,9 @@ count.
 | `AppendListItem` | 8 | list block index, appended item inline vector |
 | `SpliceListItemTail` | 9 | list block index, removed inline-node count, UTF-8 bytes removed from final item Text, replacement inline vector |
 | `SpliceQuoteTail` | 10 | quote block index, removed inline-node count, UTF-8 bytes removed from final Text, replacement inline vector |
+| `AppendTableRow` | 11 | table block index, encoded row cells |
+| `AppendTableCell` | 12 | table block index, encoded final-row cell |
+| `SpliceTableCellTail` | 13 | table block index, removed inline-node count, UTF-8 bytes removed from final-cell Text, replacement inline vector |
 
 Block tags are paragraph (1), heading (2), fenced code (3), quote (4),
 unordered list (5), ordered list (6), thematic break (7), and table (8). Inline tags are

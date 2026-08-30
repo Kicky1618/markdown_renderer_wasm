@@ -90,6 +90,31 @@ pub fn encode_delta_into(delta: &Delta, output: &mut Vec<u8>) {
                 w.u32(*truncate_bytes);
                 w.inlines(append);
             }
+            Op::AppendTableRow { block, row } => {
+                w.u8(11);
+                w.u32(*block);
+                w.u32(row.len() as u32);
+                for cell in row {
+                    w.inlines(cell);
+                }
+            }
+            Op::AppendTableCell { block, cell } => {
+                w.u8(12);
+                w.u32(*block);
+                w.inlines(cell);
+            }
+            Op::SpliceTableCellTail {
+                block,
+                remove_nodes,
+                truncate_bytes,
+                append,
+            } => {
+                w.u8(13);
+                w.u32(*block);
+                w.u32(*remove_nodes);
+                w.u32(*truncate_bytes);
+                w.inlines(append);
+            }
         }
     }
 }

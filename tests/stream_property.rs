@@ -204,6 +204,55 @@ fn apply(document: &mut Vec<Block>, delta: &Delta) {
                     }
                 }
             }
+            Op::AppendTableRow { block, row } => {
+                let Block::Table { rows, .. } = &mut document[*block as usize] else {
+                    panic!("AppendTableRow target is not a table")
+                };
+                rows.push(row.clone());
+            }
+            Op::AppendTableCell { block, cell } => {
+                let Block::Table { rows, .. } = &mut document[*block as usize] else {
+                    panic!("AppendTableCell target is not a table")
+                };
+                rows.last_mut()
+                    .expect("AppendTableCell target has no row")
+                    .push(cell.clone());
+            }
+            Op::SpliceTableCellTail {
+                block,
+                remove_nodes,
+                truncate_bytes,
+                append,
+            } => {
+                let Block::Table { rows, .. } = &mut document[*block as usize] else {
+                    panic!("SpliceTableCellTail target is not a table")
+                };
+                let cell = rows
+                    .last_mut()
+                    .and_then(|row| row.last_mut())
+                    .expect("SpliceTableCellTail target has no cell");
+                if *truncate_bytes != 0 {
+                    let Some(Inline::Text(text)) = cell.last_mut() else {
+                        panic!("SpliceTableCellTail target has no trailing text")
+                    };
+                    text.truncate(text.len() - *truncate_bytes as usize);
+                    if text.is_empty() {
+                        cell.pop();
+                    }
+                }
+                if *remove_nodes != 0 {
+                    cell.truncate(cell.len() - *remove_nodes as usize);
+                }
+                for incoming in append {
+                    if let Inline::Text(value) = incoming
+                        && let Some(Inline::Text(text)) = cell.last_mut()
+                    {
+                        text.push_str(value);
+                    } else {
+                        cell.push(incoming.clone());
+                    }
+                }
+            }
             Op::SpliceQuoteTail {
                 block,
                 remove_nodes,

@@ -226,6 +226,19 @@ fn quote_tail_delta_is_character_stream_independent() {
 }
 
 #[test]
+fn table_rows_are_character_stream_independent() {
+    for markdown in ["a|b\n---|---\nx|y\nz|w", "a|b\n---|---\n日|本\n✅|42"] {
+        let expected = parse_whole(markdown);
+        let boundaries = utf8_boundaries(markdown);
+        let actual = parse_chunks(boundaries.windows(2).map(|w| &markdown[w[0]..w[1]]));
+        assert_eq!(
+            actual, expected,
+            "character stream changed table AST for {markdown:?}"
+        );
+    }
+}
+
+#[test]
 fn table_separator_becoming_valid_during_plain_append_reparses() {
     let markdown = "a|b\n---|---";
     let expected = parse_whole(markdown);
@@ -303,6 +316,55 @@ fn apply(document: &mut Vec<Block>, delta: &Delta) {
                         text.push_str(value);
                     } else {
                         nodes.push(incoming.clone());
+                    }
+                }
+            }
+            Op::AppendTableRow { block, row } => {
+                let Block::Table { rows, .. } = &mut document[*block as usize] else {
+                    panic!("AppendTableRow target is not a table")
+                };
+                rows.push(row.clone());
+            }
+            Op::AppendTableCell { block, cell } => {
+                let Block::Table { rows, .. } = &mut document[*block as usize] else {
+                    panic!("AppendTableCell target is not a table")
+                };
+                rows.last_mut()
+                    .expect("AppendTableCell target has no row")
+                    .push(cell.clone());
+            }
+            Op::SpliceTableCellTail {
+                block,
+                remove_nodes,
+                truncate_bytes,
+                append,
+            } => {
+                let Block::Table { rows, .. } = &mut document[*block as usize] else {
+                    panic!("SpliceTableCellTail target is not a table")
+                };
+                let cell = rows
+                    .last_mut()
+                    .and_then(|row| row.last_mut())
+                    .expect("SpliceTableCellTail target has no cell");
+                if *truncate_bytes != 0 {
+                    let Some(Inline::Text(text)) = cell.last_mut() else {
+                        panic!("SpliceTableCellTail target has no trailing text")
+                    };
+                    text.truncate(text.len() - *truncate_bytes as usize);
+                    if text.is_empty() {
+                        cell.pop();
+                    }
+                }
+                if *remove_nodes != 0 {
+                    cell.truncate(cell.len() - *remove_nodes as usize);
+                }
+                for incoming in append {
+                    if let Inline::Text(value) = incoming
+                        && let Some(Inline::Text(text)) = cell.last_mut()
+                    {
+                        text.push_str(value);
+                    } else {
+                        cell.push(incoming.clone());
                     }
                 }
             }

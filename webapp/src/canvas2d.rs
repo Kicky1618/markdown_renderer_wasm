@@ -715,7 +715,10 @@ impl State {
                     | Op::SpliceInlineTail { .. }
                     | Op::AppendListItem { .. }
                     | Op::SpliceListItemTail { .. }
-                    | Op::SpliceQuoteTail { .. } => {}
+                    | Op::SpliceQuoteTail { .. }
+                    | Op::AppendTableRow { .. }
+                    | Op::AppendTableCell { .. }
+                    | Op::SpliceTableCellTail { .. } => {}
                 }
             }
             appended += end - self.source_offset;

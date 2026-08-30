@@ -70,6 +70,16 @@ for (const chunk of ["> one\n", ">", " ", "two", "\n", ">", " ", "日本語"]) {
 regularQuotes.dispose();
 inPlaceQuotes.dispose();
 
+const regularTables = await Streamdown.load(wasm);
+const inPlaceTables = await Streamdown.load(wasm);
+for (const chunk of ["a|b\n---|---\n", "x", "|", "y", "z", "\n", "q", "|", "日本語"]) {
+  regularTables.append(chunk);
+  inPlaceTables.appendInPlace(chunk);
+  assert.deepEqual(inPlaceTables.document, regularTables.document);
+}
+regularTables.dispose();
+inPlaceTables.dispose();
+
 const consumed = await Streamdown.load(wasm);
 await consumed.consume(["Answer **now**: ", "token ", "token ", "日本語"], { finalize: true });
 assert.equal(consumed.toPlainText(), "Answer now: token token 日本語");

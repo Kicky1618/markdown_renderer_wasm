@@ -142,6 +142,9 @@ export function decodeDelta(bytes) {
       case 8: return { op: "appendListItem", block: u32(), item: inlines() };
       case 9: return { op: "spliceListItemTail", block: u32(), removeNodes: u32(), truncateBytes: u32(), append: inlines() };
       case 10: return { op: "spliceQuoteTail", block: u32(), removeNodes: u32(), truncateBytes: u32(), append: inlines() };
+      case 11: return { op: "appendTableRow", block: u32(), row: Array.from({ length: u32() }, inlines) };
+      case 12: return { op: "appendTableCell", block: u32(), cell: inlines() };
+      case 13: return { op: "spliceTableCellTail", block: u32(), removeNodes: u32(), truncateBytes: u32(), append: inlines() };
       default: throw new Error("unknown delta operation");
     }
   });
@@ -192,6 +195,33 @@ export function applyDelta(document, ops) {
       const node = document[change.block];
       if (node.type !== "unorderedList" && node.type !== "orderedList") throw new Error("appendListItem target is not a list");
       node.items.push(change.item);
+    }
+    else if (change.op === "appendTableRow") {
+      const node = document[change.block];
+      if (node.type !== "table") throw new Error("appendTableRow target is not a table");
+      node.rows.push(change.row);
+    }
+    else if (change.op === "appendTableCell") {
+      const node = document[change.block];
+      if (node.type !== "table" || !node.rows.length) throw new Error("appendTableCell target has no row");
+      node.rows[node.rows.length - 1].push(change.cell);
+    }
+    else if (change.op === "spliceTableCellTail") {
+      const node = document[change.block];
+      if (node.type !== "table" || !node.rows.length || !node.rows[node.rows.length - 1].length) throw new Error("spliceTableCellTail target has no cell");
+      const cell = node.rows[node.rows.length - 1][node.rows[node.rows.length - 1].length - 1];
+      if (change.truncateBytes) {
+        const tail = cell[cell.length - 1];
+        if (tail?.type !== "text") throw new Error("spliceTableCellTail target has no trailing text");
+        tail.value = removeUtf8Tail(tail.value, change.truncateBytes);
+        if (!tail.value) cell.pop();
+      }
+      if (change.removeNodes) cell.length -= change.removeNodes;
+      for (const incoming of change.append) {
+        const tail = cell[cell.length - 1];
+        if (incoming.type === "text" && tail?.type === "text") tail.value += incoming.value;
+        else cell.push(incoming);
+      }
     }
     else if (change.op === "spliceQuoteTail") {
       const node = document[change.block];
