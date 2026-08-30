@@ -17,7 +17,7 @@ JSONシリアライズは行わず、WASM境界は小さな `MDA1` バイナリ�
 ```sh
 cargo test --release
 rustup target add wasm32-unknown-unknown
-cargo build --release --target wasm32-unknown-unknown
+./scripts/build_wasm.sh
 ```
 
 生成物は `target/wasm32-unknown-unknown/release/streamdown.wasm` です。

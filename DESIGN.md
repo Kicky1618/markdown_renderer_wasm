@@ -296,7 +296,7 @@ GPU 版は位置を `{ block, character offset }` で保持し、AST の差分�
 ```sh
 cargo test --release
 rustup target add wasm32-unknown-unknown
-cargo build --release --target wasm32-unknown-unknown
+./scripts/build_wasm.sh
 npm test
 ```
 

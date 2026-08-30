@@ -59,7 +59,7 @@ section "core Rust tests"
 TMPDIR="$VERIFY_TMP" cargo test --lib --tests
 
 section "core wasm32 build"
-TMPDIR="$VERIFY_TMP" cargo build --release --target wasm32-unknown-unknown
+TMPDIR="$VERIFY_TMP" ./scripts/build_wasm.sh
 
 section "JavaScript / MDA1"
 npm test

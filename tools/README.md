@@ -5,7 +5,7 @@
 `streamdown-inspect.mjs` runs the actual WASM parser against a Markdown file or stdin and prints a JSON report. It is intended for debugging LLM streaming protocols, not for rendering.
 
 ```sh
-cargo build --release --target wasm32-unknown-unknown
+./scripts/build_wasm.sh
 node tools/streamdown-inspect.mjs examples/llm_protocol.md --chunk=7 --verify --validate
 ```
 
