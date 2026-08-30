@@ -176,6 +176,7 @@ const state = new Map();
 const appliedStatePatches = new Map();
 let componentPatches = new Map();
 let componentPatchesSignature = "[]";
+let semanticCommitDepth = 0;
 
 source.value = DEMO;
 speed.addEventListener("input", () => {
@@ -577,6 +578,7 @@ async function runLlmInteraction(instruction) {
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`stream request failed: HTTP ${response.status}`);
+    beginSemanticCommitBarrier();
     prefix = parser.blockCount ? "\n\n" : "";
     if (prefix) appendChunk(prefix);
     setRuntimeState("LLM CONTINUATION");
@@ -590,11 +592,13 @@ async function runLlmInteraction(instruction) {
       },
     });
     renderOperations(parser.finish());
+    endSemanticCommitBarrier();
     source.value += prefix + received;
     setRuntimeState("LIVE");
     deltaStatus.textContent = `LLM ${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
     return result;
   } catch (error) {
+    endSemanticCommitBarrier();
     if (controller.signal.aborted || error?.name === "AbortError") {
       if (received) source.value += prefix + received;
       setRuntimeState("PAUSED");
@@ -1185,7 +1189,7 @@ function replaceBlock(index) {
   blockElements[index] = next;
 }
 
-function refreshComponentPatches() {
+function refreshComponentPatches({ sync = true } = {}) {
   const patches = [];
   for (const block of parser?.document || []) {
     const config = uiConfig(block);
@@ -1215,11 +1219,11 @@ function refreshComponentPatches() {
 
   for (const index of rerender) replaceBlock(index);
   if (structural) composeStructures();
-  else syncReactiveDom();
+  else if (sync) syncReactiveDom();
   return true;
 }
 
-function applyStatePatches() {
+function applyStatePatches({ sync = true } = {}) {
   let changed = false;
   for (let index = 0; index < (parser?.document?.length || 0); index++) {
     const block = parser.document[index];
@@ -1236,10 +1240,36 @@ function applyStatePatches() {
       changed = true;
     }
   }
-  if (changed) {
+  if (changed && sync) {
     recomputeDerivedState();
     syncReactiveDom();
   }
+  return changed;
+}
+
+function applySemanticSideEffects({ force = false } = {}) {
+  if (semanticCommitDepth > 0 && !force) return false;
+  const stateChanged = applyStatePatches({ sync: false });
+  const componentsChanged = refreshComponentPatches({ sync: false });
+  if (stateChanged || componentsChanged) {
+    recomputeDerivedState();
+    syncReactiveDom();
+  }
+  return stateChanged || componentsChanged;
+}
+
+function beginSemanticCommitBarrier() {
+  semanticCommitDepth += 1;
+  document.documentElement.dataset.semanticCommit = "staging";
+}
+
+function endSemanticCommitBarrier() {
+  if (semanticCommitDepth <= 0) return false;
+  semanticCommitDepth -= 1;
+  if (semanticCommitDepth > 0) return false;
+  const changed = applySemanticSideEffects({ force: true });
+  document.documentElement.dataset.semanticCommit = changed ? "committed" : "clean";
+  return changed;
 }
 
 function renderOperations(ops) {
@@ -1265,8 +1295,7 @@ function renderOperations(ops) {
     recomputeDerivedState();
     syncReactiveDom();
   }
-  applyStatePatches();
-  refreshComponentPatches();
+  applySemanticSideEffects();
   renderMs.textContent = (performance.now() - start).toFixed(3);
   blockCount.textContent = String(parser.blockCount);
   deltaStatus.textContent = ops.length ? `${ops.map(op => op.op).join(" · ")}` : "No structural change";
@@ -1290,6 +1319,8 @@ function resetRuntime() {
   appliedStatePatches.clear();
   componentPatches = new Map();
   componentPatchesSignature = "[]";
+  semanticCommitDepth = 0;
+  delete document.documentElement.dataset.semanticCommit;
   beginInputSession(0);
   const start = performance.now();
   const ops = parser.reset();
@@ -1421,6 +1452,7 @@ remoteForm.addEventListener("submit", async event => {
       headers: { ...request.headers, Accept: accept },
       signal: controller.signal,
     });
+    beginSemanticCommitBarrier();
     setRuntimeState("REMOTE STREAM");
     const result = await consumeHttpResponse(response, {
       format: requested,
@@ -1432,10 +1464,12 @@ remoteForm.addEventListener("submit", async event => {
       },
     });
     renderOperations(parser.finish());
+    endSemanticCommitBarrier();
     source.value = received;
     setRuntimeState("LIVE");
     deltaStatus.textContent = `${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
   } catch (error) {
+    endSemanticCommitBarrier();
     if (controller.signal.aborted || error?.name === "AbortError") {
       setRuntimeState("PAUSED");
       deltaStatus.textContent = "Remote stream stopped";
@@ -1516,6 +1550,7 @@ async function runInteractionSmoke() {
         && throughputLabel === "Model-updated throughput"
         && throughputValue === "3.1M"
         && throughputTrend === "patched safely"
+        && root.dataset.semanticCommit === "committed"
         && appended;
       root.dataset.interactionSmoke = passed ? "pass" : "fail";
       return;

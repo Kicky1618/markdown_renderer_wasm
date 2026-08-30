@@ -131,3 +131,9 @@ trend=patched safely
 patchはfenceが完全に閉じた時だけ反映され、複数patchは文書順にmergeされます。後続patchは同じ属性だけを上書きします。truncateでpatch blockが消えた場合はoverlayも消え、元のcomponent記述へ戻ります。
 
 変更可能なのは `label`, `title`, `value`, `unit`, `trend`, `min`, `max`, `step`, `options`, `values`, `placeholder`, `when`, `height`, `width` のbounded文字列だけです。`action`, `state`, `type`, `id`, `target`, `tab`, `span`, endpoint, HTTP header, credentialは変更できません。したがってmodel responseは既存UIの見た目や安全な入力候補を更新できますが、実行権限や接続先を昇格できません。
+## Semantic commit barrier
+
+HTTP/LLM responses act as a commit boundary for generated side effects. Ordinary Markdown, metrics, charts, graphs and other newly-created UI can continue to render as tokens arrive, but closed `type=state` and `type=patch` fences are staged while the network response is active. After `Parser::finish()` for that response, all staged state and component overlays are applied in the same JavaScript turn, followed by one reactive-state reconciliation.
+
+This avoids transient screens where, for example, `temperature=58` has already changed a progress bar while a matching component patch later in the same model response has not arrived yet. The document root exposes `data-semantic-commit="staging|committed|clean"` for diagnostics and browser smoke tests. Manual/local source rendering keeps the existing immediate closed-fence behavior.
+

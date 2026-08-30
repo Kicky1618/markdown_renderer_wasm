@@ -24,6 +24,7 @@ Available components:
 Any ordinary UI component may use when="state >= 1". Components following a layout are placed in it until ordinary Markdown resumes; use span=2 to span columns. Components following tabs may use tab=status. Components following a form become fields until ordinary Markdown resumes. Markdown text can bind state with {{stateName}}.
 An action beginning with llm: runs only after an explicit user click/submit. It sends a bounded snapshot of local UI state to the same user-configured POST proxy and appends the streamed continuation; it cannot select an endpoint, headers, credentials, or execute code.
 A type=state block may declaratively update primitive local UI state values. Sensitive-looking state names are ignored by the runtime; do not use it for credentials or secrets.
+For HTTP/LLM streams, type=state and type=patch are staged as semantic side effects and committed together only when that streamed response finishes; ordinary Markdown and new UI cards may still render incrementally before commit.
 A type=patch block may update only whitelisted visual/input attributes of an existing component id. It cannot change action, state binding, type, id, tab, span, endpoint, credentials, or execute code.\nKeep fences well-formed, but remember output is streamed and the runtime renders incomplete fences incrementally.`;
 
 function clean(value, max = 4096) {
