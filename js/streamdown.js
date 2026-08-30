@@ -41,6 +41,56 @@ function decodeHotDelta(bytes) {
   return null;
 }
 
+function decodeHotParagraphPush(bytes) {
+  if (bytes.length < 14
+      || bytes[0] !== 0x4d || bytes[1] !== 0x44 || bytes[2] !== 0x41 || bytes[3] !== 0x31
+      || bytes[4] !== 1 || bytes[5] !== 0 || bytes[6] !== 0 || bytes[7] !== 0
+      || bytes[8] !== 2 || bytes[9] !== 1) {
+    return null;
+  }
+
+  let p = 10;
+  let valid = true;
+  const readString = () => {
+    if (p + 4 > bytes.length) { valid = false; return ""; }
+    const length = u32le(bytes, p);
+    p += 4;
+    if (p + length > bytes.length) { valid = false; return ""; }
+    const value = utf8Decoder.decode(bytes.subarray(p, p + length));
+    p += length;
+    return value;
+  };
+  const readInlines = () => {
+    if (p + 4 > bytes.length) { valid = false; return []; }
+    const count = u32le(bytes, p);
+    p += 4;
+    const nodes = new Array(count);
+    for (let i = 0; i < count && valid; i++) {
+      if (p >= bytes.length) { valid = false; break; }
+      switch (bytes[p++]) {
+        case 1: nodes[i] = { type: "text", value: readString() }; break;
+        case 2: nodes[i] = { type: "emphasis", children: readInlines() }; break;
+        case 3: nodes[i] = { type: "strong", children: readInlines() }; break;
+        case 4: nodes[i] = { type: "code", value: readString() }; break;
+        case 5: nodes[i] = { type: "link", children: readInlines(), destination: readString() }; break;
+        case 6: nodes[i] = { type: "softBreak" }; break;
+        case 7: nodes[i] = { type: "hardBreak" }; break;
+        case 8: {
+          if (p >= bytes.length) { valid = false; break; }
+          nodes[i] = { type: "math", display: !!bytes[p++], value: readString() };
+          break;
+        }
+        default: valid = false;
+      }
+    }
+    return nodes;
+  };
+
+  const children = readInlines();
+  if (!valid || p !== bytes.length) return null;
+  return [{ op: "push", block: { type: "paragraph", children } }];
+}
+
 /** Decode the MDA1 binary format into lightweight JavaScript objects. */
 export function decodeDelta(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -599,6 +649,6 @@ export class Streamdown {
     // Decode synchronously before the next parser call mutates the reusable
     // output buffer. No copy is needed because decodeDelta returns owned JS data.
     const bytes = new Uint8Array(this.exports.memory.buffer, outPtr, outLen);
-    return decodeHotDelta(bytes) ?? decodeDelta(bytes);
+    return decodeHotDelta(bytes) ?? decodeHotParagraphPush(bytes) ?? decodeDelta(bytes);
   }
 }
