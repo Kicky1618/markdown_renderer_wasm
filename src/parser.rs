@@ -442,6 +442,10 @@ impl Parser {
             return false;
         }
 
+        if self.try_append_complete_table_row(block_index, input, delta) {
+            return true;
+        }
+
         if input == "\n" {
             if self.line.is_empty() {
                 return false;
@@ -545,6 +549,59 @@ impl Parser {
             }
         }
         self.line = candidate;
+        true
+    }
+
+    fn try_append_complete_table_row(
+        &mut self,
+        block_index: usize,
+        input: &str,
+        delta: &mut Delta,
+    ) -> bool {
+        // A whole-row fast path is only safe between completed rows. Partial
+        // rows continue through the existing cell-tail state machine.
+        if !self.line.is_empty() {
+            return false;
+        }
+        let (raw, sealed) = if let Some(raw) = input.strip_suffix('\n') {
+            if raw.contains('\n') {
+                return false;
+            }
+            (raw, true)
+        } else {
+            if input.contains('\n') {
+                return false;
+            }
+            (input, false)
+        };
+        if raw.is_empty() {
+            return false;
+        }
+        let Some(cells) = split_table_row(raw) else {
+            return false;
+        };
+        if cells.is_empty() {
+            return false;
+        }
+        let row = cells
+            .iter()
+            .map(|cell| parse_inlines(cell))
+            .collect::<Vec<_>>();
+        let Some(Block::Table { rows, .. }) = self.blocks.get_mut(block_index) else {
+            return false;
+        };
+        rows.push(row.clone());
+        delta.ops.push(Op::AppendTableRow {
+            block: block_index as u32,
+            row,
+        });
+        if sealed {
+            self.pending.push_str(raw);
+            self.pending.push('\n');
+            self.line.clear();
+        } else {
+            self.line.push_str(raw);
+        }
         true
     }
 
@@ -3959,6 +4016,45 @@ $$
             parser.blocks(),
             [Block::Paragraph(nodes)] if nodes.iter().any(|n| matches!(n, Inline::Strong(_)))
         ));
+    }
+
+    #[test]
+    fn complete_table_rows_append_without_republishing_table() {
+        let mut parser = Parser::new();
+        parser.append("a|b\n---|---\n");
+        let rich = parser.append("**x**|[y](u)\n");
+        assert!(matches!(
+            rich.ops.as_slice(),
+            [Op::AppendTableRow { row, .. }]
+                if matches!(row.as_slice(), [left, right]
+                    if matches!(left.as_slice(), [Inline::Strong(_)])
+                        && matches!(right.as_slice(), [Inline::Link { destination, .. }] if destination == "u"))
+        ));
+        let open = parser.append("z|q");
+        assert!(matches!(open.ops.as_slice(), [Op::AppendTableRow { .. }]));
+        assert!(parser.append("\n").ops.is_empty());
+        let mut whole = Parser::new();
+        whole.append("a|b\n---|---\n**x**|[y](u)\nz|q\n");
+        assert_eq!(parser.blocks(), whole.blocks());
+    }
+
+    #[test]
+    fn complete_table_row_fast_path_is_conservative() {
+        let mut multiline = Parser::new();
+        multiline.append("a|b\n---|---\n");
+        let delta = multiline.append("x|y\nz|q\n");
+        assert!(!matches!(delta.ops.as_slice(), [Op::AppendTableRow { .. }]));
+        let mut whole = Parser::new();
+        whole.append("a|b\n---|---\nx|y\nz|q\n");
+        assert_eq!(multiline.blocks(), whole.blocks());
+
+        let mut plain = Parser::new();
+        plain.append("a|b\n---|---\n");
+        let delta = plain.append("not a row");
+        assert!(!matches!(delta.ops.as_slice(), [Op::AppendTableRow { .. }]));
+        let mut whole = Parser::new();
+        whole.append("a|b\n---|---\nnot a row");
+        assert_eq!(plain.blocks(), whole.blocks());
     }
 
     #[test]
