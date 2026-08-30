@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	vlang
+keywords	fn	struct	enum	interface	pub	mut	const	if	else	for	match	return	module	import	unsafe
+flags	slash_comments	block_comments

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	ats	ats2
+keywords	fun	fn	prfun	implement	staload	dynload	datatype	datavtype	typedef	viewtypedef	if	then	else	case	of	let	in	end
+flags	slash_comments	block_comments

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	vyper
+keywords	def	struct	event	interface	public	external	internal	payable	view	pure	returns	implements
+flags	hash_comments	decorators

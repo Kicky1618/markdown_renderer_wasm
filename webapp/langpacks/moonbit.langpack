@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	moonbit	mbt
+keywords	fn	pub	priv	struct	enum	trait	impl	let	mut	const	if	else	match	for	while	loop	return
+flags	slash_comments	block_comments

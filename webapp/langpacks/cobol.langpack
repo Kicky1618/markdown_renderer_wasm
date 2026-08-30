@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	cobol
+keywords	identification	division	program-id	procedure	data	working-storage	section	perform	move	compute	if	else	end-if
+flags	case_insensitive_keywords

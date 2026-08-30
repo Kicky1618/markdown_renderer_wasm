@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	autoit	au3
+keywords	Func	EndFunc	If	Then	ElseIf	Else	EndIf	For	To	Step	Next	While	WEnd	Do	Until	Switch	Case	EndSwitch	Global	Local	Const	Return
+flags	semicolon_comments	case_insensitive_keywords

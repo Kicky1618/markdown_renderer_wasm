@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	pony	ponyc
+keywords	actor	class	primitive	trait	interface	struct	type	object	fun	be	new	let	var	embed	iso	trn	ref	val	box	tag	if	then	else	match	for	while	repeat
+flags	slash_comments	block_comments

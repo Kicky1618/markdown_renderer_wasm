@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	wolfram	wolfram-language	mathematica
+keywords	Module	Block	With	Function	If	Which	Switch	Do	For	While	Table	Map	Apply	Rule	RuleDelayed	Set	SetDelayed
+flags	paren_star_comments

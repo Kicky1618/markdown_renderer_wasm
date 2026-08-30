@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	k-lang	klang	k
+keywords	if	while	do
+flags	slash_comments

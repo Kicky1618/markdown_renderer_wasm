@@ -76,7 +76,8 @@ impl<'a> Scanner<'a> {
                     .map_or(bytes.len(), |offset| start + offset),
                 SyntaxKind::Comment,
             )
-        } else if let Some((opener, closer)) = block_comment_delimiters(bytes, start, self.language) {
+        } else if let Some((opener, closer)) = block_comment_delimiters(bytes, start, self.language)
+        {
             (
                 block_comment_end(
                     self.source,
@@ -89,6 +90,16 @@ impl<'a> Scanner<'a> {
             )
         } else if let Some(end) = preprocessor_end(bytes, start, self.language) {
             (end, SyntaxKind::Macro)
+        } else if bytes[start] == b'#' && hash_raw_string_start(bytes, start).is_some() {
+            (
+                hash_raw_string_end(self.source, start).unwrap(),
+                SyntaxKind::String,
+            )
+        } else if bytes[start] == b'@' && prefixed_quoted_string_start(bytes, start).is_some() {
+            (
+                prefixed_quoted_string_end(self.source, start, self.language).unwrap(),
+                SyntaxKind::String,
+            )
         } else if self.language.decorators() && bytes[start] == b'@' {
             let mut end = start + 1;
             while end < bytes.len()
@@ -142,6 +153,18 @@ impl<'a> Scanner<'a> {
                     SyntaxKind::String,
                 )
             }
+        } else if bytes[start] == b'$' && prefixed_quoted_string_start(bytes, start).is_some() {
+            (
+                prefixed_quoted_string_end(self.source, start, self.language).unwrap(),
+                SyntaxKind::String,
+            )
+        } else if matches!(bytes[start], b'R' | b'u' | b'U' | b'L')
+            && cpp_raw_string_start(bytes, start).is_some()
+        {
+            (
+                cpp_raw_string_end(self.source, start).unwrap(),
+                SyntaxKind::String,
+            )
         } else if bytes[start].is_ascii_digit() {
             (number_end(bytes, start), SyntaxKind::Number)
         } else if is_ident_start(bytes[start], self.language) {
@@ -471,6 +494,7 @@ fn is_line_comment(bytes: &[u8], i: usize, language: Language) -> bool {
 fn is_special_start(bytes: &[u8], i: usize, language: Language) -> bool {
     is_line_comment(bytes, i, language)
         || block_comment_delimiters(bytes, i, language).is_some()
+        || extended_string_can_start_in_trivia(bytes, i)
         || preprocessor_end(bytes, i, language).is_some()
         || (language.decorators() && bytes.get(i) == Some(&b'@'))
         || rust_attribute_start(bytes, i, language).is_some()
@@ -608,6 +632,192 @@ fn is_rust_lifetime(bytes: &[u8], i: usize, language: Language) -> bool {
         end += 1;
     }
     bytes.get(end) != Some(&b'\'')
+}
+
+#[inline]
+fn extended_string_can_start_in_trivia(bytes: &[u8], start: usize) -> bool {
+    match bytes.get(start).copied() {
+        Some(b'$' | b'@') => prefixed_quoted_string_start(bytes, start).is_some(),
+        Some(b'#') => hash_raw_string_start(bytes, start).is_some(),
+        // C++ raw prefixes begin with identifier bytes, so `is_ident_start`
+        // already stops trivia before them. Avoid probing them on every byte.
+        _ => false,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PrefixedQuote {
+    quote_at: usize,
+    verbatim: bool,
+}
+
+fn prefixed_quoted_string_start(bytes: &[u8], start: usize) -> Option<PrefixedQuote> {
+    let tail = bytes.get(start..)?;
+    if (tail.starts_with(b"$@\"") || tail.starts_with(b"@$\""))
+        || (tail.starts_with(b"$@'") || tail.starts_with(b"@$'"))
+    {
+        return Some(PrefixedQuote {
+            quote_at: start + 2,
+            verbatim: true,
+        });
+    }
+    if tail.starts_with(b"@\"") || tail.starts_with(b"@'") {
+        return Some(PrefixedQuote {
+            quote_at: start + 1,
+            verbatim: true,
+        });
+    }
+    if tail.starts_with(b"$\"") || tail.starts_with(b"$'") {
+        return Some(PrefixedQuote {
+            quote_at: start + 1,
+            verbatim: false,
+        });
+    }
+    None
+}
+
+fn prefixed_quoted_string_end(source: &str, start: usize, language: Language) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let prefix = prefixed_quoted_string_start(bytes, start)?;
+    let quote = *bytes.get(prefix.quote_at)?;
+    if prefix.verbatim {
+        Some(verbatim_quoted_string_end(source, prefix.quote_at, quote))
+    } else {
+        Some(quoted_string_end(
+            source,
+            prefix.quote_at,
+            quote,
+            false,
+            language.multiline_strings(),
+        ))
+    }
+}
+
+fn verbatim_quoted_string_end(source: &str, quote_at: usize, quote: u8) -> usize {
+    let bytes = source.as_bytes();
+    let mut i = quote_at + 1;
+    while i < bytes.len() {
+        if bytes[i] == quote && bytes.get(i + 1) == Some(&quote) {
+            i += 2;
+        } else if bytes[i] == b'\\' {
+            // Objective-C uses C escapes while C# verbatim strings use doubled
+            // quotes. Accepting both keeps the shared prefix scanner robust.
+            i = (i + 2).min(bytes.len());
+        } else if bytes[i] == quote {
+            return i + 1;
+        } else {
+            i += source[i..].chars().next().unwrap().len_utf8();
+        }
+    }
+    bytes.len()
+}
+
+#[derive(Clone, Copy)]
+struct CppRawStart {
+    quote_at: usize,
+    open_paren: usize,
+}
+
+fn cpp_raw_string_start(bytes: &[u8], start: usize) -> Option<CppRawStart> {
+    let quote_at = if bytes.get(start..start + 2) == Some(b"R\"") {
+        start + 1
+    } else if bytes.get(start..start + 4) == Some(b"u8R\"") {
+        start + 3
+    } else if matches!(bytes.get(start), Some(b'u' | b'U' | b'L'))
+        && bytes.get(start + 1..start + 3) == Some(b"R\"")
+    {
+        start + 2
+    } else {
+        return None;
+    };
+
+    let delimiter_start = quote_at + 1;
+    let mut cursor = delimiter_start;
+    while cursor < bytes.len() && cursor - delimiter_start <= 16 {
+        match bytes[cursor] {
+            b'(' => {
+                return Some(CppRawStart {
+                    quote_at,
+                    open_paren: cursor,
+                });
+            }
+            b' ' | b'\\' | b')' | b'\t' | b'\r' | b'\n' => return None,
+            byte if byte.is_ascii_control() => return None,
+            _ => cursor += 1,
+        }
+    }
+    None
+}
+
+fn cpp_raw_string_end(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let raw = cpp_raw_string_start(bytes, start)?;
+    let delimiter = &bytes[raw.quote_at + 1..raw.open_paren];
+    let mut cursor = raw.open_paren + 1;
+    while cursor < bytes.len() {
+        if bytes[cursor] == b')' {
+            let after_delimiter = cursor + 1 + delimiter.len();
+            if bytes.get(cursor + 1..after_delimiter) == Some(delimiter)
+                && bytes.get(after_delimiter) == Some(&b'"')
+            {
+                return Some(after_delimiter + 1);
+            }
+        }
+        cursor += source[cursor..].chars().next().unwrap().len_utf8();
+    }
+    Some(bytes.len())
+}
+
+#[derive(Clone, Copy)]
+struct HashRawStart {
+    hashes: usize,
+    quote_at: usize,
+    quote_len: usize,
+}
+
+fn hash_raw_string_start(bytes: &[u8], start: usize) -> Option<HashRawStart> {
+    if bytes.get(start) != Some(&b'#') {
+        return None;
+    }
+    let mut quote_at = start;
+    while bytes.get(quote_at) == Some(&b'#') {
+        quote_at += 1;
+    }
+    let hashes = quote_at - start;
+    if bytes.get(quote_at) != Some(&b'"') {
+        return None;
+    }
+    let quote_len = if bytes.get(quote_at..quote_at + 3) == Some(b"\"\"\"") {
+        3
+    } else {
+        1
+    };
+    Some(HashRawStart {
+        hashes,
+        quote_at,
+        quote_len,
+    })
+}
+
+fn hash_raw_string_end(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let raw = hash_raw_string_start(bytes, start)?;
+    let mut cursor = raw.quote_at + raw.quote_len;
+    while cursor < bytes.len() {
+        let quote_end = cursor + raw.quote_len;
+        let hash_end = quote_end + raw.hashes;
+        if bytes
+            .get(cursor..quote_end)
+            .is_some_and(|quotes| quotes.iter().all(|byte| *byte == b'"'))
+            && bytes
+                .get(quote_end..hash_end)
+                .is_some_and(|hashes| hashes.iter().all(|byte| *byte == b'#'))
+        {
+            return Some(hash_end);
+        }
+        cursor += source[cursor..].chars().next().unwrap().len_utf8();
+    }
+    Some(bytes.len())
 }
 
 fn quoted_string_end(

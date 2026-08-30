@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	pact	pact-lang
+keywords	module	defun	defpact	defcap	deftable	defschema	defconst	let	if	cond	enforce	with-read	update	insert	write
+flags	semicolon_comments	hyphen_identifiers

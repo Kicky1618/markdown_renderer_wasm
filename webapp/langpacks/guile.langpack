@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	guile	guile-scheme
+keywords	define	lambda	let	let*	letrec	if	cond	case	do	delay	quasiquote	unquote	begin	set!	and	or
+flags	semicolon_comments	hyphen_identifiers	question_identifiers	bang_identifiers

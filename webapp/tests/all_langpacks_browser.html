@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>all langpacks probe</title></head>
+<body>
+<script type="module">
+  import init from "../pkg/streamdown_web.js";
+  import { loadLanguagePack } from "../language-loader.js";
+
+  const root = document.documentElement;
+  root.dataset.allLangpacksProbe = "running";
+  try {
+    await init();
+    const listing = await fetch("../langpacks/");
+    if (!listing.ok) throw new Error(`listing HTTP ${listing.status}`);
+    const html = await listing.text();
+    const documentListing = new DOMParser().parseFromString(html, "text/html");
+    const packs = [...documentListing.querySelectorAll("a")]
+      .map(anchor => decodeURIComponent(anchor.getAttribute("href") || ""))
+      .filter(name => name.endsWith(".langpack"))
+      .map(name => name.slice(0, -".langpack".length))
+      .sort();
+
+    const failed = [];
+    const BATCH = 12;
+    for (let at = 0; at < packs.length; at += BATCH) {
+      const batch = packs.slice(at, at + BATCH);
+      const results = await Promise.all(batch.map(async pack => [pack, await loadLanguagePack(pack)]));
+      for (const [pack, loaded] of results) if (!loaded) failed.push(pack);
+    }
+
+    root.dataset.allLangpacksCount = String(packs.length);
+    root.dataset.allLangpacksFailed = failed.join(",");
+    root.dataset.allLangpacksProbe = packs.length >= 250 && failed.length === 0 ? "pass" : "fail";
+  } catch (error) {
+    root.dataset.allLangpacksProbe = "error";
+    root.dataset.allLangpacksError = String(error);
+    console.error(error);
+  }
+</script>
+</body>
+</html>

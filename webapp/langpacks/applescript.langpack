@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	applescript	osascript
+keywords	tell	end	if	then	else	repeat	while	until	on	to	property	set	return	try	error	use	script
+flags	dash_comments	paren_star_comments	case_insensitive_keywords

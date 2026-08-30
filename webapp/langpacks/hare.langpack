@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	hare	hare-lang
+keywords	use	export	fn	let	const	def	type	struct	union	enum	if	else	for	match	switch	return	defer	yield
+flags	slash_comments	block_comments

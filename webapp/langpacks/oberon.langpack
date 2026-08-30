@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	oberon	oberon2
+keywords	MODULE	IMPORT	CONST	TYPE	VAR	PROCEDURE	BEGIN	END	IF	THEN	ELSE	ELSIF	WHILE	REPEAT	FOR	CASE	RECORD	POINTER
+flags	paren_star_comments	case_insensitive_keywords

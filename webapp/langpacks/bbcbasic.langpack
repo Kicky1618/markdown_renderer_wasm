@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	bbcbasic	bbc-basic
+keywords	PRINT	INPUT	LET	DIM	DEF	PROC	FN	IF	THEN	ELSE	FOR	NEXT	REPEAT	UNTIL	ENDPROC
+flags	case_insensitive_keywords

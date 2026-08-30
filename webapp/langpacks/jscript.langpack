@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	jscript	wsh-js
+keywords	function	var	let	const	if	else	for	while	switch	return	try	catch	finally	new	class
+flags	slash_comments	block_comments	dollar_identifiers	javascript_lexing

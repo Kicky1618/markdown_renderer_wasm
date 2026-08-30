@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	clean	clean-lang
+keywords	module	definition	implementation	import	from	class	instance	derive	let	in	case	of	if	otherwise	where	with
+flags	slash_comments

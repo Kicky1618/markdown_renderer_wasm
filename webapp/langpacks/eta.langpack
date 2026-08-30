@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	eta	eta-lang
+keywords	module	where	import	data	type	class	instance	if	then	else	case	of	let	in	do
+flags	dash_comments	brace_dash_comments	nested_block_comments

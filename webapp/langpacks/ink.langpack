@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	ink	inklang
+keywords	contract	storage	event	constructor	message	impl	trait	enum	struct	let	mut	if	else	match	return
+flags	slash_comments	block_comments	rust_syntax

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	j-lang	jlang	j
+keywords	if	do	else	elseif	end	for	while	select	case	fcase	try	catch	throw	return
+flags	case_insensitive_keywords

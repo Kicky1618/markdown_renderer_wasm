@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	golfscript
+keywords	if	do	while	until
+flags	hash_comments

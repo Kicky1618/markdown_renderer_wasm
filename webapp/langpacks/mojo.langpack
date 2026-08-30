@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	mojo
+keywords	fn	def	struct	trait	alias	var	let	if	else	for	while	return	import	from	comptime
+flags	hash_comments	decorators

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	llvm-tablegen
+keywords	def	class	multiclass	defm	let	in	foreach	if	then	else	include	assert
+flags	slash_comments	block_comments

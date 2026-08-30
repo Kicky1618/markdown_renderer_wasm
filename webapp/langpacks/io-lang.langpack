@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	io-lang	iolang	io
+keywords	Object	clone	method	block	if	then	else	elseif	for	foreach	while	loop	return
+flags	slash_comments

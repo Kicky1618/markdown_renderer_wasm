@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	apl	dyalog
+keywords	if	else	endif	for	endfor	while	endwhile	select	case	endselect
+flags	case_insensitive_keywords

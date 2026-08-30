@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	nemerle
+keywords	class	interface	enum	variant	module	namespace	using	def	mutable	if	else	match	foreach	while	try	catch	finally
+flags	slash_comments	block_comments

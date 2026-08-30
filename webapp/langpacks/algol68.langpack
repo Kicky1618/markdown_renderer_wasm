@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	algol68	algol-68	a68
+keywords	BEGIN	END	MODE	PROC	REF	STRUCT	UNION	IF	THEN	ELSE	ELIF	FI	FOR	FROM	TO	BY	WHILE	DO	OD	CASE	ESAC
+flags	case_insensitive_keywords

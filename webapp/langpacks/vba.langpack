@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	vba
+keywords	dim	sub	function	end	if	then	else	for	next	while	do	loop	select	case	set
+flags	apostrophe_comments	case_insensitive_keywords

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	chef-esolang	chef
+keywords	Ingredients	Method	Serves	Refrigerate	Put	Fold	Add	Remove	Combine	Divide	Liquefy	Stir	Mix	Clean	Pour
+flags	case_insensitive_keywords

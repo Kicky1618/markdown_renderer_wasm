@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	pike
+keywords	class	program	object	function	int	string	array	mapping	multiset	if	else	foreach	while	return	import	inherit
+flags	slash_comments	block_comments

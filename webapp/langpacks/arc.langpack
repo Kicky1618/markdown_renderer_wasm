@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	arc	arc-lisp
+keywords	def	mac	fn	let	with	if	when	unless	each	for	while	repeat	case
+flags	semicolon_comments	hyphen_identifiers	question_identifiers	bang_identifiers

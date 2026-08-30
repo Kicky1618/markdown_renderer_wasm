@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	dylan
+keywords	define	method	class	generic	function	library	module	let	local	if	elseif	else	end	for	while	block	select
+flags	slash_comments	block_comments	case_insensitive_keywords

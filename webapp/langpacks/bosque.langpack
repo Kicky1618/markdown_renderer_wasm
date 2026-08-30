@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	bosque
+keywords	namespace	using	entity	concept	datatype	typedef	function	method	field	const	if	else	match	switch	return
+flags	slash_comments	block_comments

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	elm
+keywords	module	exposing	import	as	type	alias	port	if	then	else	let	in	case	of
+flags	dash_comments	brace_dash_comments	nested_block_comments

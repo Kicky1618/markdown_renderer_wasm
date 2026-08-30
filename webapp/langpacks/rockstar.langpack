@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	rockstar	rockstar-lang
+keywords	is	ain't	says	say	listen	build	knock	if	else	while	until	function	takes	taking	give	back
+flags	case_insensitive_keywords

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	fish	fish-shell
+keywords	function	end	if	else	while	for	in	switch	case	begin	and	or	not	set	return
+flags	hash_comments	dollar_identifiers	hyphen_identifiers

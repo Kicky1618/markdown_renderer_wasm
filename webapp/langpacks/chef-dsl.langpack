@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	chef-dsl	chef-ruby
+keywords	package	service	file	template	execute	user	group	directory	cookbook_file	notifies	subscribes	action
+flags	hash_comments

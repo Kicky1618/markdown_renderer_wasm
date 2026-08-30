@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	vbscript	vbs
+keywords	Dim	Set	If	Then	Else	ElseIf	End	For	Each	Next	While	Wend	Do	Loop	Function	Sub	Class	Select	Case
+flags	apostrophe_comments	case_insensitive_keywords

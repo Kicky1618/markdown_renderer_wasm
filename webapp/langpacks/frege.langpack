@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	frege
+keywords	package	import	data	type	class	instance	native	if	then	else	case	of	let	in	where	do
+flags	dash_comments	brace_dash_comments	nested_block_comments

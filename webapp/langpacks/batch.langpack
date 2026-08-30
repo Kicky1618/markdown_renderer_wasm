@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	batch	bat	cmd
+keywords	echo	set	if	else	for	in	do	goto	call	shift	exit	setlocal	endlocal
+flags	case_insensitive_keywords

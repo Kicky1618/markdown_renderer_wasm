@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	gleam
+keywords	pub	fn	type	opaque	const	import	as	let	case	if	todo	panic	use
+flags	slash_comments

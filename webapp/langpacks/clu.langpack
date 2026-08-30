@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	clu
+keywords	cluster	rep	cvt	proc	iter	yields	where	own	signal	except	when	begin	end	if	then	else	for	while	return
+flags	percent_comments

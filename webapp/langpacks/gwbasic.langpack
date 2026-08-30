@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	gwbasic	gw-basic
+keywords	PRINT	INPUT	LET	DIM	IF	THEN	ELSE	FOR	NEXT	GOTO	GOSUB	RETURN	END
+flags	apostrophe_comments	case_insensitive_keywords

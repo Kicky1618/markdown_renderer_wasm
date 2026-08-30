@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	mercury
+keywords	module	interface	implementation	pred	func	mode	type	inst	if	then	else	semidet	det	multi	nondet
+flags	percent_comments

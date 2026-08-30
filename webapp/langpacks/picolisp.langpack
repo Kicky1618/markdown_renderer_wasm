@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	picolisp	pico-lisp
+keywords	de	dm	class	rel	if	ifn	when	unless	cond	case	while	until	loop	for	let	use	job
+flags	semicolon_comments	hyphen_identifiers	question_identifiers	bang_identifiers

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	monkeyx	monkey-x
+keywords	Strict	Import	Class	Interface	Extends	Implements	Method	Function	Field	Global	Local	Const	If	Then	Else	For	Eachin	Next	While	Wend	Repeat	Until
+flags	apostrophe_comments	case_insensitive_keywords

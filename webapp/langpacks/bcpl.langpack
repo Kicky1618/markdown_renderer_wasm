@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	bcpl
+keywords	LET	AND	BE	MANIFEST	GLOBAL	STATIC	VALOF	RESULTIS	IF	UNLESS	TEST	FOR	TO	BY	WHILE	UNTIL	REPEAT
+flags	slash_comments	case_insensitive_keywords

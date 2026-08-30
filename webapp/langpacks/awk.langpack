@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	awk	gawk	mawk
+keywords	BEGIN	END	function	if	else	while	do	for	in	break	continue	next	return	print	printf
+flags	hash_comments	dollar_identifiers

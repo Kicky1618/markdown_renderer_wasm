@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	snobol	snobol4
+keywords	DEFINE	END	RETURN	FRETURN	SRETURN	ABORT
+flags	case_insensitive_keywords

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	dhall
+keywords	let	in	if	then	else	merge	toMap	Some	None	Natural	Integer	Double	Text	List	Optional	Bool
+flags	dash_comments	block_comments

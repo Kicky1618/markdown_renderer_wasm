@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	eiffel
+keywords	class	feature	inherit	create	do	once	deferred	require	ensure	local	if	then	elseif	else	inspect	from	until	loop	end
+flags	dash_comments	case_insensitive_keywords

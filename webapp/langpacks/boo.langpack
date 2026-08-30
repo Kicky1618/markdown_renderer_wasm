@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	boo
+keywords	class	interface	enum	struct	def	callable	namespace	import	from	as	if	elif	else	for	while	unless	try	except	ensure	return	yield
+flags	hash_comments

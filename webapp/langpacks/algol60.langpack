@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	algol60	algol-60
+keywords	begin	end	integer	real	Boolean	array	procedure	value	if	then	else	for	step	until	while	do	goto
+flags	case_insensitive_keywords

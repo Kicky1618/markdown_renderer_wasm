@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	autohotkey	ahk	ahk2
+keywords	if	else	loop	while	for	in	return	break	continue	class	extends	static	global	local	try	catch	finally	throw
+flags	semicolon_comments	case_insensitive_keywords

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	reasonml	reason
+keywords	let	rec	type	module	open	include	switch	if	else	for	while	exception	external
+flags	slash_comments	block_comments

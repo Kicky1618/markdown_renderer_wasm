@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	freebasic	fbc
+keywords	PRINT	INPUT	DIM	AS	SUB	FUNCTION	TYPE	CLASS	IF	THEN	ELSE	FOR	NEXT	DO	LOOP	SELECT	CASE	END
+flags	apostrophe_comments	case_insensitive_keywords

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	cadence	cadence-lang
+keywords	access	fun	init	destroy	struct	resource	contract	event	enum	attachment	let	var	if	else	while	for	return	import
+flags	slash_comments	block_comments

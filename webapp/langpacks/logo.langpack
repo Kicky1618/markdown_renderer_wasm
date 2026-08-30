@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	logo	ucblogo
+keywords	to	end	if	ifelse	repeat	forever	while	for	make	local	output	stop
+flags	semicolon_comments	case_insensitive_keywords

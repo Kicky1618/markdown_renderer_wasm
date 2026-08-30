@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	tsql	t-sql	mssql
+keywords	select	insert	update	delete	create	alter	procedure	function	declare	begin	end	try	catch	merge
+flags	dash_comments	block_comments	case_insensitive_keywords

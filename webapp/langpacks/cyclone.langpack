@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	cyclone
+keywords	using	namespace	struct	union	enum	typedef	let	if	else	for	while	switch	return	try	catch	throw
+flags	slash_comments	block_comments

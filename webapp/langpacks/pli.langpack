@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	pli	pl1
+keywords	DECLARE	DCL	PROCEDURE	PROC	END	IF	THEN	ELSE	DO	SELECT	WHEN	OTHERWISE	CALL	RETURN	ON
+flags	block_comments	case_insensitive_keywords

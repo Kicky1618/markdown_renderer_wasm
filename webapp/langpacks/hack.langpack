@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	hack	hacklang
+keywords	function	class	interface	trait	enum	type	newtype	async	await	namespace	use	require	extends	implements
+flags	slash_comments	block_comments	dollar_identifiers

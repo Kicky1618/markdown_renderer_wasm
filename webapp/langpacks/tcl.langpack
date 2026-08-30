@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	tcl	tk
+keywords	proc	set	if	elseif	else	for	foreach	while	switch	return	namespace	package	source
+flags	hash_comments	dollar_identifiers

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	ngraph-ir
+keywords	node	edge	block	input	output	value	op	type	control	data	begin	end
+flags	slash_comments	hash_comments

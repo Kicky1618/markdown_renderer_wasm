@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	meson	mesonbuild
+keywords	project	executable	library	shared_library	static_library	dependency	declare_dependency	if	elif	else	endif	foreach	endforeach	subdir
+flags	hash_comments

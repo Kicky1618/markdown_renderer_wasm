@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	grain	grain-lang
+keywords	module	import	export	let	mut	rec	type	enum	record	match	if	else	while	for	return
+flags	slash_comments	block_comments

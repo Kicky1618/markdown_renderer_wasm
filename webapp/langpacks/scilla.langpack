@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	scilla
+keywords	scilla_version	import	library	contract	transition	procedure	field	event	match	with	end	let	builtin	accept	send	throw
+flags	slash_comments	block_comments

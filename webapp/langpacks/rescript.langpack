@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	rescript	res
+keywords	let	type	module	open	include	switch	if	else	for	while	async	await	external
+flags	slash_comments	block_comments

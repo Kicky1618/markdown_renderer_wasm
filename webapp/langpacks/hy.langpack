@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	hy	hylang
+keywords	defn	defclass	fn	setv	if	when	unless	cond	for	while	try	except	finally	import	require	yield	await
+flags	semicolon_comments	hyphen_identifiers	question_identifiers

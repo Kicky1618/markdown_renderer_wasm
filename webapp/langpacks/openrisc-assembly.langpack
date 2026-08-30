@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	openrisc-assembly
+keywords	mov	load	store	add	sub	mul	div	and	or	xor	cmp	test	call	ret	jmp	br	push	pop	phi
+flags	semicolon_comments	hash_comments

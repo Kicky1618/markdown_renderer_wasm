@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	cue	cuelang
+keywords	package	import	for	in	if	let	string	bytes	number	int	float	bool	bottom
+flags	slash_comments	block_comments	hash_comments

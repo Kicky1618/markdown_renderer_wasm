@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	jsonnet
+keywords	local	function	if	then	else	for	in	import	importstr	importbin	error	assert	self	super	tailstrict
+flags	slash_comments	block_comments

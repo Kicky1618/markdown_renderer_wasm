@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	carbon	carbon-lang
+keywords	fn	class	interface	impl	namespace	var	let	if	else	while	for	return	import	package
+flags	slash_comments	block_comments

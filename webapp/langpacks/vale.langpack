@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	vale	vale-lang
+keywords	func	struct	interface	impl	export	extern	abstract	virtual	if	else	while	foreach	return	set
+flags	slash_comments	block_comments

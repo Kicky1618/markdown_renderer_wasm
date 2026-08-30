@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	javascriptcore-air
+keywords	module	func	function	define	declare	type	block	region	op	let	var	const	phi	br	cond_br	call	ret	return	load	store	alloc	add	sub	mul	div	cmp	select	cast
+flags	slash_comments	hash_comments	semicolon_comments

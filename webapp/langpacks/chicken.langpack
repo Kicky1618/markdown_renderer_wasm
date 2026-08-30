@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	chicken	chicken-scheme
+keywords	define	lambda	let	let*	letrec	if	cond	case	do	delay	quasiquote	begin	set!	and	or
+flags	semicolon_comments	hyphen_identifiers	question_identifiers	bang_identifiers

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	unicon
+keywords	procedure	method	class	package	import	end	if	then	else	every	while	until	suspend	return
+flags	hash_comments

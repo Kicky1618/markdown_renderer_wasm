@@ -1,0 +1,233 @@
+LLVM IR	llvm-ir
+LLVM Bitcode	llvm-bitcode
+MLIR	mlir-ir
+CIR	cir-ir
+GCC GIMPLE	gcc-gimple
+GCC GENERIC	gcc-generic
+GCC RTL	gcc-rtl
+GCC Tree SSA	gcc-tree-ssa
+QBE IL	qbe-il
+Cranelift IR	cranelift-ir
+Rust MIR	rust-mir
+Rust HIR	rust-hir
+Rust THIR	rust-thir
+Swift SIL	swift-sil
+Swift IRGen IR	swift-irgen-ir
+Kotlin IR	kotlin-ir
+Dart Kernel IR	dart-kernel-ir
+Go SSA	go-ssa
+Go Plan 9 Assembly	go-plan-9-assembly
+SSA form	ssa-form
+Sea of Nodes IR	sea-of-nodes-ir
+Static Single Information form	static-single-information-form
+CPS IR	cps-ir
+ANF	anf-ir
+Three-address code	three-address-code
+Quadruple IR	quadruple-ir
+Register Transfer Language	register-transfer-language
+RTLIL	rtlil
+FIRRTL	firrtl
+CIRCT HW dialect	circt-hw-dialect
+CIRCT LLHD	circt-llhd
+CIRCT Handshake	circt-handshake
+CIRCT Calyx	circt-calyx
+CIRCT Comb dialect	circt-comb-dialect
+CIRCT Seq dialect	circt-seq-dialect
+MLIR LLVM Dialect	mlir-llvm-dialect
+MLIR SCF Dialect	mlir-scf-dialect
+MLIR Affine Dialect	mlir-affine-dialect
+MLIR Arith Dialect	mlir-arith-dialect
+MLIR MemRef Dialect	mlir-memref-dialect
+MLIR Vector Dialect	mlir-vector-dialect
+MLIR GPU Dialect	mlir-gpu-dialect
+MLIR Linalg Dialect	mlir-linalg-dialect
+MLIR Tensor Dialect	mlir-tensor-dialect
+MLIR TOSA	mlir-tosa
+StableHLO	stablehlo
+MHLO	mhlo
+XLA HLO	xla-hlo
+ONNX IR	onnx-ir
+TorchScript IR	torchscript-ir
+Torch FX IR	torch-fx-ir
+PyTorch ATen IR	pytorch-aten-ir
+TensorFlow GraphDef	tensorflow-graphdef
+TensorFlow MLIR	tensorflow-mlir
+TensorFlow Lite IR	tensorflow-lite-ir
+TVM Relay	tvm-relay
+TVM Relax	tvm-relax
+TVM TIR	tvm-tir
+Halide IR	halide-ir
+Glow IR	glow-ir
+IREE VM IR	iree-vm-ir
+IREE HAL IR	iree-hal-ir
+nGraph IR	ngraph-ir
+OpenVINO IR	openvino-ir
+NCNN IR	ncnn-ir
+ExecuTorch EXIR	executorch-exir
+Core ML MIL	core-ml-mil
+TensorRT Network IR	tensorrt-network-ir
+Triton IR	triton-ir
+Triton TTIR	triton-ttir
+Triton TTGIR	triton-ttgir
+SPIR	spir-ir
+SPIR-V	spir-v
+SPIR-V Assembly	spir-v-assembly
+DXIL	dxil-ir
+DXBC	dxbc-bytecode
+Apple AIR	apple-air
+Metal IR	metal-ir
+NVVM IR	nvvm-ir
+NVIDIA PTX	nvidia-ptx
+NVIDIA SASS	nvidia-sass
+AMDGPU LLVM IR	amdgpu-llvm-ir
+AMD GCN ISA	amd-gcn-isa
+AMD RDNA ISA	amd-rdna-isa
+AMDGCN Assembly	amdgcn-assembly
+Intel GEN Assembly	intel-gen-assembly
+Intel Xe ISA	intel-xe-isa
+Intel VISA	intel-visa
+Intel CM ISA	intel-cm-isa
+Mesa NIR	mesa-nir
+Mesa TGSI	mesa-tgsi
+Mesa GLSL IR	mesa-glsl-ir
+Gallium IR	gallium-ir
+Apple AGX ISA	apple-agx-isa
+Qualcomm Adreno ISA	qualcomm-adreno-isa
+ARM Mali Bifrost ISA	arm-mali-bifrost-isa
+ARM Mali Valhall ISA	arm-mali-valhall-isa
+PowerVR USC ISA	powervr-usc-isa
+Java bytecode	java-bytecode
+JVM bytecode	jvm-bytecode
+Dalvik bytecode	dalvik-bytecode
+DEX bytecode	dex-bytecode
+ART bytecode	art-bytecode
+.NET CIL	dotnet-cil
+MSIL	msil-bytecode
+Mono IR	mono-ir
+Mono Mini IR	mono-mini-ir
+WebAssembly binary format	webassembly-binary-format
+WASM bytecode	wasm-bytecode
+WASM SSA IR	wasm-ssa-ir
+Binaryen IR	binaryen-ir
+WABT IR	wabt-ir
+V8 Ignition bytecode	v8-ignition-bytecode
+V8 TurboFan IR	v8-turbofan-ir
+V8 Maglev IR	v8-maglev-ir
+JavaScriptCore bytecode	javascriptcore-bytecode
+JavaScriptCore DFG IR	javascriptcore-dfg-ir
+JavaScriptCore FTL IR	javascriptcore-ftl-ir
+JavaScriptCore B3 IR	javascriptcore-b3-ir
+JavaScriptCore Air	javascriptcore-air
+SpiderMonkey bytecode	spidermonkey-bytecode
+SpiderMonkey MIR	spidermonkey-mir
+SpiderMonkey LIR	spidermonkey-lir
+Lua bytecode	lua-bytecode
+LuaJIT bytecode	luajit-bytecode
+LuaJIT IR	luajit-ir
+CPython bytecode	cpython-bytecode
+CPython wordcode	cpython-wordcode
+MicroPython bytecode	micropython-bytecode
+Ruby YARV bytecode	ruby-yarv-bytecode
+Ruby YJIT IR	ruby-yjit-ir
+Ruby MJIT IR	ruby-mjit-ir
+Perl optree	perl-optree
+Perl bytecode	perl-bytecode
+BEAM bytecode	beam-bytecode
+BEAM assembly	beam-assembly
+Core Erlang	core-erlang
+GHC Core	ghc-core
+GHC STG	ghc-stg
+GHC Cmm	ghc-cmm
+GHC bytecode	ghc-bytecode
+OCaml Lambda IR	ocaml-lambda-ir
+OCaml Flambda	ocaml-flambda
+OCaml Cmm	ocaml-cmm
+OCaml bytecode	ocaml-bytecode
+F# IL	fsharp-il
+Common Lisp bytecode	common-lisp-bytecode
+Emacs bytecode	emacs-bytecode
+R bytecode	r-bytecode
+PHP Zend opcodes	php-zend-opcodes
+HHVM HHBC	hhvm-hhbc
+HHVM IR	hhvm-ir
+Parrot bytecode	parrot-bytecode
+MoarVM bytecode	moarvm-bytecode
+MoarVM SSA	moarvm-ssa
+Smalltalk bytecode	smalltalk-bytecode
+Squeak bytecode	squeak-bytecode
+Jasmin Assembly	jasmin-assembly
+Krakatau Assembly	krakatau-assembly
+Smali	smali
+Baksmali	baksmali
+GNU assembler syntax	gnu-assembler-syntax
+AT&T assembly syntax	att-assembly-syntax
+Intel assembly syntax	intel-assembly-syntax
+NASM syntax	nasm-syntax
+MASM syntax	masm-syntax
+GAS	gas-syntax
+x86 machine code	x86-machine-code
+x86-64 machine code	x86-64-machine-code
+IA-32 ISA	ia-32-isa
+AMD64 ISA	amd64-isa
+AArch64 assembly	aarch64-assembly
+ARM assembly	arm-assembly
+Thumb assembly	thumb-assembly
+Thumb-2 assembly	thumb-2-assembly
+A64 instruction language	a64-instruction-language
+RISC-V assembly	risc-v-assembly
+RV32I	rv32i
+RV64I	rv64i
+RISC-V Vector assembly	risc-v-vector-assembly
+MIPS assembly	mips-assembly
+MIPS64 assembly	mips64-assembly
+PowerPC assembly	powerpc-assembly
+Power ISA assembly	power-isa-assembly
+SPARC assembly	sparc-assembly
+SPARC V9 assembly	sparc-v9-assembly
+Motorola 68000 assembly	motorola-68000-assembly
+MOS 6502 assembly	mos-6502-assembly
+Z80 assembly	z80-assembly
+Intel 8080 assembly	intel-8080-assembly
+Intel 8051 assembly	intel-8051-assembly
+AVR assembly	avr-assembly
+MSP430 assembly	msp430-assembly
+PIC assembly	pic-assembly
+SuperH assembly	superh-assembly
+Renesas RX assembly	renesas-rx-assembly
+Xtensa assembly	xtensa-assembly
+ARC assembly	arc-assembly
+LoongArch assembly	loongarch-assembly
+OpenRISC assembly	openrisc-assembly
+s390x assembly	s390x-assembly
+IBM z/Architecture assembly	ibm-z-architecture-assembly
+PA-RISC assembly	pa-risc-assembly
+Alpha assembly	alpha-assembly
+VAX assembly	vax-assembly
+Itanium assembly	itanium-assembly
+IA-64 assembly	ia-64-assembly
+eBPF	ebpf
+eBPF bytecode	ebpf-bytecode
+classic BPF	classic-bpf
+Berkeley Packet Filter instruction set	berkeley-packet-filter-instruction-set
+P4 IR	p4-ir
+NetASM	netasm
+SQLite VDBE bytecode	sqlite-vdbe-bytecode
+PCRE bytecode	pcre-bytecode
+RE2 program IR	re2-program-ir
+LPeg VM bytecode	lpeg-vm-bytecode
+Graal IR	graal-ir
+Graal Sea-of-Nodes IR	graal-sea-of-nodes-ir
+Graal LIR	graal-lir
+HotSpot C1 HIR	hotspot-c1-hir
+HotSpot C1 LIR	hotspot-c1-lir
+HotSpot C2 Ideal Graph	hotspot-c2-ideal-graph
+HotSpot C2 MachNode IR	hotspot-c2-machnode-ir
+LLVM SelectionDAG	llvm-selectiondag
+LLVM GlobalISel MIR	llvm-globalisel-mir
+LLVM Machine IR	llvm-machine-ir
+LLVM MCInst	llvm-mcinst
+LLVM MCExpr	llvm-mcexpr
+LLVM TableGen	llvm-tablegen
+Clang AST	clang-ast
+Clang CFG	clang-cfg
+Clang CIR	clang-cir

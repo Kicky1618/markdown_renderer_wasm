@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	chapel	chpl
+keywords	proc	iter	class	record	union	enum	module	config	var	const	ref	if	then	else	for	forall	coforall
+flags	slash_comments	block_comments

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	beef	beef-lang
+keywords	namespace	using	class	struct	interface	enum	extension	public	private	protected	static	const	let	var	if	else	for	while	return
+flags	slash_comments	block_comments

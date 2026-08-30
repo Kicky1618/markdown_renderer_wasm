@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	gosu
+keywords	class	interface	enum	enhancement	function	property	var	uses	package	construct	if	else	for	foreach	while	switch	return
+flags	slash_comments	block_comments

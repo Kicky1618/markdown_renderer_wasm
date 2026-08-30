@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	plm	plm80
+keywords	DECLARE	PROCEDURE	END	IF	THEN	ELSE	DO	WHILE	CALL	RETURN	ADDRESS	DATA	BYTE	WORD
+flags	case_insensitive_keywords

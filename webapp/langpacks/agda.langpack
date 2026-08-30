@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	agda
+keywords	module	where	open	import	data	record	field	constructor	let	in	with	rewrite	mutual	abstract	private	instance
+flags	dash_comments	brace_dash_comments	nested_block_comments

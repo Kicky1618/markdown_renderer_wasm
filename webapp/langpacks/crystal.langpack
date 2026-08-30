@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	crystal	cr
+keywords	class	module	struct	enum	def	macro	if	unless	case	while	until	begin	rescue	ensure	end
+flags	hash_comments	question_identifiers	bang_identifiers

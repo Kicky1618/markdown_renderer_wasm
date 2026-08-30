@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	odin	odin-lang
+keywords	package	import	foreign	proc	struct	union	enum	bit_set	distinct	if	else	for	switch	return	defer	when
+flags	slash_comments	block_comments

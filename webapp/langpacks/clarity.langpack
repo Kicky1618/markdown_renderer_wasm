@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	clarity	clarity-lang
+keywords	define-public	define-private	define-read-only	define-map	define-data-var	let	match	if	begin	ok	err	some	none
+flags	semicolon_comments	hyphen_identifiers

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	michelson	tezos-michelson
+keywords	parameter	storage	code	DROP	DUP	SWAP	PUSH	UNIT	PAIR	CAR	CDR	LEFT	RIGHT	IF	LOOP	DIP	FAILWITH
+flags	hash_comments	case_insensitive_keywords

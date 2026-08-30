@@ -5,7 +5,7 @@
 //! fetched from `langpacks/<name>.langpack` the first time a fenced language is
 //! observed; until the fetch completes the block is rendered as plain text.
 
-use std::cell::RefCell;
+use std::{borrow::Cow, cell::RefCell};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -335,16 +335,23 @@ impl Language {
         if name.is_empty() {
             return Self(&PLAIN);
         }
-        if let Some(profile) = find_loaded(name) {
+        let lookup = normalize_fence_name(name);
+        let lookup = lookup.as_ref();
+        if let Some(profile) = find_loaded(lookup) {
             return Self(profile);
         }
         #[cfg(target_arch = "wasm32")]
-        request_language_pack(name);
+        request_language_pack(lookup);
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(pack) = pack_name_for(name) {
+        if let Some(pack) = pack_name_for(lookup) {
             ensure_pack(&pack);
         }
-        find_loaded(name).map_or(Self(&PLAIN), Self)
+        find_loaded(lookup).map_or(Self(&PLAIN), Self)
+    }
+
+    #[cfg(test)]
+    pub(super) fn is_plain(self) -> bool {
+        std::ptr::eq(self.0, &PLAIN)
     }
 
     pub(super) fn is_keyword(self, word: &str) -> bool {
@@ -425,17 +432,39 @@ impl Language {
         self.0.macro_metavariables
     }
 
-    pub(super) fn semicolon_comments(self) -> bool { self.0.semicolon_comments }
-    pub(super) fn percent_comments(self) -> bool { self.0.percent_comments }
-    pub(super) fn apostrophe_comments(self) -> bool { self.0.apostrophe_comments }
-    pub(super) fn bang_comments(self) -> bool { self.0.bang_comments }
-    pub(super) fn hyphen_identifiers(self) -> bool { self.0.hyphen_identifiers }
-    pub(super) fn question_identifiers(self) -> bool { self.0.question_identifiers }
-    pub(super) fn bang_identifiers(self) -> bool { self.0.bang_identifiers }
-    pub(super) fn paren_star_comments(self) -> bool { self.0.paren_star_comments }
-    pub(super) fn brace_dash_comments(self) -> bool { self.0.brace_dash_comments }
-    pub(super) fn triple_double_strings(self) -> bool { self.0.triple_double_strings }
-    pub(super) fn triple_single_strings(self) -> bool { self.0.triple_single_strings }
+    pub(super) fn semicolon_comments(self) -> bool {
+        self.0.semicolon_comments
+    }
+    pub(super) fn percent_comments(self) -> bool {
+        self.0.percent_comments
+    }
+    pub(super) fn apostrophe_comments(self) -> bool {
+        self.0.apostrophe_comments
+    }
+    pub(super) fn bang_comments(self) -> bool {
+        self.0.bang_comments
+    }
+    pub(super) fn hyphen_identifiers(self) -> bool {
+        self.0.hyphen_identifiers
+    }
+    pub(super) fn question_identifiers(self) -> bool {
+        self.0.question_identifiers
+    }
+    pub(super) fn bang_identifiers(self) -> bool {
+        self.0.bang_identifiers
+    }
+    pub(super) fn paren_star_comments(self) -> bool {
+        self.0.paren_star_comments
+    }
+    pub(super) fn brace_dash_comments(self) -> bool {
+        self.0.brace_dash_comments
+    }
+    pub(super) fn triple_double_strings(self) -> bool {
+        self.0.triple_double_strings
+    }
+    pub(super) fn triple_single_strings(self) -> bool {
+        self.0.triple_single_strings
+    }
 
     pub(super) fn is_macro_identifier(self, word: &str) -> bool {
         self.0.macro_identifiers.contains(&word)
@@ -478,15 +507,64 @@ fn pack_name_for(name: &str) -> Option<String> {
     {
         return Some((*pack).to_owned());
     }
-    // This also makes the loader extensible: dropping `kotlin.langpack` next to
-    // the app is enough for a ```kotlin fence without rebuilding the wasm.
+    let normalized = normalize_dynamic_pack_name(name)?;
+    let direct = native_pack_dir().join(format!("{normalized}.langpack"));
+    if direct.is_file() {
+        return Some(normalized);
+    }
+    native_pack_aliases()
+        .iter()
+        .find(|(alias, _)| alias.eq_ignore_ascii_case(&normalized))
+        .map(|(_, pack)| pack.clone())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn normalize_dynamic_pack_name(name: &str) -> Option<String> {
     let normalized = name.to_ascii_lowercase();
     (!normalized.is_empty()
         && normalized.len() <= 48
         && normalized
             .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')))
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'+' | b'#' | b'-')))
     .then_some(normalized)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn native_pack_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("langpacks")
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn native_pack_aliases() -> &'static [(String, String)] {
+    use std::sync::OnceLock;
+    static INDEX: OnceLock<Vec<(String, String)>> = OnceLock::new();
+    INDEX.get_or_init(|| {
+        let Ok(entries) = std::fs::read_dir(native_pack_dir()) else {
+            return Vec::new();
+        };
+        let mut index = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("langpack") {
+                continue;
+            }
+            let Some(pack) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            let Ok(source) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            if let Some(line) = source.lines().find(|line| line.starts_with("aliases\t")) {
+                index.extend(
+                    line.split('\t')
+                        .skip(1)
+                        .filter_map(normalize_dynamic_pack_name)
+                        .map(|alias| (alias, pack.to_owned())),
+                );
+            }
+        }
+        index
+    })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -496,6 +574,11 @@ fn ensure_pack(pack: &str) {
     }
     if let Some(source) = embedded_pack(pack) {
         let _ = register_pack_source(source);
+        return;
+    }
+    if let Ok(source) = std::fs::read_to_string(native_pack_dir().join(format!("{pack}.langpack")))
+    {
+        let _ = register_pack_source(&source);
     }
 }
 
@@ -814,6 +897,123 @@ fn embedded_pack(name: &str) -> Option<&'static str> {
         "zig" => include_str!("../langpacks/zig.langpack"),
         _ => return None,
     })
+}
+
+fn normalize_fence_name(name: &str) -> Cow<'_, str> {
+    let name = name.trim();
+    if let Some(canonical) = special_fence_name(name) {
+        return Cow::Borrowed(canonical);
+    }
+
+    // Already-safe fence names are the hot path. Keep them borrowed so
+    // ordinary `rust`, `cpp`, `python`, ... code blocks allocate nothing.
+    if name.len() <= 48
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'+' | b'#' | b'-'))
+    {
+        return Cow::Borrowed(name);
+    }
+
+    // Human-facing names such as `LLVM Machine IR` or `IBM z/Architecture
+    // assembly` are deterministically mapped to the canonical pack filename.
+    // Only ASCII-safe bytes are emitted; punctuation runs become one `-`.
+    let mut slug = String::with_capacity(name.len().min(48));
+    let mut separator = false;
+    for byte in name.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'+' | b'#' | b'-') {
+            if separator && !slug.is_empty() && !slug.ends_with('-') {
+                slug.push('-');
+            }
+            separator = false;
+            if slug.len() == 48 {
+                break;
+            }
+            slug.push((byte as char).to_ascii_lowercase());
+        } else {
+            separator = true;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        Cow::Borrowed(name)
+    } else {
+        Cow::Owned(slug)
+    }
+}
+
+fn special_fence_name(name: &str) -> Option<&'static str> {
+    if name == "V" || name.eq_ignore_ascii_case("V language") {
+        return Some("vlang");
+    }
+    if name == "><>" {
+        return Some("fish-esolang");
+    }
+    if name == "///" {
+        return Some("slashes-esolang");
+    }
+    if matches!(name, "P′′" | "P''" | "p′′" | "p''") {
+        return Some("p-prime-prime");
+    }
+    if name.eq_ignore_ascii_case("Ook!") {
+        return Some("ook");
+    }
+    if name.eq_ignore_ascii_case("Ink!") {
+        return Some("ink");
+    }
+    if name == "GAS" {
+        return Some("gas-syntax");
+    }
+    for (display, canonical) in [
+        ("Delphi / Object Pascal", "objectpascal"),
+        ("Object Pascal", "objectpascal"),
+        ("Visual Basic", "vbnet"),
+        ("LabVIEW G", "labview"),
+        ("PL/SQL", "plsql"),
+        ("PL/I", "pli"),
+        ("PL/M", "plm"),
+        ("Common Lisp", "lisp"),
+        ("Coq / Gallina", "coq"),
+        ("Standard ML", "sml"),
+        ("CUDA C++", "cuda"),
+        ("OpenCL C", "opencl"),
+        ("WebAssembly Text Format", "wat"),
+        ("BBC BASIC", "bbcbasic"),
+        ("Component Pascal", "componentpascal"),
+        ("ALGOL 60", "algol60"),
+        ("ALGOL 68", "algol68"),
+        ("Monkey X", "monkeyx"),
+        ("Chef DSL", "chef-dsl"),
+        ("Emacs Lisp", "elisp"),
+        ("Guile Scheme", "guile"),
+        ("Chez Scheme", "chez"),
+        ("Chicken Scheme", "chicken"),
+        ("Wolfram Language", "wolfram"),
+        ("Max/MSP", "maxmsp"),
+        ("Shakespeare Programming Language", "shakespeare"),
+        ("Lazy K", "lazyk"),
+        ("SKI combinator calculus", "ski"),
+        ("Binary Lambda Calculus", "blc"),
+        // IR/bytecode names whose natural slug intentionally differs from the
+        // canonical filename to avoid collisions with source languages.
+        (".NET CIL", "dotnet-cil"),
+        ("F# IL", "fsharp-il"),
+        ("AT&T assembly syntax", "att-assembly-syntax"),
+        ("CIR", "cir-ir"),
+        ("MLIR", "mlir-ir"),
+        ("ANF", "anf-ir"),
+        ("SPIR", "spir-ir"),
+        ("DXIL", "dxil-ir"),
+        ("DXBC", "dxbc-bytecode"),
+        ("MSIL", "msil-bytecode"),
+    ] {
+        if name.eq_ignore_ascii_case(display) {
+            return Some(canonical);
+        }
+    }
+    None
 }
 
 fn directive_name(directive: &str) -> Option<&str> {

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	maxmsp	max-msp	max8
+keywords	patcher	box	message	object	inlet	outlet	route	trigger	metro	cycle
+flags	slash_comments

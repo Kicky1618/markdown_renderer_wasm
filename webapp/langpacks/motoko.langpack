@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	motoko
+keywords	actor	class	object	module	public	private	shared	query	func	let	var	type	if	else	switch	for	loop	while	return	async	await
+flags	slash_comments	block_comments

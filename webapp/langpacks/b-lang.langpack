@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	b-lang	blang	b
+keywords	auto	extrn	if	else	while	switch	case	goto	return
+flags	block_comments

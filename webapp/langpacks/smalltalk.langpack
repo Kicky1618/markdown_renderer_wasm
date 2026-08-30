@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	smalltalk	st
+keywords	self	super	nil	true	false	class	subclass	method	ifTrue	ifFalse	whileTrue	whileFalse	new
+flags	apostrophe_comments

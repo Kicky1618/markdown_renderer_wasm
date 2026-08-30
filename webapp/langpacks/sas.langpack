@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	sas
+keywords	data	proc	run	quit	set	merge	by	if	then	else	do	end	macro	mend
+flags	block_comments	case_insensitive_keywords

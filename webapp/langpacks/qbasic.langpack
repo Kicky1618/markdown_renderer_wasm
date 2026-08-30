@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	qbasic
+keywords	PRINT	INPUT	DIM	SUB	FUNCTION	IF	THEN	ELSE	FOR	NEXT	DO	LOOP	SELECT	CASE	GOTO	GOSUB	END
+flags	apostrophe_comments	case_insensitive_keywords

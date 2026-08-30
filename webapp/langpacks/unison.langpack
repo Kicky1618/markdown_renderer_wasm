@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	unison	unison-lang
+keywords	type	ability	unique	structural	if	then	else	match	with	let	use	handle	cases	where
+flags	dash_comments

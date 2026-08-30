@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	sml	standardml	standard-ml
+keywords	val	fun	fn	type	datatype	abstype	exception	structure	signature	functor	local	let	in	end	case	of	if	then	else
+flags	paren_star_comments	nested_block_comments

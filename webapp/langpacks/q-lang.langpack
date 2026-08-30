@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	q-lang	qlang	q
+keywords	select	exec	update	delete	from	by	where
+flags	slash_comments

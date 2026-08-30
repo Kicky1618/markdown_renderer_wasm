@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	koka
+keywords	module	import	public	private	fun	val	var	type	struct	effect	if	then	else	match	return	with	handler
+flags	slash_comments	block_comments

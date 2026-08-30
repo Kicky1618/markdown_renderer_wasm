@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	objectpascal	delphi	delphi-pascal
+keywords	program	unit	interface	implementation	begin	end	class	object	constructor	destructor	procedure	function	property
+flags	case_insensitive_keywords	paren_star_comments	slash_comments

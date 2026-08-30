@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	gambas
+keywords	PUBLIC	PRIVATE	SUB	FUNCTION	CLASS	STRUCT	IF	THEN	ELSE	FOR	EACH	NEXT	WHILE	WEND	SELECT	CASE	END
+flags	apostrophe_comments	case_insensitive_keywords

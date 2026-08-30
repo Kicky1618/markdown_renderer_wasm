@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	ada	ada95	ada2012
+keywords	procedure	function	package	body	begin	end	is	declare	type	record	task	protected	if	then	else	elsif	loop
+flags	dash_comments	case_insensitive_keywords

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	plsql	oracle-sql
+keywords	declare	begin	exception	end	procedure	function	package	trigger	cursor	loop	if	then	elsif
+flags	dash_comments	block_comments	case_insensitive_keywords

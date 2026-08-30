@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	icon
+keywords	procedure	end	if	then	else	every	while	until	repeat	suspend	return	fail	local	static	global	record
+flags	hash_comments

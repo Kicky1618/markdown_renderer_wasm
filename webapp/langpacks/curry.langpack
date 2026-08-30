@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	curry	curry-lang
+keywords	module	where	import	qualified	as	hiding	data	newtype	type	class	instance	if	then	else	let	in	case	of	do
+flags	dash_comments	brace_dash_comments	nested_block_comments

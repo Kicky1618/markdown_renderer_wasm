@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	wat	wasm-text	webassembly-text
+keywords	module	func	param	result	local	global	memory	table	import	export	data	elem	block	loop	if	then	else	call
+flags	semicolon_comments

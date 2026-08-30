@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	actionscript	as3
+keywords	package	import	class	interface	function	var	const	if	else	for	while	switch	return	new
+flags	slash_comments	block_comments	dollar_identifiers

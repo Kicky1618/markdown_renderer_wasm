@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	modula3	modula-3	m3
+keywords	MODULE	INTERFACE	IMPORT	FROM	CONST	TYPE	VAR	PROCEDURE	BEGIN	END	IF	THEN	ELSE	WHILE	FOR	CASE	OBJECT	METHODS
+flags	paren_star_comments	case_insensitive_keywords

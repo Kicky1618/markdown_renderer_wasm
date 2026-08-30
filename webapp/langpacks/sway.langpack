@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	sway	fuel-sway
+keywords	script	contract	predicate	library	abi	fn	struct	enum	trait	impl	storage	configurable	let	mut	if	else	match	while	return
+flags	slash_comments	block_comments

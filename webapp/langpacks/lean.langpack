@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	lean	lean4
+keywords	theorem	lemma	def	abbrev	example	inductive	structure	class	instance	namespace	section	variable	match	with	if	then	else
+flags	dash_comments	block_comments	nested_block_comments

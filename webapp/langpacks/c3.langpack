@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	c3	c3lang
+keywords	module	import	fn	struct	union	enum	distinct	typedef	const	var	if	else	for	foreach	while	switch	return	defer
+flags	slash_comments	block_comments

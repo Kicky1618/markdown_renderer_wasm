@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	elisp	emacs-lisp
+keywords	defun	defmacro	defvar	defconst	defcustom	lambda	let	let*	if	when	unless	cond	progn	while	dolist	dotimes	interactive	require	provide
+flags	semicolon_comments	hyphen_identifiers	question_identifiers

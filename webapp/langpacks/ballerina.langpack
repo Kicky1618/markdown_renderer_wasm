@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	ballerina	bal
+keywords	import	public	private	isolated	client	service	resource	remote	function	type	record	object	class	enum	const	final	if	else	match	foreach	while	return
+flags	slash_comments

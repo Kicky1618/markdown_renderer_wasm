@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	m4	autom4te
+keywords	define	undefine	defn	pushdef	popdef	ifdef	ifelse	include	sinclude	divert	undivert	dnl
+flags	hash_comments

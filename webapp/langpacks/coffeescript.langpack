@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	coffeescript	coffee
+keywords	class	extends	super	if	then	else	unless	for	in	of	while	until	switch	when	try	catch	finally
+flags	hash_comments

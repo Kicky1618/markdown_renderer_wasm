@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	fantom
+keywords	class	mixin	enum	facet	public	protected	private	internal	static	const	abstract	virtual	override	new	this	super	if	else	for	while	switch	try	catch	finally	return
+flags	slash_comments	block_comments

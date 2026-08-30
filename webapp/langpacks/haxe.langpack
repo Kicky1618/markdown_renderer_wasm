@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	haxe	hx
+keywords	package	import	using	class	interface	enum	abstract	typedef	function	var	final	static	public	private	override	inline	macro	if	else	for	while	switch	return
+flags	slash_comments	block_comments

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	puppet	pp
+keywords	class	define	node	inherits	include	contain	require	case	if	elsif	else	unless	each	map	reduce	filter
+flags	hash_comments	dollar_identifiers

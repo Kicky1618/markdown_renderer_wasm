@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	jai	jai-lang
+keywords	if	else	for	while	return	struct	enum	union	#import	#run
+flags	slash_comments	block_comments

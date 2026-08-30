@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	apex	salesforce-apex
+keywords	class	interface	enum	trigger	public	private	protected	global	static	final	if	else	for	while	return
+flags	slash_comments	block_comments

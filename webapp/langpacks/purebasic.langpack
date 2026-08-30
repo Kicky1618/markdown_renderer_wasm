@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	purebasic	pb
+keywords	Procedure	EndProcedure	Structure	EndStructure	Interface	EndInterface	If	Else	EndIf	For	Next	While	Wend	Repeat	Until
+flags	semicolon_comments	case_insensitive_keywords

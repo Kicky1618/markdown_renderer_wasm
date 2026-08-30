@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	taxi	taxi-lang
+keywords	Go	to	Switch	to	Pickup	a	passenger	going	to
+flags	case_insensitive_keywords

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	blitzbasic	blitz-basic
+keywords	Function	End	Function	Type	Field	If	Then	Else	For	Next	While	Wend	Repeat	Until
+flags	semicolon_comments	case_insensitive_keywords

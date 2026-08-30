@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	quickbasic	quick-basic
+keywords	PRINT	INPUT	DIM	DECLARE	SUB	FUNCTION	IF	THEN	ELSE	FOR	NEXT	DO	LOOP	END
+flags	apostrophe_comments	case_insensitive_keywords

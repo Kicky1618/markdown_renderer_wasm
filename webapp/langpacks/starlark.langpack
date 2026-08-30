@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	starlark	bzl	bazel
+keywords	def	lambda	if	else	elif	for	while	in	not	and	or	load	return	break	continue	pass
+flags	hash_comments	python_strings

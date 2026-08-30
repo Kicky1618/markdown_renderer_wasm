@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	sed
+keywords	a	b	c	d	D	g	G	h	H	i	l	n	N	p	P	q	Q	r	s	t	T	w	x	y
+flags	hash_comments

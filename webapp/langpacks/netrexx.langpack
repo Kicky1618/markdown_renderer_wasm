@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	netrexx
+keywords	class	method	properties	if	then	else	do	end	loop	select	when	otherwise	return	say	parse	numeric	options
+flags	block_comments	case_insensitive_keywords

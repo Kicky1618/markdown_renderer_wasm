@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	shakespeare	spl	shakespeare-programming-language
+keywords	Act	Scene	Enter	Exit	Exeunt	If	So	If	Not	Let	Us	Proceed	To	Recall	Speak	Your	Mind	Open	Your	Heart	Listen	To	Your	Heart
+flags	case_insensitive_keywords

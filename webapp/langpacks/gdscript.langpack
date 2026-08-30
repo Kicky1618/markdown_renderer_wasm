@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	gdscript	godot
+keywords	extends	class_name	func	class	var	const	enum	signal	if	elif	else	for	while	match	return	await
+flags	hash_comments	decorators

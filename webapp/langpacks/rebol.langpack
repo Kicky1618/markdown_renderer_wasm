@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	rebol
+keywords	REBOL	func	function	does	if	either	unless	case	switch	foreach	forall	repeat	loop	while	until	return
+flags	semicolon_comments	case_insensitive_keywords

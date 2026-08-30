@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	janet
+keywords	def	defn	fn	var	set	if	when	unless	cond	case	while	for	each	loop	break	continue	return	import	use
+flags	hash_comments	hyphen_identifiers	question_identifiers

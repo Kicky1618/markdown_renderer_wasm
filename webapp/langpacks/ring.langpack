@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	ring	ring-lang
+keywords	see	give	new	class	func	package	import	if	but	else	ok	for	to	next	while	end	switch	on	other	off	return
+flags	hash_comments	slash_comments	case_insensitive_keywords

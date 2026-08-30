@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	nix	nix-lang
+keywords	let	in	with	rec	inherit	if	then	else	assert	or	import	builtins
+flags	hash_comments	block_comments	hyphen_identifiers

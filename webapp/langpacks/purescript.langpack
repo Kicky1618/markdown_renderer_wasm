@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	purescript	purs
+keywords	module	where	import	hiding	as	class	instance	data	newtype	type	derive	if	then	else	case	of	let	in	do
+flags	dash_comments	brace_dash_comments	nested_block_comments

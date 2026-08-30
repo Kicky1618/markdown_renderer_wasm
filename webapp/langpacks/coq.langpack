@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	coq	gallina
+keywords	Theorem	Lemma	Definition	Fixpoint	Inductive	Record	Class	Instance	Proof	Qed	Require	Import	Module	Section	End
+flags	paren_star_comments	nested_block_comments

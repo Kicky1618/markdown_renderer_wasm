@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	idris	idris2
+keywords	module	import	data	record	interface	implementation	where	let	in	case	of	if	then	else	do
+flags	dash_comments	brace_dash_comments	nested_block_comments

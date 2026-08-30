@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	cmake	cmakelists
+keywords	cmake_minimum_required	project	add_executable	add_library	target_link_libraries	set	if	elseif	else	endif	function	endfunction	macro	endmacro	foreach	endforeach
+flags	hash_comments	case_insensitive_keywords

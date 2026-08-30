@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	basic
+keywords	print	input	let	if	then	else	for	next	goto	gosub	return	end
+flags	apostrophe_comments	case_insensitive_keywords

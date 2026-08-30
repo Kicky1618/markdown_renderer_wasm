@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	roc	roc-lang
+keywords	app	packages	imports	provides	to	platform	interface	exposes	expects	if	then	else	when	is
+flags	hash_comments

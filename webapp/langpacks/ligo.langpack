@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	ligo	cameligo	jsligo
+keywords	type	let	const	function	module	namespace	if	else	match	with	switch	return
+flags	slash_comments	block_comments

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	forth	gforth
+keywords	if	else	then	begin	until	while	repeat	do	loop	variable	constant	create	does	immediate
+flags	case_insensitive_keywords

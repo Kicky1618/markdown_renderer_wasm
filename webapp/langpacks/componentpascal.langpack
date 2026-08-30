@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	componentpascal	component-pascal
+keywords	MODULE	IMPORT	CONST	TYPE	VAR	PROCEDURE	BEGIN	END	IF	THEN	ELSE	WHILE	REPEAT	FOR	CASE	RECORD	POINTER
+flags	paren_star_comments	case_insensitive_keywords
