@@ -885,31 +885,156 @@ impl State {
                 28.0 * font_scale
             }
             Block::Table { headers, rows } => {
-                let mut used = 0.0;
-                self.set_font(15.0, "\"Streamdown Noto Sans\"");
-                for (row_index, row) in std::iter::once(headers).chain(rows.iter()).enumerate() {
-                    self.context.set_fill_style_str(if row_index == 0 {
-                        "#40dcdf"
-                    } else {
-                        "#d1dbe8"
-                    });
-                    let text = row
-                        .iter()
-                        .map(|cell| plain(cell))
-                        .collect::<Vec<_>>()
-                        .join("  |  ");
-                    used += self.draw_lines(
-                        &text,
-                        gutter,
-                        y + used,
-                        (15.0 / 16.0 * font_scale) as f32,
-                        26.0 * font_scale,
-                        viewport_height,
-                    );
-                }
-                used + 10.0 * font_scale
+                self.draw_table(headers, rows, y, width, viewport_height)
             }
         }
+    }
+
+    fn draw_table(
+        &mut self,
+        headers: &[Vec<Inline>],
+        rows: &[Vec<Vec<Inline>>],
+        y: f64,
+        width: f64,
+        viewport_height: f64,
+    ) -> f64 {
+        let scale = self.font_scale;
+        let gutter = content_gutter(width as f32) as f64;
+        let columns = headers
+            .len()
+            .max(rows.iter().map(Vec::len).max().unwrap_or(0))
+            .max(1);
+        let available_width = (width - gutter * 2.0).max(1.0);
+        let column_width = (available_width / columns as f64).max(80.0);
+        let table_width = column_width * columns as f64;
+        let row_height = 24.0 * scale;
+        let painted_row_height = row_height + 8.0 * scale;
+        let mut row_top = y - 18.0 * scale;
+
+        self.set_font(15.0, "\"Streamdown Noto Sans\"");
+        self.draw_table_row_background(
+            gutter,
+            row_top,
+            table_width,
+            painted_row_height,
+            "#1a3040",
+            viewport_height,
+        );
+        self.draw_table_row(
+            headers,
+            gutter,
+            row_top,
+            column_width,
+            painted_row_height,
+            "#d1dbe8",
+            viewport_height,
+        );
+        row_top += painted_row_height;
+        self.draw_table_rule(gutter, row_top, table_width, viewport_height);
+
+        for (index, row) in rows.iter().enumerate() {
+            if index % 2 == 0 {
+                self.draw_table_row_background(
+                    gutter,
+                    row_top,
+                    table_width,
+                    painted_row_height,
+                    "#0e161f",
+                    viewport_height,
+                );
+            }
+            self.draw_table_row(
+                row,
+                gutter,
+                row_top,
+                column_width,
+                painted_row_height,
+                "#d1dbe8",
+                viewport_height,
+            );
+            row_top += painted_row_height;
+            self.draw_table_rule(gutter, row_top, table_width, viewport_height);
+        }
+
+        let table_top = y - 18.0 * scale;
+        let table_bottom = row_top;
+        self.context.set_fill_style_str("#78879e");
+        if table_bottom > 68.0 && table_top < viewport_height {
+            for column in 0..=columns {
+                self.context.fill_rect(
+                    gutter + column as f64 * column_width,
+                    table_top.max(68.0),
+                    1.0,
+                    (table_bottom.min(viewport_height) - table_top.max(68.0)).max(0.0),
+                );
+            }
+        }
+
+        (table_bottom - table_top) + 12.0 * scale
+    }
+
+    fn draw_table_row_background(
+        &self,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        color: &str,
+        viewport_height: f64,
+    ) {
+        if y + height <= 68.0 || y >= viewport_height {
+            return;
+        }
+        self.context.set_fill_style_str(color);
+        self.context.fill_rect(
+            x,
+            y.max(68.0),
+            width,
+            (y + height).min(viewport_height) - y.max(68.0),
+        );
+    }
+
+    fn draw_table_row(
+        &mut self,
+        cells: &[Vec<Inline>],
+        x: f64,
+        row_top: f64,
+        column_width: f64,
+        row_height: f64,
+        color: &str,
+        viewport_height: f64,
+    ) {
+        let baseline = row_top + row_height * 0.70;
+        for (column, cell) in cells.iter().enumerate() {
+            let cell_x = x + column as f64 * column_width;
+            let text_x = cell_x + 8.0 * self.font_scale;
+            let text = plain(cell);
+            let visible = row_top + row_height > 68.0 && row_top < viewport_height;
+            self.record_line(&text, text_x, baseline, row_height, visible);
+            if !visible {
+                continue;
+            }
+            self.context.save();
+            self.context.begin_path();
+            self.context.rect(
+                cell_x + 1.0,
+                row_top.max(68.0),
+                (column_width - 2.0).max(0.0),
+                ((row_top + row_height).min(viewport_height) - row_top.max(68.0)).max(0.0),
+            );
+            self.context.clip();
+            self.context.set_fill_style_str(color);
+            let _ = self.context.fill_text(&text, text_x, baseline);
+            self.context.restore();
+        }
+    }
+
+    fn draw_table_rule(&self, x: f64, y: f64, width: f64, viewport_height: f64) {
+        if y < 68.0 || y > viewport_height {
+            return;
+        }
+        self.context.set_fill_style_str("#78879e");
+        self.context.fill_rect(x, y, width, 1.0);
     }
 
     fn draw_lines(
