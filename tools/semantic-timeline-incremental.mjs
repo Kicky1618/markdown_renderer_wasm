@@ -59,6 +59,7 @@ export class IncrementalSemanticTimeline {
     const events = [];
     const changedNodes = [];
     const readyQueue = [];
+    let readyHead = 0;
     const queued = new Set();
 
     const enqueueReadyCheck = (key) => {
@@ -129,8 +130,8 @@ export class IncrementalSemanticTimeline {
     }
     this.referenceCount = references.length;
 
-    while (readyQueue.length) {
-      const key = readyQueue.shift();
+    while (readyHead < readyQueue.length) {
+      const key = readyQueue[readyHead++];
       queued.delete(key);
       if (this.readyNodes.has(key)) continue;
       const node = this.nodes.get(key);

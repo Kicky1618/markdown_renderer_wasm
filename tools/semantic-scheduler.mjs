@@ -44,6 +44,7 @@ export class SemanticScheduler {
     this.sequence = 0;
     this.idleWaiters = [];
     this.pending = [];
+    this.pendingHead = 0;
     this.pendingSet = new Set();
   }
 
@@ -171,8 +172,8 @@ export class SemanticScheduler {
   }
 
   #pump() {
-    while (this.running < this.concurrency && this.pending.length) {
-      const key = this.pending.shift();
+    while (this.running < this.concurrency && this.pendingHead < this.pending.length) {
+      const key = this.pending[this.pendingHead++];
       this.pendingSet.delete(key);
       if (!this.ready.has(key)) continue;
       const node = this.nodes.get(key);
@@ -203,6 +204,13 @@ export class SemanticScheduler {
       }
       this.#transition(key, "queued", { dependencies: [...dependencyList] });
       this.#start(node, runner, dependencyList);
+    }
+    if (this.pendingHead === this.pending.length) {
+      this.pending.length = 0;
+      this.pendingHead = 0;
+    } else if (this.pendingHead > 4096 && this.pendingHead * 2 > this.pending.length) {
+      this.pending = this.pending.slice(this.pendingHead);
+      this.pendingHead = 0;
     }
     this.#resolveIdleIfNeeded();
   }

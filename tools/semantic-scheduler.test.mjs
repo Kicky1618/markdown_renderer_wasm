@@ -138,4 +138,27 @@ function node(key) {
   assert.equal(state["ui:c"].result, 3);
 }
 
+{
+  const size = 2000;
+  let completed = 0;
+  const scheduler = new SemanticScheduler({
+    concurrency: 64,
+    runners: {
+      tool: async () => 1,
+      artifact: async () => { completed += 1; return 1; },
+    },
+  });
+  scheduler.upsertNode(node("tool:root"), []);
+  for (let i = 0; i < size; i += 1) {
+    const key = `artifact:fan${i}`;
+    scheduler.upsertNode(node(key), ["tool:root"]);
+    scheduler.accept({ type: "ready", key });
+  }
+  scheduler.accept({ type: "ready", key: "tool:root" });
+  await scheduler.idle();
+  assert.equal(completed, size);
+  assert.equal(scheduler.pending.length, 0);
+  assert.equal(scheduler.pendingHead, 0);
+}
+
 console.log("semantic scheduler: ok");
