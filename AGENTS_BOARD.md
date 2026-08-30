@@ -11,8 +11,29 @@
 - ベンチ値はコマンド、入力、環境が分かる形で残す。
 - 失敗した実験も再試行の重複を避けるため短く記録する。
 - コミットは小さく意味単位で分け、メッセージから変更目的が分かるようにする。
+- [new] Canvas2dの互換性は完全にしたほうがユーザーは喜ぶ
+- [new] webappのdocにいろいろ追加してもらえるとうれしい
 
 ## 作業中
+- ChatGPT(webapp-docs): `webapp/README.md` のみ担当。LLM Markdown / Generative UI の記法、通常Viewerへの安全なfallback、build/test導線を提出用ドキュメントとして整理。core/parser/renderer実装は変更しない。
+
+- ChatGPT(stream-closer-fast): `src/parser.rs` と専用 regression/benchmark のみ担当。対応 opener 候補がない `]` / `)` run を AppendInlineText で増分化し、`[` / `](` が存在する場合は従来 full reparse を維持する。
+- ChatGPT(semantic-runtime): `tools/semantic-runtime*.mjs` と `tools/semantic-graph.mjs` の後方互換なnode payload追加のみ担当。WASM stream受信とsemantic scheduler実行を重ねるruntimeを実装。core/parser/studio/webappは変更しない。
+
+- ChatGPT(stream-escape-fast): `src/parser.rs` と専用 regression/benchmark のみ担当。backslash-only streaming (`\\` run) を raw trailing parity で増分化し、後続の escapable punctuation 到着時は従来どおり full reparse する。
+- ChatGPT(semantic-scheduler): `tools/semantic-scheduler*.mjs` のみ担当。semantic timeline の `ready` event を依存DAG順・並列上限付きで実行する安全なschedulerを実装。core/parser/studio/webappは変更しない。
+
+- ChatGPT(math-fastpath): `webapp/src/math.rs`, `webapp/tests/math.rs`, `webapp/examples/math_bench.rs`, `webapp/vendor/ratex-parser/`, および `webapp/Cargo.toml` の `[patch.crates-io]` 追記のみ担当。RaTeX の数式パース固定費を局所パッチし、AST/見た目互換を保ったまま streaming 数式の再計算コストを削減する。他 Agent の既存 Cargo.toml 変更・renderer/backend/core は触らない。
+
+- ChatGPT(stream-opener-fast): `src/parser.rs` の unmatched inline opener (`[`, `@[`, `(`) streaming fast path と専用 regression/benchmark を担当。閉じ delimiter 到着時は従来どおり full reparse し、AST/Delta互換を維持する。
+
+- ChatGPT(dynamic-langpack): `webapp/src/languages.rs`, `webapp/langpacks/`, 専用testsを担当。共通 code scanner は維持し、fence言語の profile を初回出現時だけ fetch して動的登録する。renderer-recovery の backend/compat変更は触らない。
+
+- ChatGPT(canvas2d-compat): `webapp/src/canvas2d.rs` と Canvas2D 専用テストのみ担当。HiDPI/DPR、Safari系 canvas backing-store 面積制限、CSS論理座標、resize時context stateリセットを互換化する。`main.rs` とGPU recovery領域は触れない。
+
+- ChatGPT(plain-inline-fast): `src/inline.rs` の構文候補なし plain text fast path と `examples/inline_stress.rs` の回帰 workload を担当。並行の citation/reference scanner 変更は取り込まず独立コミットする。
+- ChatGPT(inline-adversarial): `src/inline.rs` と専用 regression/benchmark のみ担当。malformed link / `@[...]` / `[[cite:...]]` の残存 O(n^2) を線形化し、既存 AST 意味論を維持する。
+- ChatGPT(delta-reuse): `src/parser.rs` / `src/lib.rs` と専用benchmarkのみ担当。公開 `append()` 互換を維持しつつ、WASM hot path の `Delta.ops` バッファ再利用で per-append Vec allocation を削減できるか実測して、効果がある場合のみ統合する。
 - ChatGPT(js-hotdecode): `js/streamdown.js` と専用 JS benchmark/test のみ担当。MDA1 の高頻度1-op (`AppendText` / `AppendInlineText` / `SpliceCode`) を fast decode し、公開 `Streamdown.append()` の JS overhead を削減する。wire format/core parserは変更しない。
 
 - ChatGPT(protocol-cli): `tools/` と `examples/` のみ担当。WASM parser を使って LLM semantic fence/citation/reference をストリーム再生・検証できるCLIを追加する。core/renderer/studioは変更しない。
@@ -31,6 +52,7 @@
 
 ## 提案・決定
 
+- 2026-08-30 ChatGPT(renderer-recovery): runtime GPU failure は同一backendを再生成せず、WebGPU→WebGL2→Canvas2Dへ1段ずつURL再起動で降格する。device-lost callback、surface Lost/Outdated 3連続、Validationを回復条件とし、Timeout/Occludedでは降格しない。runtime origin/depthをqueryとDOM metadataへ引き継ぐ。
 - 2026-08-30 ChatGPT(renderer-smoke): GPU backend 初期化は候補ごとに5秒 watchdog を設け、API が露出していても adapter/device 初期化が返らない browser/driver では次 backend へ降格する。
 - 2026-08-30 ChatGPT(wasm-transport): JS→WASM入力は Handle 所有の再利用バッファ (`md_input_reserve` + `md_append_input`) に `TextEncoder.encodeInto` で直接書き込む。旧 `md_alloc/md_free/md_append` ABI は残して後方互換。
 - 2026-08-30 ChatGPT/fence-delta-opt: 開いた code/`:::llm` の通常追記は `SpliceCode { truncate_bytes: 0, append: new_chunk }` を使い、閉じ fence を認識した瞬間だけ現在行全体を truncate する。wire format/API は変更しない。
@@ -44,6 +66,10 @@
 
 ## 検証結果
 
+- 2026-08-30 ChatGPT(renderer-recovery): WebGL2 `InstanceDescriptor` に browser display handle を追加し、実Chrome+SwiftShaderで forced WebGL2=`webgl`/GL/fallback_depth=0を確認。`simulate_gpu_loss=webgl2` は実 device.destroy ではなく device-lost signal を注入し、WebGL2→Canvas2D runtime_depth=1、P/+操作を含む smoke pass。`cargo check --target wasm32-unknown-unknown` pass、webapp release tests: canvas2d 7 + code 18 + compat 8 + math 1 + search 3 全pass、`./webapp/build.sh` pass、browser smoke 5ケース全pass。
+- 2026-08-30 ChatGPT(semantic-runtime): `tools/semantic-runtime.mjs` を追加。graph nodeへ後方互換な `value` payloadを追加し、WASM parsing/timeline/schedulerを統合。tool runnerを保留したまま後続artifact openまで5-byte streamが進む並行性を実WASM integrationで確認。`semantic-graph.test`, `semantic-scheduler.test`, `semantic-runtime.integration` pass。
+- 2026-08-30 ChatGPT(inline-span-fast): commit `3277d64`。rich paragraph 内の構文間 plain span を byte scan + `push_str` 1回で bulk-copy。16 MiB / single syntax の固定HEAD比較: bold 167.7→326.5 MiB/s (1.95x), citation 150.9→257.9 MiB/s (1.71x), reference 165.8→339.5 MiB/s (2.05x)。commit固定snapshotで unit 30 + fence 2 + boundary 8 + property 3 + doctest、WASM build、npm test 全pass。
+- 2026-08-30 ChatGPT(semantic-scheduler): `tools/semantic-scheduler.mjs` を追加。timeline `ready` と runtime `completed` を分離し、依存完了順・並列上限・失敗/runner欠落の下流block・逆順readyを実装。`node tools/semantic-scheduler.test.mjs` pass、実WASM 5-byte streamingの `semantic-scheduler.integration.mjs` で tool:search -> artifact:summary -> ui:metric と dependencyResults 受け渡しを確認。
 - 2026-08-30 ChatGPT(wasm-wire verify): fresh target `cargo test` は unit 25 + fence 2 + boundary 7 + property 3 + doctest 全pass。WASM raw transport 500k×5 median は legacy 約0.973M append/s vs reusable 約8.86M append/s（約9.11x）。JS wrapper plain append は変更前約0.50M → 約0.765M append/s。multiline formatted paragraph は HEAD 3.3868s/20k (5,905 append/s) → fast path 5-run median約0.551ms (約36.3M append/s, 約6,100x)。`is_thematic` の一時Vec除去は paragraph stream median 10.093ms → 8.385ms/100k（約20%短縮）、commit `7cc0c80`。
 - 2026-08-30 ChatGPT(inline-linear): 未閉じ `[` 20KB は 58.893ms → 103.383µs（約570x）、40KB は 250.458ms → 192.059µs。未閉じ link 風 20KB は 5.245ms → 60.832µs（約86x）、40KB 120.454µs。`cargo test --release` は unit 25 + fence 2 + boundary 7 + property 3 + doctest 全 pass。通常 stream bench は paragraph 11.79M append/s, formatted 42.22M, open code 768.8 MiB/s, `:::llm` 697 MiB/s。
 - 2026-08-30 ChatGPT(js-hot-apply verify): current HEAD `5d32c40` fixed snapshotで unit 23/23 + fence delta 2/2 + boundary 6/6 + property 3/3 + WASM build + npm test pass。native: plain 31.8M append/s, formatted 35.6M append/s, code 783.6 MiB/s, `:::llm` 700 MiB/s。

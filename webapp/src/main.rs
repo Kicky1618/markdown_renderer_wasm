@@ -8,14 +8,24 @@ mod math;
 mod search;
 
 use bytemuck::{Pod, Zeroable};
-use compat::{RendererBackend, RendererPreference};
+use compat::{
+    RendererBackend, RendererPreference, SurfaceAction, SurfaceEvent, SurfaceFailureTracker,
+    runtime_recovery_search, runtime_recovery_trace,
+};
 use futures_util::{
     FutureExt,
     future::{Either, select},
 };
 use js_sys::Promise;
 use search::SearchTrie;
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use streamdown::{Block, Delta, Inline, Op, Parser};
 use wasm_bindgen::{JsCast, closure::Closure, prelude::*};
 use wasm_bindgen_futures::JsFuture;
@@ -43,6 +53,15 @@ const ORANGE: [f32; 4] = [0.95, 0.67, 0.38, 1.0];
 const PURPLE: [f32; 4] = [0.78, 0.62, 0.95, 1.0];
 const BLUE: [f32; 4] = [0.45, 0.72, 0.98, 1.0];
 const YELLOW: [f32; 4] = [0.92, 0.84, 0.48, 1.0];
+
+#[derive(Debug)]
+struct BrowserDisplay;
+
+impl wgpu::rwh::HasDisplayHandle for BrowserDisplay {
+    fn display_handle(&self) -> Result<wgpu::rwh::DisplayHandle<'_>, wgpu::rwh::HandleError> {
+        Ok(wgpu::rwh::DisplayHandle::web())
+    }
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -179,6 +198,8 @@ struct App {
     search_active: usize,
     search_dirty: bool,
     search_indexed_at: f64,
+    device_lost: Arc<AtomicBool>,
+    surface_failures: SurfaceFailureTracker,
 }
 
 #[wasm_bindgen(start)]
@@ -390,7 +411,12 @@ async fn run() -> Result<(), JsValue> {
     let callback_copy = callback.clone();
     let frame_app = app.clone();
     *callback.borrow_mut() = Some(Closure::new(move |time: f64| {
-        frame_app.borrow_mut().frame(time);
+        let recovery = frame_app.borrow_mut().frame(time);
+        if let Some(reason) = recovery {
+            let backend = frame_app.borrow().backend;
+            request_runtime_recovery(backend, reason);
+            return;
+        }
         if let Some(cb) = callback_copy.borrow().as_ref() {
             let _ = web_sys::window()
                 .unwrap()
@@ -430,10 +456,64 @@ async fn init_gpu_with_timeout(
     }
 }
 
+fn request_runtime_recovery(backend: RendererBackend, reason: &str) {
+    let Some(next) = backend.recovery_preference() else {
+        web_sys::console::error_1(
+            &format!(
+                "{} failed at runtime ({reason}) and no lower renderer remains",
+                backend.display_name()
+            )
+            .into(),
+        );
+        return;
+    };
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let search = window.location().search().unwrap_or_default();
+    let next_search = runtime_recovery_search(&search, next);
+    web_sys::console::warn_1(
+        &format!(
+            "{} failed at runtime ({reason}); restarting with {}",
+            backend.display_name(),
+            next.fallback_chain()[0].display_name(),
+        )
+        .into(),
+    );
+    if let Err(error) = window.location().set_search(&next_search) {
+        web_sys::console::error_1(&error);
+    }
+}
+
+fn should_simulate_gpu_loss(backend: RendererBackend) -> bool {
+    let search = web_sys::window()
+        .and_then(|window| window.location().search().ok())
+        .unwrap_or_default();
+    search.trim_start_matches('?').split('&').any(|part| {
+        let Some((key, value)) = part.split_once('=') else {
+            return false;
+        };
+        if key != "simulate_gpu_loss" {
+            return false;
+        }
+        match backend {
+            RendererBackend::WebGpu => value.eq_ignore_ascii_case("webgpu"),
+            RendererBackend::WebGl2 => {
+                value.eq_ignore_ascii_case("webgl") || value.eq_ignore_ascii_case("webgl2")
+            }
+            RendererBackend::Canvas2d => false,
+        }
+    })
+}
+
 impl App {
     async fn new(canvas: HtmlCanvasElement, backend: RendererBackend) -> Result<Self, JsValue> {
         resize_canvas(&canvas);
-        let mut instance_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+        // The GLES/WebGL backend needs a display handle even though the canvas
+        // surface itself only contributes a window handle. Without this,
+        // `create_surface(Canvas)` deterministically fails on WebGL2.
+        let mut instance_descriptor =
+            wgpu::InstanceDescriptor::new_with_display_handle(Box::new(BrowserDisplay));
         instance_descriptor.backends = match backend {
             RendererBackend::WebGpu => wgpu::Backends::BROWSER_WEBGPU,
             RendererBackend::WebGl2 => wgpu::Backends::GL,
@@ -472,6 +552,12 @@ impl App {
             })
             .await
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let device_lost = Arc::new(AtomicBool::new(false));
+        let lost_signal = device_lost.clone();
+        device.set_device_lost_callback(move |reason, message| {
+            web_sys::console::warn_1(&format!("GPU device lost ({reason:?}): {message}").into());
+            lost_signal.store(true, Ordering::Release);
+        });
         let caps = surface.get_capabilities(&adapter);
         let format = caps
             .formats
@@ -583,6 +669,12 @@ impl App {
         let _ = canvas.set_attribute("data-font-size", &format!("{font_size:.0}"));
         let _ = canvas.set_attribute("data-search-count", "0");
         let _ = canvas.set_attribute("data-search-active", "0");
+        if should_simulate_gpu_loss(backend) {
+            let _ = canvas.set_attribute("data-simulated-gpu-loss", backend.as_str());
+            // Test injection targets the same signal as the real device-lost callback.
+            // `Device::destroy()` is not a reliable loss trigger on the WebGL backend.
+            device_lost.store(true, Ordering::Release);
+        }
         Ok(Self {
             canvas,
             surface,
@@ -637,10 +729,15 @@ impl App {
             search_active: 0,
             search_dirty: false,
             search_indexed_at: 0.0,
+            device_lost,
+            surface_failures: SurfaceFailureTracker::default(),
         })
     }
 
-    fn frame(&mut self, now: f64) {
+    fn frame(&mut self, now: f64) -> Option<&'static str> {
+        if self.device_lost.load(Ordering::Acquire) {
+            return Some("device-lost");
+        }
         let dt = if self.last_time == 0.0 {
             0.0
         } else {
@@ -705,7 +802,7 @@ impl App {
             self.rebuild_scene();
             self.last_scene_time = now;
         }
-        self.draw();
+        self.draw()
     }
 
     fn scrollbar_geometry(&self) -> (f32, f32, f32, f64) {
@@ -1333,9 +1430,9 @@ impl App {
         self.needs_present = true;
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self) -> Option<&'static str> {
         if !self.needs_present {
-            return;
+            return None;
         }
         self.queue.write_buffer(
             &self.view_buffer,
@@ -1348,18 +1445,37 @@ impl App {
             }),
         );
         let frame = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Success(frame) => {
+                self.surface_failures.observe(SurfaceEvent::Presented);
+                frame
+            }
             wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
+                self.surface_failures.observe(SurfaceEvent::Presented);
                 self.dirty_scene = true;
                 frame
             }
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                self.surface.configure(&self.device, &self.config);
-                return;
+                match self.surface_failures.observe(SurfaceEvent::Reconfigure) {
+                    SurfaceAction::Recover => return Some("surface-lost"),
+                    SurfaceAction::Reconfigure => {
+                        self.surface.configure(&self.device, &self.config);
+                    }
+                    SurfaceAction::Continue => {}
+                }
+                return None;
             }
-            wgpu::CurrentSurfaceTexture::Timeout
-            | wgpu::CurrentSurfaceTexture::Occluded
-            | wgpu::CurrentSurfaceTexture::Validation => return,
+            wgpu::CurrentSurfaceTexture::Timeout => {
+                self.surface_failures.observe(SurfaceEvent::Timeout);
+                return None;
+            }
+            wgpu::CurrentSurfaceTexture::Occluded => {
+                self.surface_failures.observe(SurfaceEvent::Occluded);
+                return None;
+            }
+            wgpu::CurrentSurfaceTexture::Validation => {
+                self.surface_failures.observe(SurfaceEvent::Validation);
+                return Some("surface-validation");
+            }
         };
         let view = frame.texture.create_view(&Default::default());
         let mut encoder = self
@@ -1397,6 +1513,7 @@ impl App {
         self.queue.submit(Some(encoder.finish()));
         frame.present();
         self.needs_present = false;
+        None
     }
 }
 
@@ -2448,6 +2565,13 @@ fn set_renderer_metadata(
     let _ = canvas.set_attribute("data-renderer-candidate", backend.as_str());
     let _ = canvas.set_attribute("data-renderer-fallback-depth", &fallback_depth.to_string());
     let _ = canvas.set_attribute("data-renderer-common-profile", "webgl2-limits");
+    let search = web_sys::window()
+        .and_then(|window| window.location().search().ok())
+        .unwrap_or_default();
+    if let Some(trace) = runtime_recovery_trace(&search) {
+        let _ = canvas.set_attribute("data-renderer-runtime-origin", &trace.origin);
+        let _ = canvas.set_attribute("data-renderer-runtime-depth", &trace.depth.to_string());
+    }
 }
 
 fn selected_mock() -> &'static str {

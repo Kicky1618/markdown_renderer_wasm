@@ -1,7 +1,10 @@
 #[path = "../src/compat.rs"]
 mod compat;
 
-use compat::{RendererBackend, RendererPreference, quantize_coverage};
+use compat::{
+    RendererBackend, RendererPreference, SurfaceAction, SurfaceEvent, SurfaceFailureTracker,
+    quantize_coverage, replace_renderer_search, runtime_recovery_search, runtime_recovery_trace,
+};
 
 #[test]
 fn parses_renderer_preference() {
@@ -65,4 +68,99 @@ fn coverage_quantization_preserves_extremes() {
     assert_eq!(quantize_coverage(1, 1), 1);
     assert_eq!(quantize_coverage(64, 32), 64);
     assert_eq!(quantize_coverage(250, 32), 255);
+}
+
+#[test]
+fn runtime_recovery_only_moves_to_lower_backends() {
+    assert_eq!(
+        RendererBackend::WebGpu.recovery_preference(),
+        Some(RendererPreference::WebGl2)
+    );
+    assert_eq!(
+        RendererBackend::WebGl2.recovery_preference(),
+        Some(RendererPreference::Canvas2d)
+    );
+    assert_eq!(RendererBackend::Canvas2d.recovery_preference(), None);
+}
+
+#[test]
+fn renderer_search_rewrite_preserves_unrelated_runtime_options() {
+    assert_eq!(
+        replace_renderer_search(
+            "?renderer=webgpu&doc=easy&tps=1000",
+            RendererPreference::WebGl2
+        ),
+        "?renderer=webgl2&doc=easy&tps=1000"
+    );
+    assert_eq!(
+        replace_renderer_search("?doc=easy&smoke=1", RendererPreference::Canvas2d),
+        "?renderer=canvas2d&doc=easy&smoke=1"
+    );
+}
+
+#[test]
+fn runtime_recovery_search_preserves_origin_and_accumulates_depth() {
+    let first = runtime_recovery_search(
+        "?renderer=auto&doc=easy&smoke=1",
+        RendererPreference::WebGl2,
+    );
+    assert_eq!(
+        first,
+        "?renderer=webgl2&doc=easy&smoke=1&renderer_runtime_origin=auto&renderer_runtime_depth=1"
+    );
+    let trace = runtime_recovery_trace(&first).unwrap();
+    assert_eq!(trace.origin, "auto");
+    assert_eq!(trace.depth, 1);
+
+    let second = runtime_recovery_search(&first, RendererPreference::Canvas2d);
+    assert_eq!(
+        second,
+        "?renderer=canvas2d&doc=easy&smoke=1&renderer_runtime_origin=auto&renderer_runtime_depth=2"
+    );
+    let trace = runtime_recovery_trace(&second).unwrap();
+    assert_eq!(trace.origin, "auto");
+    assert_eq!(trace.depth, 2);
+}
+
+#[test]
+fn repeated_surface_loss_escalates_but_timeout_and_occlusion_do_not() {
+    let mut tracker = SurfaceFailureTracker::default();
+    assert_eq!(
+        tracker.observe(SurfaceEvent::Timeout),
+        SurfaceAction::Continue
+    );
+    assert_eq!(
+        tracker.observe(SurfaceEvent::Occluded),
+        SurfaceAction::Continue
+    );
+    assert_eq!(
+        tracker.observe(SurfaceEvent::Reconfigure),
+        SurfaceAction::Reconfigure
+    );
+    assert_eq!(
+        tracker.observe(SurfaceEvent::Reconfigure),
+        SurfaceAction::Reconfigure
+    );
+    assert_eq!(
+        tracker.observe(SurfaceEvent::Reconfigure),
+        SurfaceAction::Recover
+    );
+
+    let mut tracker = SurfaceFailureTracker::default();
+    assert_eq!(
+        tracker.observe(SurfaceEvent::Reconfigure),
+        SurfaceAction::Reconfigure
+    );
+    assert_eq!(
+        tracker.observe(SurfaceEvent::Presented),
+        SurfaceAction::Continue
+    );
+    assert_eq!(
+        tracker.observe(SurfaceEvent::Reconfigure),
+        SurfaceAction::Reconfigure
+    );
+    assert_eq!(
+        tracker.observe(SurfaceEvent::Validation),
+        SurfaceAction::Recover
+    );
 }

@@ -20,6 +20,33 @@ pub enum RendererBackend {
     Canvas2d,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SurfaceEvent {
+    Presented,
+    Reconfigure,
+    Timeout,
+    Occluded,
+    Validation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SurfaceAction {
+    Continue,
+    Reconfigure,
+    Recover,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SurfaceFailureTracker {
+    consecutive_losses: u8,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeRecoveryTrace {
+    pub origin: String,
+    pub depth: usize,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RendererPolicy {
     /// Minimum delay between expensive scene rebuilds. Presentation can still
@@ -94,6 +121,14 @@ impl RendererBackend {
         }
     }
 
+    pub const fn recovery_preference(self) -> Option<RendererPreference> {
+        match self {
+            Self::WebGpu => Some(RendererPreference::WebGl2),
+            Self::WebGl2 => Some(RendererPreference::Canvas2d),
+            Self::Canvas2d => None,
+        }
+    }
+
     pub const fn policy(self) -> RendererPolicy {
         match self {
             Self::WebGpu => RendererPolicy {
@@ -124,4 +159,103 @@ pub fn quantize_coverage(value: u8, quantum: u8) -> u8 {
     }
     let quantum = quantum as u16;
     ((((value as u16 + quantum / 2) / quantum) * quantum).min(u8::MAX as u16)) as u8
+}
+
+impl SurfaceFailureTracker {
+    pub fn observe(&mut self, event: SurfaceEvent) -> SurfaceAction {
+        match event {
+            SurfaceEvent::Presented => {
+                self.consecutive_losses = 0;
+                SurfaceAction::Continue
+            }
+            SurfaceEvent::Reconfigure => {
+                self.consecutive_losses = self.consecutive_losses.saturating_add(1);
+                if self.consecutive_losses >= 3 {
+                    SurfaceAction::Recover
+                } else {
+                    SurfaceAction::Reconfigure
+                }
+            }
+            SurfaceEvent::Validation => SurfaceAction::Recover,
+            SurfaceEvent::Timeout | SurfaceEvent::Occluded => SurfaceAction::Continue,
+        }
+    }
+}
+
+fn replace_search_param(search: &str, key: &str, value: &str) -> String {
+    let mut parts = Vec::new();
+    let mut replaced = false;
+    for part in search.trim_start_matches('?').split('&') {
+        if part.is_empty() {
+            continue;
+        }
+        let part_key = part.split_once('=').map_or(part, |(part_key, _)| part_key);
+        if part_key == key {
+            if !replaced {
+                parts.push(format!("{key}={value}"));
+                replaced = true;
+            }
+        } else {
+            parts.push(part.to_owned());
+        }
+    }
+    if !replaced {
+        parts.push(format!("{key}={value}"));
+    }
+    format!("?{}", parts.join("&"))
+}
+
+pub fn replace_renderer_search(search: &str, preference: RendererPreference) -> String {
+    let mut parts = Vec::new();
+    let mut replaced = false;
+    for part in search.trim_start_matches('?').split('&') {
+        if part.is_empty() {
+            continue;
+        }
+        let key = part.split_once('=').map_or(part, |(key, _)| key);
+        if key == "renderer" {
+            if !replaced {
+                parts.push(format!("renderer={}", preference.as_str()));
+                replaced = true;
+            }
+        } else {
+            parts.push(part.to_owned());
+        }
+    }
+    if !replaced {
+        parts.insert(0, format!("renderer={}", preference.as_str()));
+    }
+    format!("?{}", parts.join("&"))
+}
+
+pub fn runtime_recovery_trace(search: &str) -> Option<RuntimeRecoveryTrace> {
+    let mut origin = None;
+    let mut depth = None;
+    for part in search.trim_start_matches('?').split('&') {
+        let Some((key, value)) = part.split_once('=') else {
+            continue;
+        };
+        match key {
+            "renderer_runtime_origin" if !value.is_empty() => origin = Some(value.to_owned()),
+            "renderer_runtime_depth" => depth = value.parse::<usize>().ok(),
+            _ => {}
+        }
+    }
+    let depth = depth.filter(|depth| *depth > 0)?;
+    Some(RuntimeRecoveryTrace {
+        origin: origin.unwrap_or_else(|| "unknown".to_owned()),
+        depth,
+    })
+}
+
+pub fn runtime_recovery_search(search: &str, next: RendererPreference) -> String {
+    let previous = runtime_recovery_trace(search);
+    let origin = previous
+        .as_ref()
+        .map(|trace| trace.origin.clone())
+        .unwrap_or_else(|| RendererPreference::from_search(search).as_str().to_owned());
+    let depth = previous.map_or(1, |trace| trace.depth.saturating_add(1));
+    let rewritten = replace_renderer_search(search, next);
+    let rewritten = replace_search_param(&rewritten, "renderer_runtime_origin", &origin);
+    replace_search_param(&rewritten, "renderer_runtime_depth", &depth.to_string())
 }

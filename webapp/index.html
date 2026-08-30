@@ -182,9 +182,13 @@
       const renderer = (canvas.dataset.renderer ?? "starting").toUpperCase();
       const requestedRenderer = (canvas.dataset.rendererRequested ?? "auto").toUpperCase();
       const fallbackDepth = Number(canvas.dataset.rendererFallbackDepth ?? 0);
-      const rendererStatus = fallbackDepth > 0
-        ? `${renderer} ← ${requestedRenderer} (${fallbackDepth})`
-        : renderer;
+      const runtimeDepth = Number(canvas.dataset.rendererRuntimeDepth ?? 0);
+      const runtimeOrigin = (canvas.dataset.rendererRuntimeOrigin ?? requestedRenderer).toUpperCase();
+      const rendererStatus = runtimeDepth > 0
+        ? `${renderer} ← ${runtimeOrigin} (runtime ${runtimeDepth})`
+        : fallbackDepth > 0
+          ? `${renderer} ← ${requestedRenderer} (${fallbackDepth})`
+          : renderer;
       const searchCount = Number(canvas.dataset.searchCount ?? 0);
       const searchActive = Number(canvas.dataset.searchActive ?? 0);
       const pause = document.querySelector('[data-command="p"]');
@@ -266,13 +270,15 @@
         const fontAfter = Number(active?.dataset.fontSize ?? fontBefore);
         root.dataset.smokeRenderer = active?.dataset.renderer ?? "missing";
         root.dataset.smokeFallbackDepth = active?.dataset.rendererFallbackDepth ?? "missing";
+        root.dataset.smokeRuntimeDepth = active?.dataset.rendererRuntimeDepth ?? "0";
+        root.dataset.smokeRuntimeOrigin = active?.dataset.rendererRuntimeOrigin ?? "";
         root.dataset.smoke = paused && fontAfter > fontBefore ? "pass" : "fail";
       };
       setTimeout(probe, 0);
     };
     new MutationObserver(updateControls).observe(document.body, {
       subtree: true, attributes: true,
-      attributeFilter: ["data-paused", "data-auto-scroll", "data-font-size", "data-renderer", "data-renderer-requested", "data-renderer-fallback-depth", "data-search-count", "data-search-active"],
+      attributeFilter: ["data-paused", "data-auto-scroll", "data-font-size", "data-renderer", "data-renderer-requested", "data-renderer-fallback-depth", "data-renderer-runtime-origin", "data-renderer-runtime-depth", "data-search-count", "data-search-active"],
     });
     init().then(() => {
       updateControls();

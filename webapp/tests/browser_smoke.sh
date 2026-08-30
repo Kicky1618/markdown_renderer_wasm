@@ -102,3 +102,78 @@ run_case() {
 run_case canvas2d 'renderer=canvas2d' canvas2d
 run_case webgl2 'renderer=webgl2' webgl2
 run_case auto 'renderer=auto' auto
+
+
+run_swiftshader_exact() {
+  name=$1
+  query=$2
+  requested=$3
+  expected_renderer=$4
+  expected_depth=$5
+  expected_runtime_depth=$6
+  expected_runtime_origin=$7
+  budget=$8
+  html="$WORK/$name.html"
+  err="$WORK/$name.err"
+  attempt=1
+  while :; do
+    "$CHROME" \
+      --headless=new \
+      --no-sandbox \
+      --disable-dev-shm-usage \
+      --use-angle=swiftshader \
+      --enable-unsafe-swiftshader \
+      --enable-logging=stderr \
+      --v=0 \
+      --run-all-compositor-stages-before-draw \
+      --virtual-time-budget="$budget" \
+      --dump-dom \
+      "http://127.0.0.1:$PORT/?$query&smoke=1&doc=easy&tps=1000&repeat=1" \
+      >"$html" 2>"$err" || true
+    if grep -q 'data-smoke="pass"' "$html"; then
+      break
+    fi
+    if [ "$attempt" -ge 3 ]; then
+      echo "browser smoke: $name failed smoke probe"
+      grep -o '<html[^>]*>' "$html" | head -1 || true
+      grep -o '<canvas id="app"[^>]*>' "$html" | head -1 || true
+      tail -30 "$err" || true
+      exit 1
+    fi
+    attempt=$((attempt + 1))
+  done
+  grep -q "data-renderer-requested=\"$requested\"" "$html" || {
+    echo "browser smoke: $name final requested renderer mismatch"
+    exit 1
+  }
+  renderer=$(grep -o 'data-smoke-renderer="[^"]*"' "$html" | head -1 | cut -d '"' -f2)
+  depth=$(grep -o 'data-smoke-fallback-depth="[^"]*"' "$html" | head -1 | cut -d '"' -f2)
+  runtime_depth=$(grep -o 'data-smoke-runtime-depth="[^"]*"' "$html" | head -1 | cut -d '"' -f2)
+  runtime_origin=$(grep -o 'data-smoke-runtime-origin="[^"]*"' "$html" | head -1 | cut -d '"' -f2)
+  [ "$renderer" = "$expected_renderer" ] || {
+    echo "browser smoke: $name renderer=$renderer expected=$expected_renderer"
+    exit 1
+  }
+  [ "$depth" = "$expected_depth" ] || {
+    echo "browser smoke: $name fallback_depth=$depth expected=$expected_depth"
+    exit 1
+  }
+  [ "$runtime_depth" = "$expected_runtime_depth" ] || {
+    echo "browser smoke: $name runtime_depth=$runtime_depth expected=$expected_runtime_depth"
+    exit 1
+  }
+  [ "$runtime_origin" = "$expected_runtime_origin" ] || {
+    echo "browser smoke: $name runtime_origin=$runtime_origin expected=$expected_runtime_origin"
+    exit 1
+  }
+  echo "browser smoke: $name renderer=$renderer fallback_depth=$depth runtime_depth=$runtime_depth pass"
+}
+
+run_swiftshader_exact webgl2-swiftshader \
+  'renderer=webgl2' webgl2 webgl 0 0 '' 10000
+run_swiftshader_exact webgl2-runtime-recovery \
+  'renderer=webgl2&simulate_gpu_loss=webgl2' canvas2d canvas2d 0 1 webgl2 60000
+grep -q 'WEBGL2 failed at runtime (device-lost); restarting with CANVAS2D' "$WORK/webgl2-runtime-recovery.err" || {
+  echo "browser smoke: runtime recovery transition log missing"
+  exit 1
+}
