@@ -30,6 +30,13 @@ button.primary {
   font-weight: 750;
 }
 button.primary:hover { background: #84ebdc; }
+.mode-switch {
+  position: fixed; z-index: 30; top: 14px; right: 14px; min-height: 38px;
+  display: inline-flex; align-items: center; padding: 0 14px; border: 1px solid #29445e;
+  border-radius: 999px; color: #8fe6db; background: #0b1622e8; text-decoration: none;
+  font: 700 12px ui-monospace, monospace; backdrop-filter: blur(12px);
+}
+.mode-switch:hover, .mode-switch:focus-visible { border-color: #69dfce; background: #132734; outline: none; }
 .topbar, footer {
   display: flex;
   align-items: center;

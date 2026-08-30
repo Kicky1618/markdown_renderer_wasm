@@ -3,10 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http: https:; img-src 'self' data:; font-src 'self'; object-src 'none'; frame-src 'none'; worker-src 'none'; media-src 'none'; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'; trusted-types 'none'">
+  <meta name="referrer" content="no-referrer">
   <meta name="theme-color" content="#0a0f18">
   <title>Streamdown · Generative UI</title>
   <link rel="stylesheet" href="./style.css">
-  <style>.mode-switch{position:fixed;z-index:30;top:14px;right:14px;min-height:38px;display:inline-flex;align-items:center;padding:0 14px;border:1px solid #29445e;border-radius:999px;color:#8fe6db;background:#0b1622e8;text-decoration:none;font:700 12px ui-monospace,monospace;backdrop-filter:blur(12px)}.mode-switch:hover{border-color:#69dfce;background:#132734}</style>
 </head>
 <body>
   <a class="mode-switch" href="../" aria-label="Open high-performance Markdown viewer">Viewer</a>

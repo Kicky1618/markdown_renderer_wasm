@@ -223,6 +223,20 @@ assert.equal(commitSummary.format, "SSE");
 assert.equal(commitSummary.chunks, 5);
 assert.equal(commitSummary.firstUiMs, 9.75);
 
+
+const securityHtml = await fs.readFile(new URL("./index.html", import.meta.url), "utf8");
+const securityApp = await fs.readFile(new URL("./app.js", import.meta.url), "utf8");
+assert.match(securityHtml, /script-src 'self' 'wasm-unsafe-eval'/);
+assert.match(securityHtml, /object-src 'none'/);
+assert.match(securityHtml, /frame-src 'none'/);
+assert.match(securityHtml, /form-action 'none'/);
+assert.match(securityHtml, /require-trusted-types-for 'script'/);
+assert.match(securityHtml, /trusted-types 'none'/);
+assert.doesNotMatch(securityApp, /\b(?:innerHTML|outerHTML|insertAdjacentHTML|document\.write)\b/);
+assert.doesNotMatch(securityApp, /\bnew\s+Function\b|javascript:/i);
+assert.equal([...securityApp.matchAll(/\beval\s*\(/g)].length, 1);
+assert.match(securityApp, /No eval\(\)/);
+
 const wasm = await fs.readFile(new URL("./streamdown.wasm", import.meta.url));
 const instance = await WebAssembly.instantiate(wasm, {});
 const parser = new Streamdown(instance.instance);

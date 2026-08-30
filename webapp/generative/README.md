@@ -147,3 +147,8 @@ Each successful model/HTTP transition also produces a bounded semantic commit su
 
 The summary follows Undo/Redo: undo marks the corresponding commit as `undone`, redo returns it to `applied`. Sensitive-looking state names are filtered from the displayed state-key list. The interaction browser smoke currently verifies `1 patch`, `1 new UI`, and `patched: throughput` after the redo path.
 
+## Browser security policy
+
+Generative UI は `index.html` の CSP でも実行面を制限します。`script-src` は同一originと WebAssembly compilation 用の `wasm-unsafe-eval` のみで、JavaScript の `unsafe-eval` は許可しません。`object-src`, `frame-src`, `worker-src`, `media-src`, `base-uri`, `form-action` は無効化し、対応ブラウザでは Trusted Types を script sink に要求します。
+
+Runtime は生成Markdownを `innerHTML` / `outerHTML` / `insertAdjacentHTML` / `document.write` / `new Function` / `eval` へ渡しません。UIはDOM APIとtext nodeから構築し、HTTP接続はユーザーが設定したHTTP(S) endpointだけを使います。
