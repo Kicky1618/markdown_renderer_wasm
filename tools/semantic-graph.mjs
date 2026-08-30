@@ -38,6 +38,7 @@ export function buildSemanticGraph(summary) {
       block: block.index,
       closed: block.closed,
       attributes: block.attributes,
+      value: block.value,
     };
     if (nodeByKey.has(key)) duplicates.push({ key, first: nodeByKey.get(key).block, duplicate: block.index });
     else nodeByKey.set(key, node);

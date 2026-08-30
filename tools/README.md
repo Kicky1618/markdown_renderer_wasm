@@ -117,3 +117,33 @@ node tools/semantic-scheduler.integration.mjs
 ```
 
 The integration test streams `examples/llm_graph.md` through the real WASM parser in 5-byte chunks and verifies `tool:search -> artifact:summary -> ui:metric`, including dependency result passing.
+
+
+## `semantic-runtime.mjs`
+
+`SemanticRuntime` combines the real Streamdown WASM parser, semantic timeline, dependency graph, and scheduler. Parsing does not wait for semantic runners: a tool may still be running while later Markdown bytes continue to arrive. Downstream artifact/UI execution still waits for successful runtime completion of its dependencies.
+
+```js
+import { SemanticRuntime } from "./tools/semantic-runtime.mjs";
+
+const runtime = await SemanticRuntime.load(wasmBytes, {
+  concurrency: 4,
+  runners: {
+    tool: async (node) => executeTool(JSON.parse(node.value)),
+    artifact: async (node, { dependencyResults }) =>
+      createArtifact(JSON.parse(node.value), dependencyResults),
+    ui: async (node, { dependencyResults }) =>
+      renderSemanticUi(JSON.parse(node.value), dependencyResults),
+  },
+});
+
+await runtime.consume(providerChunks);
+```
+
+Semantic graph nodes expose the closed fence body as `node.value`, so runners receive the exact streamed payload without reparsing the Markdown source. `snapshot()` returns the final AST, graph diagnostics, and scheduler states.
+
+```sh
+node tools/semantic-runtime.integration.mjs
+```
+
+The integration test deliberately stalls `tool:search` until the parser has already observed the later `artifact:summary` block, proving that Markdown ingestion and semantic execution overlap.
