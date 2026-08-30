@@ -94,25 +94,7 @@ LLMが通常生成する構文で、ブロック単位の再解析と小さい�
 
 JavaScript側では `getLlmBlocks()` と `getCitations()` で構造化情報を直接取得できます。
 
-LLM向け拡張も3種類あります。通常MarkdownのASTへ自然に落とすため、専用UIが
-なくても内容は失われません。
-
-```md
-根拠は [[cite:doc-42|仕様書]] を参照。
-生成物は @[artifact:plot-1] に対応。
-
-:::llm tool name="web search" id=q1
-{"query":"rust wasm"}
-:::
-```
-
-- `[[cite:source|label]]`: RAG/検索結果などの引用。既存 `Link` ASTへ
-  `llm:cite:<source>` として正規化し、`getCitations()` で抽出できます。
-- `@[kind:id]`: artifact、source、toolなど任意の機械可読参照。既存 `Link` ASTへ
-  `llm:<kind>:<id>` として正規化します。
-- `:::llm <kind> key=value ...` ... `:::`: JSONやツール結果などをストリーミング可能な
-  semantic fenceとして保持します。本文はコードフェンス同様に末尾差分だけ更新され、
-  `getLlmBlocks()` で属性付きブロックとして取得できます。
+詳細な構文・正規化規則・性能モデルは [LLM_EXTENSIONS.md](LLM_EXTENSIONS.md) を参照してください。
 
 ## Canvas demo
 

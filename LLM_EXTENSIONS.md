@@ -69,6 +69,12 @@ JavaScriptでは `Streamdown#getCitations()` で `block`、`source`、`label` �
 
 既存レンダラー互換のため、AST では通常の `Link` に正規化し、destination を `llm:<kind>:<id>` とする。
 
+ネイティブ Rust で3種類の拡張をまとめて確認する例は次で実行できる。
+
+```sh
+cargo run --release --example llm_stream
+```
+
 ## Performance model
 
 LLM 向け拡張は、専用の巨大 AST や JSON 中間表現を増やさず、既存の差分経路を再利用する。
@@ -82,9 +88,9 @@ LLM 向け拡張は、専用の巨大 AST や JSON 中間表現を増やさず�
 
 | workload | result |
 |---|---:|
-| paragraph stream | 約 9.98M appends/s, 59.9 MiB/s |
-| long live plain paragraph | 約 29.96M appends/s, 171.4 MiB/s |
-| open fenced code | 約 726.9 MiB/s |
-| `:::llm` semantic fence | 約 645 MiB/s |
+| paragraph stream | 10.46M appends/s, 62.8 MiB/s |
+| long live plain paragraph | 32.78M appends/s, 187.6 MiB/s |
+| open fenced code | 23.58M appends/s, 742.0 MiB/s |
+| `:::llm` semantic fence | 682 MiB/s |
 
 値はこの環境でのローカル測定であり、他環境の性能を保証するものではない。
