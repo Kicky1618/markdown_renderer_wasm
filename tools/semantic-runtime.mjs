@@ -2,10 +2,9 @@ import { Streamdown } from "../js/streamdown.js";
 import { buildSemanticGraph, graphDiagnostics } from "./semantic-graph.mjs";
 import { createTimelineState, observeSemanticState, semanticReferencesFromLinks } from "./semantic-timeline-core.mjs";
 import { SemanticScheduler } from "./semantic-scheduler.mjs";
+import { SemanticChangeDetector } from "./semantic-detector.mjs";
 
-function utf8Length(text) {
-  return new TextEncoder().encode(text).length;
-}
+const EMPTY_EVENTS = Object.freeze([]);
 
 function parserSummary(parser) {
   return {
@@ -33,11 +32,18 @@ export class SemanticRuntime {
     runners = {},
     onTransition = null,
     onSemanticEvent = null,
+    semanticScan = "incremental",
   } = {}) {
     this.parser = parser;
     this.timelineState = createTimelineState();
     this.scheduler = new SemanticScheduler({ concurrency, runners, onTransition });
     this.onSemanticEvent = onSemanticEvent;
+    if (semanticScan !== "incremental" && semanticScan !== "always") {
+      throw new TypeError("semanticScan must be \"incremental\" or \"always\"");
+    }
+    this.semanticScan = semanticScan;
+    this.semanticDetector = new SemanticChangeDetector();
+    this.semanticScans = 0;
     this.observedAtByte = 0;
     this.chunkIndex = 0;
     this.graph = buildSemanticGraph(parserSummary(parser));
@@ -49,10 +55,12 @@ export class SemanticRuntime {
     this.#assertActive();
     if (typeof chunk !== "string") throw new TypeError("append() expects a string");
     this.parser.appendInPlace(chunk);
-    this.observedAtByte += utf8Length(chunk);
-    const observation = this.#observe();
+    const inspection = this.semanticDetector.inspect(chunk);
+    this.observedAtByte += inspection.utf8Bytes;
+    const shouldObserve = this.semanticScan === "always" || inspection.observe;
+    const events = shouldObserve ? this.#observe().events : EMPTY_EVENTS;
     this.chunkIndex += 1;
-    return observation.events;
+    return events;
   }
 
   async consume(source, { finalize = true } = {}) {
@@ -121,6 +129,7 @@ export class SemanticRuntime {
       diagnostics: graphDiagnostics(graph),
       scheduler: this.scheduler.snapshot(),
       blockCount: this.parser.blockCount,
+      semanticScans: this.semanticScans,
     };
   }
 
@@ -131,6 +140,7 @@ export class SemanticRuntime {
   }
 
   #observe() {
+    this.semanticScans += 1;
     const summary = parserSummary(this.parser);
     const observation = observeSemanticState(summary, this.timelineState, this.observedAtByte, this.chunkIndex);
     this.graph = observation.graph;

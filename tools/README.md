@@ -147,3 +147,25 @@ node tools/semantic-runtime.integration.mjs
 ```
 
 The integration test deliberately stalls `tool:search` until the parser has already observed the later `artifact:summary` block, proving that Markdown ingestion and semantic execution overlap.
+
+
+### Incremental semantic scanning
+
+`SemanticRuntime` defaults to `semanticScan: "incremental"`. Ordinary token chunks still go through `Streamdown.appendInPlace()`, but semantic graph/timeline reconstruction is skipped unless a chunk can change a `:{3,}llm` header, closing fence, or `@[kind:id]` reference. Use `semanticScan: "always"` as a correctness/reference mode.
+
+```js
+const runtime = await SemanticRuntime.load(wasm, {
+  semanticScan: "incremental",
+  runners,
+});
+```
+
+The detector tracks split headers such as `:::ll` + `m tool id=x`, arbitrarily long header attributes, UTF-8 byte offsets, and semantic references without retaining ordinary long lines. Regression tests compare incremental and always-scan events across multiple chunk widths.
+
+```sh
+node tools/semantic-detector.test.mjs
+node tools/semantic-runtime.incremental.mjs target/wasm32-unknown-unknown/release/streamdown.wasm
+N=500000 REPEATS=7 node tools/semantic-runtime-bench.mjs
+```
+
+On the i7-12700 development host, the 500k-token / 7-repeat median measured about 6.10M append/s for incremental `SemanticRuntime` versus 1.21M append/s for always-scan mode and 6.71M append/s for bare `appendInPlace()` (about 5.0x over always-scan and 91% of bare-parser throughput).
