@@ -197,8 +197,12 @@ grep -q 'data-ui-id="interaction-result"' "$interaction_html" || {
   echo "generative browser smoke: action=llm continuation metric missing"
   exit 1
 }
-grep -q '>42<' "$interaction_html" || {
+grep -q '>58<' "$interaction_html" || {
   echo "generative browser smoke: action=llm continuation value missing"
+  exit 1
+}
+grep -q 'data-history-smoke="pass"' "$interaction_html" || {
+  echo "generative browser smoke: model response undo/redo history failed"
   exit 1
 }
 grep -q 'Model continuation' "$interaction_html" || {
