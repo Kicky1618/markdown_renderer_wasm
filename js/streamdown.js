@@ -139,6 +139,8 @@ export function decodeDelta(bytes) {
       case 5: return { op: "appendText", block: u32(), append: string() };
       case 6: return { op: "appendInlineText", block: u32(), append: string() };
       case 7: return { op: "spliceInlineTail", block: u32(), removeNodes: u32(), truncateBytes: u32(), append: inlines() };
+      case 8: return { op: "appendListItem", block: u32(), item: inlines() };
+      case 9: return { op: "spliceListItemTail", block: u32(), removeNodes: u32(), truncateBytes: u32(), append: inlines() };
       default: throw new Error("unknown delta operation");
     }
   });
@@ -183,6 +185,32 @@ export function applyDelta(document, ops) {
         const tail = node.children[node.children.length - 1];
         if (incoming.type === "text" && tail?.type === "text") tail.value += incoming.value;
         else node.children.push(incoming);
+      }
+    }
+    else if (change.op === "appendListItem") {
+      const node = document[change.block];
+      if (node.type !== "unorderedList" && node.type !== "orderedList") throw new Error("appendListItem target is not a list");
+      node.items.push(change.item);
+    }
+    else if (change.op === "spliceListItemTail") {
+      const node = document[change.block];
+      if (node.type !== "unorderedList" && node.type !== "orderedList") throw new Error("spliceListItemTail target is not a list");
+      const item = node.items[node.items.length - 1];
+      if (!item) throw new Error("spliceListItemTail target has no final item");
+      if (change.truncateBytes) {
+        const tail = item[item.length - 1];
+        if (tail?.type !== "text") throw new Error("spliceListItemTail target has no trailing text");
+        tail.value = removeUtf8Tail(tail.value, change.truncateBytes);
+        if (!tail.value) item.pop();
+      }
+      if (change.removeNodes) {
+        if (change.removeNodes > item.length) throw new Error("spliceListItemTail removes too many nodes");
+        item.length -= change.removeNodes;
+      }
+      for (const incoming of change.append) {
+        const tail = item[item.length - 1];
+        if (incoming.type === "text" && tail?.type === "text") tail.value += incoming.value;
+        else item.push(incoming);
       }
     }
     else if (change.op === "spliceCode") {

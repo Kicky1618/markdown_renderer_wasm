@@ -70,6 +70,15 @@ pub enum Op {
         truncate_bytes: u32,
         append: Vec<Inline>,
     },
+    /// Append one item to the tail of a live ordered/unordered list.
+    AppendListItem { block: u32, item: Vec<Inline> },
+    /// Edit only the inline tail of the final item in a live list.
+    SpliceListItemTail {
+        block: u32,
+        remove_nodes: u32,
+        truncate_bytes: u32,
+        append: Vec<Inline>,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -333,6 +342,9 @@ impl Parser {
         if self.try_append_thematic(input) {
             return;
         }
+        if self.try_append_list_tail(input, delta) {
+            return;
+        }
         if self.try_append_plain(input, delta) {
             return;
         }
@@ -386,6 +398,185 @@ impl Parser {
             return false;
         }
         self.line.push_str(input);
+        true
+    }
+
+    fn try_append_list_tail(&mut self, input: &str, delta: &mut Delta) -> bool {
+        if input.is_empty()
+            || !matches!(self.mode, Mode::Normal)
+            || !self.has_live
+            || input.contains('\r')
+        {
+            return false;
+        }
+
+        let Some(block_index) = self.blocks.len().checked_sub(1) else {
+            return false;
+        };
+        let kind = match self.blocks.get(block_index) {
+            Some(Block::UnorderedList(_)) => PendingKind::Unordered,
+            Some(Block::OrderedList { .. }) => PendingKind::Ordered,
+            _ => return false,
+        };
+        if self.pending_kind.is_some_and(|pending| pending != kind) {
+            return false;
+        }
+
+        if input == "\n" {
+            if self.line.is_empty() {
+                return false;
+            }
+            self.pending_kind = Some(kind);
+            self.pending.push_str(&self.line);
+            self.pending.push('\n');
+            self.line.clear();
+            self.live_plain = false;
+            self.live_inline_appendable = false;
+            self.trailing_backslash_odd = false;
+            self.reset_delimiter_runs();
+            self.live_tail_pending = None;
+            return true;
+        }
+        if input.contains('\n') {
+            return false;
+        }
+
+        match kind {
+            PendingKind::Unordered => self.try_append_unordered_tail(block_index, input, delta),
+            PendingKind::Ordered => self.try_append_ordered_tail(block_index, input, delta),
+            _ => false,
+        }
+    }
+
+    fn try_append_unordered_tail(
+        &mut self,
+        block_index: usize,
+        input: &str,
+        delta: &mut Delta,
+    ) -> bool {
+        if self.line.is_empty() && self.pending_kind == Some(PendingKind::Unordered) {
+            if input.len() != 1 || !input.is_ascii() {
+                return false;
+            }
+            let item = Vec::new();
+            let Some(Block::UnorderedList(items)) = self.blocks.get_mut(block_index) else {
+                return false;
+            };
+            items.push(item.clone());
+            self.line.push_str(input);
+            delta.ops.push(Op::AppendListItem {
+                block: block_index as u32,
+                item,
+            });
+            return true;
+        }
+
+        let trimmed = self.line.trim_start();
+        if matches!(trimmed, "-" | "*" | "+") && input == " " {
+            self.line.push(' ');
+            return true;
+        }
+        if !(trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("+ "))
+            || !input.bytes().all(is_plain_stream_byte)
+        {
+            return false;
+        }
+        let Some(Block::UnorderedList(items)) = self.blocks.get_mut(block_index) else {
+            return false;
+        };
+        splice_list_item_tail(items, 0, 0, &[Inline::Text(input.to_owned())]);
+        self.line.push_str(input);
+        delta.ops.push(Op::SpliceListItemTail {
+            block: block_index as u32,
+            remove_nodes: 0,
+            truncate_bytes: 0,
+            append: vec![Inline::Text(input.to_owned())],
+        });
+        true
+    }
+
+    fn try_append_ordered_tail(
+        &mut self,
+        block_index: usize,
+        input: &str,
+        delta: &mut Delta,
+    ) -> bool {
+        if self.line.is_empty() && self.pending_kind == Some(PendingKind::Ordered) {
+            if input.len() != 1 || !input.as_bytes()[0].is_ascii_digit() {
+                return false;
+            }
+            let item = vec![Inline::Text(input.to_owned())];
+            let Some(Block::OrderedList { items, .. }) = self.blocks.get_mut(block_index) else {
+                return false;
+            };
+            items.push(item.clone());
+            self.line.push_str(input);
+            delta.ops.push(Op::AppendListItem {
+                block: block_index as u32,
+                item,
+            });
+            return true;
+        }
+
+        let trimmed = self.line.trim_start();
+        let digits = trimmed
+            .as_bytes()
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count();
+        if digits != 0
+            && digits == trimmed.len()
+            && digits < 9
+            && input.len() == 1
+            && input.as_bytes()[0].is_ascii_digit()
+        {
+            return self.append_ordered_raw_tail(block_index, input, delta);
+        }
+        if digits != 0 && digits == trimmed.len() && input == "." {
+            return self.append_ordered_raw_tail(block_index, input, delta);
+        }
+        if digits != 0
+            && digits + 1 == trimmed.len()
+            && trimmed.as_bytes()[digits] == b'.'
+            && input == " "
+        {
+            let truncate_bytes = trimmed.len();
+            let Some(Block::OrderedList { items, .. }) = self.blocks.get_mut(block_index) else {
+                return false;
+            };
+            splice_list_item_tail(items, truncate_bytes, 0, &[]);
+            self.line.push(' ');
+            delta.ops.push(Op::SpliceListItemTail {
+                block: block_index as u32,
+                remove_nodes: 0,
+                truncate_bytes: truncate_bytes as u32,
+                append: Vec::new(),
+            });
+            return true;
+        }
+        if ordered_item(trimmed).is_none() || !input.bytes().all(is_plain_stream_byte) {
+            return false;
+        }
+        self.append_ordered_raw_tail(block_index, input, delta)
+    }
+
+    fn append_ordered_raw_tail(
+        &mut self,
+        block_index: usize,
+        input: &str,
+        delta: &mut Delta,
+    ) -> bool {
+        let Some(Block::OrderedList { items, .. }) = self.blocks.get_mut(block_index) else {
+            return false;
+        };
+        splice_list_item_tail(items, 0, 0, &[Inline::Text(input.to_owned())]);
+        self.line.push_str(input);
+        delta.ops.push(Op::SpliceListItemTail {
+            block: block_index as u32,
+            remove_nodes: 0,
+            truncate_bytes: 0,
+            append: vec![Inline::Text(input.to_owned())],
+        });
         true
     }
 
@@ -1526,6 +1717,18 @@ fn splice_inline_tail(
             nodes.push(node.clone());
         }
     }
+}
+
+fn splice_list_item_tail(
+    items: &mut [Vec<Inline>],
+    truncate_bytes: usize,
+    remove_nodes: usize,
+    append: &[Inline],
+) {
+    let Some(item) = items.last_mut() else {
+        unreachable!("list tail splice requires a final item")
+    };
+    splice_inline_tail(item, truncate_bytes, remove_nodes, append);
 }
 
 fn emphasis_run_splice(
@@ -3388,6 +3591,23 @@ $$
         ));
     }
 
+    #[test]
+    fn list_tail_deltas_match_streamed_lists() {
+        for markdown in ["- one\n- two\n- three", "1. one\n2. two\n3. three"] {
+            let mut parser = Parser::new();
+            let mut mirror = Vec::new();
+            for ch in markdown.chars() {
+                let mut buf = [0; 4];
+                let delta = parser.append(ch.encode_utf8(&mut buf));
+                apply(&mut mirror, &delta);
+                assert_eq!(mirror, parser.blocks(), "after {ch:?} in {markdown:?}");
+            }
+            let mut whole = Parser::new();
+            whole.append(markdown);
+            assert_eq!(parser.blocks(), whole.blocks());
+        }
+    }
+
     fn apply(document: &mut Vec<Block>, delta: &Delta) {
         for op in &delta.ops {
             match op {
@@ -3434,6 +3654,28 @@ $$
                         append,
                     );
                 }
+                Op::AppendListItem { block, item } => match &mut document[*block as usize] {
+                    Block::UnorderedList(items) | Block::OrderedList { items, .. } => {
+                        items.push(item.clone());
+                    }
+                    _ => panic!("not list"),
+                },
+                Op::SpliceListItemTail {
+                    block,
+                    remove_nodes,
+                    truncate_bytes,
+                    append,
+                } => match &mut document[*block as usize] {
+                    Block::UnorderedList(items) | Block::OrderedList { items, .. } => {
+                        splice_list_item_tail(
+                            items,
+                            *truncate_bytes as usize,
+                            *remove_nodes as usize,
+                            append,
+                        );
+                    }
+                    _ => panic!("not list"),
+                },
                 Op::SpliceCode {
                     block,
                     truncate_bytes,

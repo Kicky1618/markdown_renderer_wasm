@@ -712,7 +712,9 @@ impl State {
                     | Op::SealCode { .. }
                     | Op::AppendText { .. }
                     | Op::AppendInlineText { .. }
-                    | Op::SpliceInlineTail { .. } => {}
+                    | Op::SpliceInlineTail { .. }
+                    | Op::AppendListItem { .. }
+                    | Op::SpliceListItemTail { .. } => {}
                 }
             }
             appended += end - self.source_offset;

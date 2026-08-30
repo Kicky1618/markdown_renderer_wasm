@@ -61,6 +61,23 @@ pub fn encode_delta_into(delta: &Delta, output: &mut Vec<u8>) {
                 w.u32(*truncate_bytes);
                 w.inlines(append);
             }
+            Op::AppendListItem { block, item } => {
+                w.u8(8);
+                w.u32(*block);
+                w.inlines(item);
+            }
+            Op::SpliceListItemTail {
+                block,
+                remove_nodes,
+                truncate_bytes,
+                append,
+            } => {
+                w.u8(9);
+                w.u32(*block);
+                w.u32(*remove_nodes);
+                w.u32(*truncate_bytes);
+                w.inlines(append);
+            }
         }
     }
 }

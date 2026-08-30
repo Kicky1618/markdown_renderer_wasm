@@ -1378,7 +1378,9 @@ impl App {
                 | Op::SealCode { block }
                 | Op::AppendText { block, .. }
                 | Op::AppendInlineText { block, .. }
-                | Op::SpliceInlineTail { block, .. } => *block as usize,
+                | Op::SpliceInlineTail { block, .. }
+                | Op::AppendListItem { block, .. }
+                | Op::SpliceListItemTail { block, .. } => *block as usize,
                 Op::Push(_) => self.layouts.len(),
             })
             .min()

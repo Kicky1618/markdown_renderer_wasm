@@ -204,6 +204,50 @@ fn apply(document: &mut Vec<Block>, delta: &Delta) {
                     }
                 }
             }
+            Op::AppendListItem { block, item } => match &mut document[*block as usize] {
+                Block::UnorderedList(items) | Block::OrderedList { items, .. } => {
+                    items.push(item.clone())
+                }
+                _ => panic!("AppendListItem target is not a list"),
+            },
+            Op::SpliceListItemTail {
+                block,
+                remove_nodes,
+                truncate_bytes,
+                append,
+            } => {
+                let items = match &mut document[*block as usize] {
+                    Block::UnorderedList(items) | Block::OrderedList { items, .. } => items,
+                    _ => panic!("SpliceListItemTail target is not a list"),
+                };
+                let item = items
+                    .last_mut()
+                    .expect("SpliceListItemTail target has no final item");
+                if *truncate_bytes != 0 {
+                    let Inline::Text(text) = item
+                        .last_mut()
+                        .expect("SpliceListItemTail target has no tail")
+                    else {
+                        panic!("SpliceListItemTail target has no trailing text")
+                    };
+                    text.truncate(text.len() - *truncate_bytes as usize);
+                    if text.is_empty() {
+                        item.pop();
+                    }
+                }
+                if *remove_nodes != 0 {
+                    item.truncate(item.len() - *remove_nodes as usize);
+                }
+                for incoming in append {
+                    if let Inline::Text(value) = incoming
+                        && let Some(Inline::Text(text)) = item.last_mut()
+                    {
+                        text.push_str(value);
+                    } else {
+                        item.push(incoming.clone());
+                    }
+                }
+            }
         }
     }
 }

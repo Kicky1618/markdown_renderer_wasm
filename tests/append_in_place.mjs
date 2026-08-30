@@ -50,6 +50,16 @@ for (const chunk of ["`", "`", "$", "$", "$", "$", "*", "*", "*", "*", "_", "_",
 regularDelimiters.dispose();
 inPlaceDelimiters.dispose();
 
+const regularLists = await Streamdown.load(wasm);
+const inPlaceLists = await Streamdown.load(wasm);
+for (const chunk of ["- one\n", "-", " ", "two", "\n", "-", " ", "three"]) {
+  regularLists.append(chunk);
+  inPlaceLists.appendInPlace(chunk);
+  assert.deepEqual(inPlaceLists.document, regularLists.document);
+}
+regularLists.dispose();
+inPlaceLists.dispose();
+
 const consumed = await Streamdown.load(wasm);
 await consumed.consume(["Answer **now**: ", "token ", "token ", "日本語"], { finalize: true });
 assert.equal(consumed.toPlainText(), "Answer now: token token 日本語");

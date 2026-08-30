@@ -139,6 +139,27 @@ assert.deepEqual(inlineTailOps, [{ op: "appendInlineText", block: 0, append: "to
 assert.equal(apiParser.toPlainText(), "Answer with important context: token ");
 
 apiParser.reset();
+apiParser.append("- one\n");
+const listItem = apiParser.append("-");
+assert.deepEqual(listItem, [{ op: "appendListItem", block: 0, item: [] }]);
+apiParser.append(" ");
+const listTail = apiParser.append("two");
+assert.deepEqual(listTail, [{
+  op: "spliceListItemTail",
+  block: 0,
+  removeNodes: 0,
+  truncateBytes: 0,
+  append: [{ type: "text", value: "two" }],
+}]);
+assert.deepEqual(apiParser.document[0], {
+  type: "unorderedList",
+  items: [
+    [{ type: "text", value: "one" }],
+    [{ type: "text", value: "two" }],
+  ],
+});
+
+apiParser.reset();
 apiParser.append(':::llm tool name="web search" id=q1\n');
 apiParser.append('{"query":"rust wasm"}');
 apiParser.append('\n:::\n');

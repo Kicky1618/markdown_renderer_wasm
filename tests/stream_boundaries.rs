@@ -192,6 +192,23 @@ fn opener_heavy_inline_fast_path_is_chunk_boundary_independent() {
 }
 
 #[test]
+fn list_tail_deltas_are_character_stream_independent() {
+    for markdown in ["- one\n- two\n- three", "1. one\n2. two\n3. three"] {
+        let expected = parse_whole(markdown);
+        let boundaries = utf8_boundaries(markdown);
+        let actual = parse_chunks(
+            boundaries
+                .windows(2)
+                .map(|window| &markdown[window[0]..window[1]]),
+        );
+        assert_eq!(
+            actual, expected,
+            "character stream changed list AST for {markdown:?}"
+        );
+    }
+}
+
+#[test]
 fn table_separator_becoming_valid_during_plain_append_reparses() {
     let markdown = "a|b\n---|---";
     let expected = parse_whole(markdown);
@@ -269,6 +286,50 @@ fn apply(document: &mut Vec<Block>, delta: &Delta) {
                         text.push_str(value);
                     } else {
                         nodes.push(incoming.clone());
+                    }
+                }
+            }
+            Op::AppendListItem { block, item } => match &mut document[*block as usize] {
+                Block::UnorderedList(items) | Block::OrderedList { items, .. } => {
+                    items.push(item.clone())
+                }
+                _ => panic!("AppendListItem target is not a list"),
+            },
+            Op::SpliceListItemTail {
+                block,
+                remove_nodes,
+                truncate_bytes,
+                append,
+            } => {
+                let items = match &mut document[*block as usize] {
+                    Block::UnorderedList(items) | Block::OrderedList { items, .. } => items,
+                    _ => panic!("SpliceListItemTail target is not a list"),
+                };
+                let item = items
+                    .last_mut()
+                    .expect("SpliceListItemTail target has no final item");
+                if *truncate_bytes != 0 {
+                    let Inline::Text(text) = item
+                        .last_mut()
+                        .expect("SpliceListItemTail target has no tail")
+                    else {
+                        panic!("SpliceListItemTail target has no trailing text")
+                    };
+                    text.truncate(text.len() - *truncate_bytes as usize);
+                    if text.is_empty() {
+                        item.pop();
+                    }
+                }
+                if *remove_nodes != 0 {
+                    item.truncate(item.len() - *remove_nodes as usize);
+                }
+                for incoming in append {
+                    if let Inline::Text(value) = incoming
+                        && let Some(Inline::Text(text)) = item.last_mut()
+                    {
+                        text.push_str(value);
+                    } else {
+                        item.push(incoming.clone());
                     }
                 }
             }
