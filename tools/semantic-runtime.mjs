@@ -54,14 +54,7 @@ export class SemanticRuntime {
   append(chunk) {
     this.#assertActive();
     if (typeof chunk !== "string") throw new TypeError("append() expects a string");
-    this.parser.appendInPlace(chunk);
-    const semanticScan = this.semanticDetector.scan(chunk);
-    const detectorObserve = semanticScan < 0;
-    this.observedAtByte += detectorObserve ? -semanticScan - 1 : semanticScan;
-    const shouldObserve = this.semanticScan === "always" || detectorObserve;
-    const events = shouldObserve ? this.#observe().events : EMPTY_EVENTS;
-    this.chunkIndex += 1;
-    return events;
+    return this.#appendText(chunk);
   }
 
   async consume(source, { finalize = true } = {}) {
@@ -72,7 +65,7 @@ export class SemanticRuntime {
       if (typeof chunk === "string") {
         if (decodingBytes) {
           const tail = decoder.decode();
-          if (tail) this.append(tail);
+          if (tail) this.#appendText(tail, 0);
           decodingBytes = false;
         }
         if (chunk) this.append(chunk);
@@ -86,7 +79,8 @@ export class SemanticRuntime {
       if (!bytes) throw new TypeError("consume() chunks must be strings, ArrayBuffers, or typed arrays");
       const text = decoder.decode(bytes, { stream: true });
       decodingBytes = true;
-      if (text) this.append(text);
+      if (text) this.#appendText(text, bytes.byteLength);
+      else this.observedAtByte += bytes.byteLength;
     };
 
     if (typeof source === "string" || source instanceof ArrayBuffer || ArrayBuffer.isView(source)) {
@@ -101,7 +95,7 @@ export class SemanticRuntime {
 
     if (decodingBytes) {
       const tail = decoder.decode();
-      if (tail) this.append(tail);
+      if (tail) this.#appendText(tail, 0);
     }
     return finalize ? this.finish() : this.snapshot();
   }
@@ -138,6 +132,17 @@ export class SemanticRuntime {
     if (this.disposed) return;
     this.parser.dispose();
     this.disposed = true;
+  }
+
+  #appendText(chunk, knownUtf8Bytes = null) {
+    this.parser.appendInPlace(chunk);
+    const semanticScan = this.semanticDetector.scan(chunk, knownUtf8Bytes);
+    const detectorObserve = semanticScan < 0;
+    this.observedAtByte += detectorObserve ? -semanticScan - 1 : semanticScan;
+    const shouldObserve = this.semanticScan === "always" || detectorObserve;
+    const events = shouldObserve ? this.#observe().events : EMPTY_EVENTS;
+    this.chunkIndex += 1;
+    return events;
   }
 
   #observe() {

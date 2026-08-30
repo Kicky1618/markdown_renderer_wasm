@@ -46,4 +46,8 @@ reset.reset();
 assert.equal(reset.shouldObserve("m tool id=x"), false);
 assert.equal(reset.referenceState, 0);
 
+const knownBytes = new SemanticChangeDetector();
+assert.equal(knownBytes.scan("日本語", 9), 9);
+assert.throws(() => knownBytes.scan("x", -1), /non-negative safe integer/);
+
 console.log("semantic detector: ok");

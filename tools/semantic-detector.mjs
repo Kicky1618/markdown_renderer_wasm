@@ -75,8 +75,11 @@ export class SemanticChangeDetector {
     this.referenceState = 0;
   }
 
-  scan(chunk) {
+  scan(chunk, knownUtf8Bytes = null) {
     if (typeof chunk !== "string") throw new TypeError("semantic detector expects a string");
+    if (knownUtf8Bytes !== null && (!Number.isSafeInteger(knownUtf8Bytes) || knownUtf8Bytes < 0)) {
+      throw new TypeError("known UTF-8 byte length must be a non-negative safe integer");
+    }
 
     // Dominant LLM token path: once an ordinary line has been proven inert and
     // no semantic reference is in flight, only a line boundary or '@' can make
@@ -87,21 +90,24 @@ export class SemanticChangeDetector {
       && !this.headerLine
       && this.linePrefix === null
       && this.referenceState === 0) {
-      let asciiFast = true;
+      let asciiFast = knownUtf8Bytes === null;
       let complex = false;
       for (let i = 0; i < chunk.length; i += 1) {
         const code = chunk.charCodeAt(i);
-        if (code > 0x7f) asciiFast = false;
+        if (asciiFast && code > 0x7f) asciiFast = false;
         if (code === 10 || code === 13 || code === 64) {
           complex = true;
           break;
         }
       }
-      if (!complex) return asciiFast ? chunk.length : utf8Encoder.encode(chunk).length;
+      if (!complex) {
+        if (knownUtf8Bytes !== null) return knownUtf8Bytes;
+        return asciiFast ? chunk.length : utf8Encoder.encode(chunk).length;
+      }
     }
 
     let observe = false;
-    let ascii = true;
+    let ascii = knownUtf8Bytes === null;
     let segmentStart = 0;
 
     if (this.pendingCR) {
@@ -119,7 +125,7 @@ export class SemanticChangeDetector {
 
     for (let i = segmentStart; i < chunk.length; i += 1) {
       const code = chunk.charCodeAt(i);
-      if (code > 0x7f) ascii = false;
+      if (ascii && code > 0x7f) ascii = false;
 
       if (this.insideSemanticFence) {
         if (code === 10) {
@@ -153,7 +159,11 @@ export class SemanticChangeDetector {
       if (tailEnd > segmentStart) this.#advanceNormal(chunk.slice(segmentStart, tailEnd));
     }
 
-    const utf8Bytes = ascii ? chunk.length : utf8Encoder.encode(chunk).length;
+    const utf8Bytes = knownUtf8Bytes !== null
+      ? knownUtf8Bytes
+      : ascii
+        ? chunk.length
+        : utf8Encoder.encode(chunk).length;
     return observe ? -(utf8Bytes + 1) : utf8Bytes;
   }
 

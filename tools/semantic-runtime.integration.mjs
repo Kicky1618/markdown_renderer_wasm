@@ -66,3 +66,23 @@ try {
 } finally {
   runtime.dispose();
 }
+
+const byteEvents = [];
+const byteRuntime = await SemanticRuntime.load(wasm, {
+  onSemanticEvent: (event) => byteEvents.push(event),
+});
+const unicodeReference = "前 @[artifact:日本語] 後";
+const unicodeBytes = new TextEncoder().encode(unicodeReference);
+async function* bytewiseUnicode() {
+  for (let i = 0; i < unicodeBytes.length; i += 1) yield unicodeBytes.subarray(i, i + 1);
+}
+try {
+  await byteRuntime.consume(bytewiseUnicode());
+  const referenceEvent = byteEvents.find((event) => event.type === "reference" && event.key === "artifact:日本語");
+  assert.ok(referenceEvent, "bytewise Unicode stream should emit semantic reference");
+  const expectedObservedBytes = new TextEncoder().encode("前 @[artifact:日本語]").length;
+  assert.equal(referenceEvent.observedAtByte, expectedObservedBytes);
+} finally {
+  byteRuntime.dispose();
+}
+
