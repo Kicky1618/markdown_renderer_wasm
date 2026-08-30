@@ -11,10 +11,14 @@
   root.dataset.langpackProbe = "running";
   try {
     await init();
+    const flood = await Promise.all(
+      Array.from({ length: 160 }, (_, i) => loadLanguagePack(`missing-${String(i).padStart(3, "0")}`))
+    );
     const first = await loadLanguagePack("typescript");
     const duplicate = await loadLanguagePack("ts");
     const unsafe = await loadLanguagePack("../rust");
-    root.dataset.langpackProbe = first && !duplicate && !unsafe ? "pass" : "fail";
+    root.dataset.langpackProbe = flood.every(value => !value) && first && !duplicate && !unsafe ? "pass" : "fail";
+    root.dataset.langpackFloodSuccesses = String(flood.filter(Boolean).length);
     root.dataset.langpackFirst = String(first);
     root.dataset.langpackDuplicate = String(duplicate);
     root.dataset.langpackUnsafe = String(unsafe);

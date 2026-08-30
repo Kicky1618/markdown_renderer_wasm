@@ -1,6 +1,8 @@
-const MAX_REQUESTED_PACKS = 128;
+const MAX_CONCURRENT_PACKS = 16;
+const MAX_FAILED_PACKS = 128;
 const SAFE_LANGUAGE = /^[a-z0-9_+#-]+$/;
-const attempted = new Set();
+const inFlight = new Map();
+const failedAliases = new Map();
 const loadedAliases = new Set();
 const registered = new Set();
 const decoder = new TextDecoder();
@@ -35,40 +37,59 @@ function readPackAliases(binary) {
   return aliases;
 }
 
+function rememberFailure(alias) {
+  failedAliases.delete(alias);
+  failedAliases.set(alias, true);
+  if (failedAliases.size > MAX_FAILED_PACKS) {
+    failedAliases.delete(failedAliases.keys().next().value);
+  }
+}
+
 function invalidateRenderer() {
   const canvas = document.getElementById("app");
   if (canvas instanceof HTMLCanvasElement) canvas.width = Math.min(0xffffffff, canvas.width + 1);
 }
 
-export async function loadLanguagePack(name) {
+export function loadLanguagePack(name) {
   const alias = normalizeLanguage(name);
-  if (!alias || loadedAliases.has(alias) || attempted.has(alias) || attempted.size >= MAX_REQUESTED_PACKS) return false;
-  attempted.add(alias);
-  try {
-    const url = new URL(`./langpacks/${encodeURIComponent(alias)}.slp`, import.meta.url);
-    const response = await fetch(url, { cache: "force-cache" });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const binary = new Uint8Array(await response.arrayBuffer());
-    const packAliases = readPackAliases(binary);
-    const wasm = await import("./pkg/streamdown_web.js");
-    const registeredNow = wasm.register_language_pack_binary(binary);
-    if (registeredNow) {
-      for (const packAlias of packAliases) loadedAliases.add(packAlias);
-      registered.add(alias);
-      const root = document.documentElement;
-      root.dataset.languagePackRegistered = alias;
-      root.dataset.languagePackRegisteredCount = String(registered.size);
-      root.dataset.languagePacks = [...registered].sort().join(",");
-      invalidateRenderer();
-    } else {
-      document.documentElement.dataset.languagePackError = `${alias}:wasm-rejected`;
+  if (!alias || loadedAliases.has(alias) || failedAliases.has(alias)) return Promise.resolve(false);
+  const existing = inFlight.get(alias);
+  if (existing) return existing.then(() => false, () => false);
+  if (inFlight.size >= MAX_CONCURRENT_PACKS) return Promise.resolve(false);
+
+  const task = (async () => {
+    try {
+      const url = new URL(`./langpacks/${encodeURIComponent(alias)}.slp`, import.meta.url);
+      const response = await fetch(url, { cache: "force-cache" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const binary = new Uint8Array(await response.arrayBuffer());
+      const packAliases = readPackAliases(binary);
+      const wasm = await import("./pkg/streamdown_web.js");
+      const registeredNow = wasm.register_language_pack_binary(binary);
+      if (registeredNow) {
+        for (const packAlias of packAliases) loadedAliases.add(packAlias);
+        registered.add(alias);
+        const root = document.documentElement;
+        root.dataset.languagePackRegistered = alias;
+        root.dataset.languagePackRegisteredCount = String(registered.size);
+        root.dataset.languagePacks = [...registered].sort().join(",");
+        invalidateRenderer();
+      } else {
+        rememberFailure(alias);
+        document.documentElement.dataset.languagePackError = `${alias}:wasm-rejected`;
+      }
+      return registeredNow;
+    } catch (error) {
+      rememberFailure(alias);
+      document.documentElement.dataset.languagePackError = `${alias}:${String(error)}`;
+      console.warn(`language pack ${JSON.stringify(alias)} unavailable:`, error);
+      return false;
+    } finally {
+      inFlight.delete(alias);
     }
-    return registeredNow;
-  } catch (error) {
-    document.documentElement.dataset.languagePackError = `${alias}:${String(error)}`;
-    console.warn(`language pack ${JSON.stringify(alias)} unavailable:`, error);
-    return false;
-  }
+  })();
+  inFlight.set(alias, task);
+  return task;
 }
 
-export const __test = { normalizeLanguage, readPackAliases };
+export const __test = { normalizeLanguage, readPackAliases, rememberFailure };
