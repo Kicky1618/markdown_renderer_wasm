@@ -80,9 +80,9 @@ grep -q 'data-langpack-probe="pass"' "$HTML" || {
   exit 1
 }
 
-js_count=$(grep -c 'GET /langpacks/javascript.slp HTTP/1.1.* 200' "$WORK/http.log" || true)
+js_count=$(grep -c 'GET /langpacks/typescript.slp HTTP/1.1.* 200' "$WORK/http.log" || true)
 if [ "$js_count" -ne 1 ]; then
-  echo "dynamic langpack browser: javascript fetched $js_count times (expected once for TypeScript + ts aliases)"
+  echo "dynamic langpack browser: typescript alias fetched $js_count times (expected once; ts must dedupe from SLP1 aliases)"
   cat "$WORK/http.log"
   exit 1
 fi

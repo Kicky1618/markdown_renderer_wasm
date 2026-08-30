@@ -80,7 +80,7 @@ grep -q 'data-language-matrix-probe="pass"' "$HTML" || {
   exit 1
 }
 
-for pack in kotlin csharp ruby haskell verilog wgsl terraform powershell; do
+for pack in kt c%23 c%2B%2B f%23 rb hs sv webgpu tf ps1; do
   count=$(grep -c "GET /langpacks/$pack.slp HTTP/1.1.* 200" "$WORK/http.log" || true)
   if [ "$count" -ne 1 ]; then
     echo "language matrix browser: $pack fetched $count times (expected once)"
@@ -95,4 +95,4 @@ if grep -q 'GET /langpacks/.*\.\.' "$WORK/http.log"; then
   exit 1
 fi
 
-echo "language matrix browser: 8 expanded packs + aliases + dedupe pass"
+echo "language matrix browser: 10 expanded/special aliases + dedupe pass"

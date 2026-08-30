@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const LANGPACK_DIR = path.join(ROOT, "langpacks");
+const SAFE_ALIAS = /^[a-z0-9_+#-]+$/;
 
 const sections = [
   "aliases",
@@ -94,30 +95,59 @@ function sameBytes(a, b) {
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
+function normalizedAliases(profile, packName) {
+  const aliases = profile.values.aliases.map(alias => alias.toLowerCase());
+  if (!aliases.includes(packName)) throw new Error(`${packName}.langpack must include its canonical name as an alias`);
+  for (const alias of aliases) {
+    if (!alias || alias.length > 48 || !SAFE_ALIAS.test(alias)) throw new Error(`unsafe langpack alias: ${alias}`);
+  }
+  return aliases;
+}
+
 export function buildAll({ check = false } = {}) {
   const sources = fs.readdirSync(LANGPACK_DIR).filter(name => name.endsWith(".langpack")).sort();
+  const outputs = new Map();
   let totalSource = 0;
   let totalBinary = 0;
-  const stale = [];
+
   for (const name of sources) {
-    const sourcePath = path.join(LANGPACK_DIR, name);
-    const outputPath = sourcePath.replace(/\.langpack$/, ".slp");
-    const source = fs.readFileSync(sourcePath, "utf8");
-    const binary = encodePack(parsePack(source));
+    const packName = name.replace(/\.langpack$/, "").toLowerCase();
+    const source = fs.readFileSync(path.join(LANGPACK_DIR, name), "utf8");
+    const profile = parsePack(source);
+    const binary = encodePack(profile);
+    const aliases = normalizedAliases(profile, packName);
     totalSource += Buffer.byteLength(source);
     totalBinary += binary.byteLength;
+    for (const alias of aliases) {
+      const filename = `${alias}.slp`;
+      if (outputs.has(filename)) throw new Error(`duplicate langpack alias output: ${alias}`);
+      outputs.set(filename, binary);
+    }
+  }
+
+  const stale = [];
+  const existing = fs.readdirSync(LANGPACK_DIR).filter(name => name.endsWith(".slp"));
+  for (const name of existing) {
+    if (!outputs.has(name)) {
+      if (check) stale.push(`unexpected:${name}`);
+      else fs.rmSync(path.join(LANGPACK_DIR, name));
+    }
+  }
+  for (const [name, binary] of outputs) {
+    const outputPath = path.join(LANGPACK_DIR, name);
     if (check) {
-      if (!fs.existsSync(outputPath) || !sameBytes(binary, fs.readFileSync(outputPath))) stale.push(path.basename(outputPath));
+      if (!fs.existsSync(outputPath) || !sameBytes(binary, fs.readFileSync(outputPath))) stale.push(name);
     } else {
       fs.writeFileSync(outputPath, binary);
     }
   }
   if (stale.length) throw new Error(`stale generated langpacks: ${stale.join(", ")}`);
-  return { count: sources.length, sourceBytes: totalSource, binaryBytes: totalBinary };
+  const emittedBytes = [...outputs.values()].reduce((sum, binary) => sum + binary.byteLength, 0);
+  return { count: sources.length, aliases: outputs.size, sourceBytes: totalSource, binaryBytes: totalBinary, emittedBytes };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const check = process.argv.includes("--check");
   const result = buildAll({ check });
-  console.log(`langpacks ${check ? "checked" : "built"}: ${result.count} packs, ${result.sourceBytes} text bytes -> ${result.binaryBytes} SLP1 bytes`);
+  console.log(`langpacks ${check ? "checked" : "built"}: ${result.count} packs / ${result.aliases} aliases, ${result.sourceBytes} text bytes -> ${result.binaryBytes} canonical SLP1 bytes (${result.emittedBytes} alias-file bytes)`);
 }
