@@ -86,7 +86,7 @@ node webapp/generative/tests.mjs
 
 if [ "$RUN_BENCH" = "1" ]; then
   section "native parser benchmark"
-  cargo run --release --bin stream-bench
+  node scripts/stream-bench-median.mjs
 
   section "semantic runtime benchmark"
   node tools/semantic-runtime-bench.mjs
