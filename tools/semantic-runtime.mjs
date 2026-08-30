@@ -1,17 +1,11 @@
 import { Streamdown } from "../js/streamdown.js";
 import { buildSemanticGraph, graphDiagnostics } from "./semantic-graph.mjs";
-import { createTimelineState, observeSemanticState, semanticReferencesFromLinks } from "./semantic-timeline-core.mjs";
+import { createTimelineState, observeSemanticState } from "./semantic-timeline-core.mjs";
 import { SemanticScheduler } from "./semantic-scheduler.mjs";
 import { SemanticChangeDetector } from "./semantic-detector.mjs";
+import { SemanticRuntimeSummary } from "./semantic-runtime-summary.mjs";
 
 const EMPTY_EVENTS = Object.freeze([]);
-
-function parserSummary(parser) {
-  return {
-    llmBlocks: parser.getLlmBlocks(),
-    semanticReferences: semanticReferencesFromLinks(parser.getLinks()),
-  };
-}
 
 /**
  * Streaming semantic runtime layered on top of Streamdown.
@@ -46,7 +40,8 @@ export class SemanticRuntime {
     this.semanticScans = 0;
     this.observedAtByte = 0;
     this.chunkIndex = 0;
-    this.graph = buildSemanticGraph(parserSummary(parser));
+    this.semanticSummary = new SemanticRuntimeSummary(parser.document);
+    this.graph = buildSemanticGraph(this.semanticSummary.current());
     this.scheduler.updateGraph(this.graph);
     this.disposed = false;
   }
@@ -102,8 +97,10 @@ export class SemanticRuntime {
 
   async finish() {
     this.#assertActive();
+    const previousBlockCount = this.parser.blockCount;
     this.parser.finish();
-    this.#observe();
+    const summary = this.semanticSummary.refreshTail(this.parser.document, previousBlockCount);
+    this.#observe(summary);
     await this.scheduler.idle();
     return this.snapshot();
   }
@@ -116,8 +113,7 @@ export class SemanticRuntime {
 
   snapshot() {
     this.#assertActive();
-    const summary = parserSummary(this.parser);
-    const graph = buildSemanticGraph(summary);
+    const graph = buildSemanticGraph(this.semanticSummary.current());
     return {
       document: this.parser.snapshot(),
       graph,
@@ -135,19 +131,21 @@ export class SemanticRuntime {
   }
 
   #appendText(chunk, knownUtf8Bytes = null) {
+    const previousBlockCount = this.parser.blockCount;
     this.parser.appendInPlace(chunk);
     const semanticScan = this.semanticDetector.scan(chunk, knownUtf8Bytes);
     const detectorObserve = semanticScan < 0;
     this.observedAtByte += detectorObserve ? -semanticScan - 1 : semanticScan;
     const shouldObserve = this.semanticScan === "always" || detectorObserve;
-    const events = shouldObserve ? this.#observe().events : EMPTY_EVENTS;
+    const events = shouldObserve
+      ? this.#observe(this.semanticSummary.refreshTail(this.parser.document, previousBlockCount)).events
+      : EMPTY_EVENTS;
     this.chunkIndex += 1;
     return events;
   }
 
-  #observe() {
+  #observe(summary = this.semanticSummary.current()) {
     this.semanticScans += 1;
-    const summary = parserSummary(this.parser);
     const observation = observeSemanticState(summary, this.timelineState, this.observedAtByte, this.chunkIndex);
     this.graph = observation.graph;
     this.scheduler.updateGraph(this.graph);
