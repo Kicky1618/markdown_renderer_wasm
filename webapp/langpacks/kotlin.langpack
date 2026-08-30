@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	kotlin	kt	kts
+keywords	as	break	class	continue	do	else	false	for	fun	if	in	interface	is	null	object	package	return	super	this	throw	true	try	typealias	typeof	val	var	when	while	by	catch	constructor	delegate	dynamic	field	file	finally	get	import	init	param	property	receiver	set	setparam	where	actual	abstract	annotation	companion	const	crossinline	data	enum	expect	external	final	infix	inline	inner	internal	lateinit	noinline	open	operator	out	override	private	protected	public	reified	sealed	suspend	tailrec	vararg
+builtin_types	Any	Boolean	Byte	Char	Double	Float	Int	Long	Nothing	Short	String	Unit	UInt	ULong	UByte	UShort
+function_declarations	fun
+type_declarations	class	interface	object	typealias	enum	annotation
+flags	slash_comments	block_comments	decorators	multiline_strings	triple_double_strings

@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	protobuf	proto	proto3
+keywords	syntax	import	weak	public	package	option	message	enum	service	rpc	returns	repeated	optional	required	reserved	to	max	oneof	map	extensions	extend	group	stream	true	false
+builtin_types	double	float	int32	int64	uint32	uint64	sint32	sint64	fixed32	fixed64	sfixed32	sfixed64	bool	string	bytes
+type_declarations	message	enum	service
+flags	slash_comments	block_comments	multiline_strings

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	xml	xsd	xsl	xslt	svg	plist
+keywords	xml	DOCTYPE	ELEMENT	ATTLIST	ENTITY	NOTATION	CDATA
+flags	multiline_strings

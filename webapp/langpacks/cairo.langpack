@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	cairo	cairo1
+keywords	as	break	const	continue	else	enum	extern	false	fn	for	if	impl	implicits	in	let	loop	match	mod	move	mut	nopanic	of	pub	ref	return	self	Self	static	struct	super	trait	true	type	use	where	while
+builtin_types	bool	felt252	u8	u16	u32	u64	u128	u256	usize	ByteArray	Span	Array	Option	Result
+function_declarations	fn
+type_declarations	struct	enum	trait	type	impl
+flags	slash_comments	multiline_strings

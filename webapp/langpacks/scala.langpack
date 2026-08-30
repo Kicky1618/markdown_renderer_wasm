@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	scala	sc
+keywords	abstract	case	catch	class	def	do	else	enum	export	extends	false	final	finally	for	forSome	given	if	implicit	import	lazy	match	new	null	object	opaque	open	override	package	private	protected	return	sealed	super	then	this	throw	trait	transparent	true	try	type	val	var	while	with	yield	inline	using	end	derives	extension
+builtin_types	Any	AnyRef	AnyVal	Boolean	Byte	Char	Double	Float	Int	Long	Nothing	Null	Short	String	Unit
+function_declarations	def
+type_declarations	class	enum	object	trait	type
+flags	slash_comments	block_comments	decorators	multiline_strings	triple_double_strings

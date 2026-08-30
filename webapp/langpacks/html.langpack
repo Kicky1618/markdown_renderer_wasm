@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	html	htm	xhtml	svelte	vue	astro
+keywords	html	head	body	title	meta	link	style	script	template	slot	main	section	article	aside	nav	header	footer	h1	h2	h3	h4	h5	h6	p	a	img	picture	source	video	audio	canvas	svg	div	span	ul	ol	li	table	thead	tbody	tfoot	tr	th	td	form	input	textarea	select	option	button	label	dialog	details	summary	true	false	null
+flags	multiline_strings

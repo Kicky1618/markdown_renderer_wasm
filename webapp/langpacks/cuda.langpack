@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	cuda	cu	cuh
+keywords	alignas	alignof	asm	auto	bool	break	case	catch	char	class	const	constexpr	continue	decltype	default	delete	do	double	else	enum	explicit	export	extern	false	float	for	friend	goto	if	inline	int	long	mutable	namespace	new	noexcept	nullptr	operator	private	protected	public	register	reinterpret_cast	return	short	signed	sizeof	static	static_assert	static_cast	struct	switch	template	this	thread_local	throw	true	try	typedef	typeid	typename	union	unsigned	using	virtual	void	volatile	wchar_t	while	__global__	__device__	__host__	__shared__	__constant__	__managed__	__launch_bounds__
+builtin_types	bool	char	double	float	int	long	short	signed	unsigned	void	dim3	half	half2	int2	int3	int4	uint2	uint3	uint4	float2	float3	float4	double2
+type_declarations	class	enum	struct	typedef	union
+flags	slash_comments	block_comments	preprocessor	multiline_strings

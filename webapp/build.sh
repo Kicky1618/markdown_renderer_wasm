@@ -7,6 +7,8 @@ TMP="$ROOT/target/tmp"
 
 mkdir -p "$TMP" "$WEBAPP/generative"
 
+node "$WEBAPP/build_langpacks.mjs"
+
 # Existing high-performance renderer.
 TMPDIR="$TMP" cargo build \
   --manifest-path "$WEBAPP/Cargo.toml" \

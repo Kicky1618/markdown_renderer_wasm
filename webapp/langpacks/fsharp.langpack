@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	fsharp	f#	fs	fsx
+keywords	abstract	and	as	assert	base	begin	class	default	delegate	do	done	downcast	downto	elif	else	end	exception	extern	false	finally	fixed	for	fun	function	global	if	in	inherit	inline	interface	internal	lazy	let	match	member	module	mutable	namespace	new	not	null	of	open	or	override	private	public	rec	return	sig	static	struct	then	to	true	try	type	upcast	use	val	void	when	while	with	yield	async	atomic	break	checked	component	const	constraint	constructor	continue	eager	event	external	fixed	functor	include	method	mixin	object	parallel	process	protected	pure	sealed	tailcall	trait	virtual	volatile
+builtin_types	bool	byte	char	decimal	double	float	float32	float64	int	int16	int32	int64	list	nativeint	obj	option	sbyte	seq	string	uint	uint16	uint32	uint64	unit
+function_declarations	let	member
+type_declarations	class	delegate	exception	interface	module	namespace	struct	type
+flags	slash_comments	multiline_strings	paren_star_comments	nested_block_comments

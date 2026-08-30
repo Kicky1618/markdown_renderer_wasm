@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	vala	vapi
+keywords	abstract	as	async	base	bool	break	case	catch	char	class	const	construct	continue	default	delegate	delete	do	double	dynamic	else	enum	ensures	errordomain	extern	false	finally	float	for	foreach	get	if	in	inline	int	interface	internal	is	lock	long	namespace	new	null	out	override	owned	private	protected	public	ref	requires	return	set	signal	sizeof	static	string	struct	switch	this	throw	throws	true	try	typeof	uint	ulong	unowned	ushort	using	value	virtual	void	volatile	weak	while	yield
+builtin_types	bool	char	double	float	int	long	string	uint	ulong	ushort	void	Object	Variant
+function_declarations	delegate
+type_declarations	class	interface	struct	enum	errordomain	namespace
+flags	slash_comments	block_comments	multiline_strings

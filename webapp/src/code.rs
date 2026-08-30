@@ -76,9 +76,15 @@ impl<'a> Scanner<'a> {
                     .map_or(bytes.len(), |offset| start + offset),
                 SyntaxKind::Comment,
             )
-        } else if self.language.block_comments() && bytes.get(start..start + 2) == Some(b"/*") {
+        } else if let Some((opener, closer)) = block_comment_delimiters(bytes, start, self.language) {
             (
-                block_comment_end(self.source, start, self.language.nested_block_comments()),
+                block_comment_end(
+                    self.source,
+                    start,
+                    opener,
+                    closer,
+                    self.language.nested_block_comments(),
+                ),
                 SyntaxKind::Comment,
             )
         } else if let Some(end) = preprocessor_end(bytes, start, self.language) {
@@ -102,6 +108,16 @@ impl<'a> Scanner<'a> {
         {
             (
                 quoted_string_end(self.source, quote_at, quote, triple, true),
+                SyntaxKind::String,
+            )
+        } else if ((bytes[start] == b'"' && self.language.triple_double_strings())
+            || (bytes[start] == b'\'' && self.language.triple_single_strings()))
+            && bytes
+                .get(start..start + 3)
+                .is_some_and(|delimiter| delimiter.iter().all(|byte| *byte == bytes[start]))
+        {
+            (
+                quoted_string_end(self.source, start, bytes[start], true, true),
                 SyntaxKind::String,
             )
         } else if self.language.javascript_lexing()
@@ -343,17 +359,23 @@ fn capture_kind(
 
 /// Find a C-style block comment terminator. Rust comments nest, so for Rust we
 /// mirror the external scanner behavior used by its Tree-sitter grammar.
-fn block_comment_end(source: &str, start: usize, nested: bool) -> usize {
+fn block_comment_end(
+    source: &str,
+    start: usize,
+    opener: &[u8; 2],
+    closer: &[u8; 2],
+    nested: bool,
+) -> usize {
     let bytes = source.as_bytes();
-    let mut cursor = start + 2;
+    let mut cursor = start + opener.len();
     let mut depth = 1usize;
     while cursor < bytes.len() {
-        if nested && bytes.get(cursor..cursor + 2) == Some(b"/*") {
+        if nested && bytes.get(cursor..cursor + opener.len()) == Some(opener.as_slice()) {
             depth += 1;
-            cursor += 2;
-        } else if bytes.get(cursor..cursor + 2) == Some(b"*/") {
+            cursor += opener.len();
+        } else if bytes.get(cursor..cursor + closer.len()) == Some(closer.as_slice()) {
             depth -= 1;
-            cursor += 2;
+            cursor += closer.len();
             if depth == 0 {
                 return cursor;
             }
@@ -420,15 +442,35 @@ fn looks_like_macro_constant(word: &str) -> bool {
     }) && has_letter
 }
 
+fn block_comment_delimiters(
+    bytes: &[u8],
+    i: usize,
+    language: Language,
+) -> Option<(&'static [u8; 2], &'static [u8; 2])> {
+    if language.block_comments() && bytes.get(i..i + 2) == Some(b"/*") {
+        Some((b"/*", b"*/"))
+    } else if language.paren_star_comments() && bytes.get(i..i + 2) == Some(b"(*") {
+        Some((b"(*", b"*)"))
+    } else if language.brace_dash_comments() && bytes.get(i..i + 2) == Some(b"{-") {
+        Some((b"{-", b"-}"))
+    } else {
+        None
+    }
+}
+
 fn is_line_comment(bytes: &[u8], i: usize, language: Language) -> bool {
     (bytes.get(i..i + 2) == Some(b"//") && language.slash_comments())
         || (bytes.get(i..i + 2) == Some(b"--") && language.dash_comments())
         || (bytes.get(i) == Some(&b'#') && language.hash_comments())
+        || (bytes.get(i) == Some(&b';') && language.semicolon_comments())
+        || (bytes.get(i) == Some(&b'%') && language.percent_comments())
+        || (bytes.get(i) == Some(&b'\'') && language.apostrophe_comments())
+        || (bytes.get(i) == Some(&b'!') && language.bang_comments())
 }
 
 fn is_special_start(bytes: &[u8], i: usize, language: Language) -> bool {
     is_line_comment(bytes, i, language)
-        || (language.block_comments() && bytes.get(i..i + 2) == Some(b"/*"))
+        || block_comment_delimiters(bytes, i, language).is_some()
         || preprocessor_end(bytes, i, language).is_some()
         || (language.decorators() && bytes.get(i) == Some(&b'@'))
         || rust_attribute_start(bytes, i, language).is_some()
@@ -444,7 +486,12 @@ fn is_ident_start(byte: u8, language: Language) -> bool {
 }
 
 fn is_ident_continue(byte: u8, language: Language) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_' || (byte == b'$' && language.dollar_identifiers())
+    byte.is_ascii_alphanumeric()
+        || byte == b'_'
+        || (byte == b'$' && language.dollar_identifiers())
+        || (byte == b'-' && language.hyphen_identifiers())
+        || (byte == b'?' && language.question_identifiers())
+        || (byte == b'!' && language.bang_identifiers())
 }
 
 fn is_operator(byte: u8) -> bool {

@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	lisp	commonlisp	common-lisp	cl
+keywords	defun	defmacro	defclass	defmethod	defgeneric	defparameter	defvar	defconstant	lambda	let	let*	flet	labels	macrolet	symbol-macrolet	if	when	unless	cond	case	typecase	multiple-value-bind	destructuring-bind	loop	do	dolist	dotimes	block	return-from	catch	throw	unwind-protect	handler-case	restart-case	progn	prog1	prog2	quote	function	setq	setf	values	and	or	not	nil	t
+builtin_types	array	bit-vector	character	cons	fixnum	float	hash-table	integer	list	number	package	pathname	ratio	rational	sequence	stream	string	symbol	vector
+function_declarations	defun	defmacro	defmethod	defgeneric
+type_declarations	defclass
+flags	semicolon_comments	hyphen_identifiers	question_identifiers	bang_identifiers	case_insensitive_keywords	multiline_strings

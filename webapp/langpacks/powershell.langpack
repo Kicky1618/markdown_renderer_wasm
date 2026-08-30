@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	powershell	ps1	pwsh
+keywords	begin	break	catch	class	continue	data	define	do	dynamicparam	else	elseif	end	enum	exit	filter	finally	for	foreach	from	function	if	in	inlinescript	parallel	param	process	return	sequence	switch	throw	trap	try	until	using	var	while	workflow	true	false	null
+builtin_types	bool	byte	char	datetime	decimal	double	float	guid	hashtable	int	int16	int32	int64	long	object	regex	scriptblock	single	string	timespan	type	uint	uint16	uint32	uint64	xml
+function_declarations	function	filter	workflow
+type_declarations	class	enum
+flags	hash_comments	dollar_identifiers	multiline_strings	case_insensitive_keywords

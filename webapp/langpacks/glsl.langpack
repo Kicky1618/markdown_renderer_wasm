@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	glsl	vert	frag	geom	comp	shader
+keywords	attribute	const	uniform	varying	buffer	shared	coherent	volatile	restrict	readonly	writeonly	atomic_uint	layout	centroid	flat	smooth	noperspective	patch	sample	invariant	precise	break	continue	do	for	while	switch	case	default	if	else	subroutine	in	out	inout	float	double	int	void	bool	true	false	discard	return	mat2	mat3	mat4	dmat2	dmat3	dmat4	vec2	vec3	vec4	ivec2	ivec3	ivec4	bvec2	bvec3	bvec4	uint	uvec2	uvec3	uvec4	lowp	mediump	highp	precision	struct
+builtin_types	float	double	int	uint	bool	void	vec2	vec3	vec4	dvec2	dvec3	dvec4	ivec2	ivec3	ivec4	uvec2	uvec3	uvec4	bvec2	bvec3	bvec4	mat2	mat3	mat4	sampler1D	sampler2D	sampler3D	samplerCube	image1D	image2D	image3D
+type_declarations	struct
+flags	slash_comments	block_comments	preprocessor	multiline_strings

@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	hlsl	fx	shaderlab
+keywords	AppendStructuredBuffer	asm	asm_fragment	BlendState	bool	break	Buffer	ByteAddressBuffer	case	cbuffer	centroid	class	column_major	compile	compile_fragment	CompileShader	const	continue	ComputeShader	ConsumeStructuredBuffer	default	DepthStencilState	discard	do	double	DomainShader	dword	else	export	extern	false	float	for	fxgroup	GeometryShader	groupshared	half	Hullshader	if	in	inline	inout	InputPatch	int	interface	line	lineadj	linear	matrix	namespace	nointerpolation	noperspective	out	packoffset	pass	pixelfragment	PixelShader	point	pointadj	precise	RasterizerState	register	return	row_major	RWBuffer	RWByteAddressBuffer	RWStructuredBuffer	sample	sampler	SamplerState	shared	snorm	stateblock	stateblock_state	static	string	struct	switch	tbuffer	technique	technique10	technique11	texture	Texture1D	Texture2D	Texture3D	TextureCube	true	typedef	uint	uniform	vector	vertexfragment	VertexShader	void	volatile	while
+builtin_types	bool	double	float	float2	float3	float4	float2x2	float3x3	float4x4	half	half2	half3	half4	int	int2	int3	int4	uint	uint2	uint3	uint4	matrix	vector	Texture2D	SamplerState
+type_declarations	class	interface	struct	typedef
+flags	slash_comments	block_comments	preprocessor	multiline_strings

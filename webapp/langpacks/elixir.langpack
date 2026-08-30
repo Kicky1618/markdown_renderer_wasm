@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	elixir	ex	exs
+keywords	after	alias	and	case	catch	cond	def	defdelegate	defexception	defguard	defimpl	defmacro	defmodule	defp	defprotocol	defstruct	do	else	end	false	fn	for	if	import	in	nil	not	or	quote	raise	receive	require	rescue	reraise	super	throw	true	try	unless	unquote	unquote_splicing	use	when	with
+builtin_types	Atom	BitString	Date	DateTime	Decimal	Float	Function	Integer	List	Map	NaiveDateTime	PID	Port	Reference	String	Time	Tuple	URI
+function_declarations	def	defp	defmacro	defdelegate	defguard
+type_declarations	defmodule	defprotocol	defimpl	defstruct	defexception
+flags	hash_comments	question_identifiers	bang_identifiers	multiline_strings

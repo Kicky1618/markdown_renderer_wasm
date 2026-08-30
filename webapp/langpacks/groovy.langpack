@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	groovy	gradle
+keywords	as	assert	break	case	catch	class	const	continue	def	default	do	else	enum	extends	false	finally	for	goto	if	implements	import	in	instanceof	interface	native	new	null	package	public	protected	private	return	static	strictfp	super	switch	synchronized	this	throw	throws	trait	transient	true	try	void	volatile	while	abstract	final	var	record	sealed	non-sealed	permits	yield
+builtin_types	boolean	byte	char	double	float	int	long	short	String	Object	BigDecimal	BigInteger
+function_declarations	def
+type_declarations	class	interface	enum	trait	record
+flags	slash_comments	block_comments	hash_comments	decorators	multiline_strings	triple_double_strings	triple_single_strings

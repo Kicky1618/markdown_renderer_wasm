@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	makefile	make	gnumake
+keywords	define	endef	undefine	ifdef	ifndef	ifeq	ifneq	else	endif	include	-include	sinclude	override	export	unexport	private	vpath	.PHONY	.DEFAULT	.PRECIOUS	.INTERMEDIATE	.SECONDARY	.SECONDEXPANSION	.DELETE_ON_ERROR	.IGNORE	.LOW_RESOLUTION_TIME	.SILENT	.EXPORT_ALL_VARIABLES	.NOTPARALLEL	.ONESHELL	.POSIX	.SUFFIXES
+flags	hash_comments	dollar_identifiers	multiline_strings

@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	erlang	erl	hrl
+keywords	after	begin	case	catch	cond	end	fun	if	let	of	query	receive	try	when	bnot	not	div	rem	band	and	bor	bxor	bsl	bsr	or	xor	andalso	orelse	true	false
+builtin_types	atom	binary	bitstring	boolean	byte	char	float	function	identifier	integer	iodata	iolist	list	map	maybe_improper_list	mfa	module	nil	node	non_neg_integer	number	pid	port	reference	string	term	timeout	tuple
+flags	percent_comments	multiline_strings

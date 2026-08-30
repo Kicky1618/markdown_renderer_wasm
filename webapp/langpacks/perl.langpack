@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	perl	pl	pm	perl5
+keywords	__DATA__	__END__	__FILE__	__LINE__	__PACKAGE__	and	cmp	continue	CORE	do	else	elsif	eq	exp	for	foreach	ge	given	goto	grep	gt	if	last	le	local	lt	m	map	my	ne	next	no	or	our	package	print	printf	q	qq	qr	qw	qx	redo	require	return	say	state	sub	tr	try	uc	unless	until	use	when	while	xor	y	true	false	undef
+builtin_types	ARRAY	CODE	GLOB	HASH	IO	REF	SCALAR
+function_declarations	sub
+type_declarations	package
+flags	hash_comments	dollar_identifiers	multiline_strings

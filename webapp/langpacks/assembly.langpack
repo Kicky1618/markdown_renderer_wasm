@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	asm	assembly	nasm	gas	x86asm	x86_64asm	aarch64asm
+keywords	section	segment	global	extern	bits	default	cpu	align	db	dw	dd	dq	dt	resb	resw	resd	resq	equ	times	byte	word	dword	qword	ptr	mov	lea	push	pop	call	ret	jmp	je	jne	jz	jnz	ja	jb	jg	jl	add	sub	mul	imul	div	idiv	inc	dec	cmp	test	and	or	xor	not	shl	shr	sar	rol	ror	nop	int	syscall	sysenter	leave	enter	cmovz	cmovnz	setz	setnz	lock	rep	repe	repne
+builtin_types	byte	word	dword	qword	tword	oword	yword	zword	ptr
+flags	semicolon_comments	hash_comments	case_insensitive_keywords

@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	opencl	clc
+keywords	__kernel	kernel	__global	global	__local	local	__constant	constant	__private	private	__generic	generic	read_only	write_only	read_write	__read_only	__write_only	__read_write	restrict	volatile	const	typedef	struct	union	enum	if	else	switch	case	default	for	while	do	break	continue	return	goto	sizeof	inline	static	extern
+builtin_types	bool	char	uchar	short	ushort	int	uint	long	ulong	half	float	double	size_t	ptrdiff_t	intptr_t	uintptr_t	void	image1d_t	image2d_t	image3d_t	sampler_t	event_t	atomic_int	atomic_uint
+type_declarations	typedef	struct	union	enum
+flags	slash_comments	block_comments	preprocessor	multiline_strings

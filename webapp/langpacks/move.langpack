@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	move	movelang
+keywords	abort	acquires	as	break	public	continue	copy	else	false	friend	fun	has	if	in	let	loop	module	move	native	return	script	struct	true	use	while	entry	spec	acquires	phantom	const	mut	package	enum	match	macro
+builtin_types	address	bool	signer	u8	u16	u32	u64	u128	u256	vector
+function_declarations	fun	macro
+type_declarations	module	struct	enum
+flags	slash_comments	block_comments	multiline_strings

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>language matrix browser probe</title></head>
+<body>
+<script type="module">
+  import init from "../pkg/streamdown_web.js";
+  import { loadLanguagePack } from "../language-loader.js";
+
+  const root = document.documentElement;
+  root.dataset.languageMatrixProbe = "running";
+  try {
+    await init();
+    const cases = [
+      ["kt", "kotlin"],
+      ["cs", "csharp"],
+      ["rb", "ruby"],
+      ["hs", "haskell"],
+      ["sv", "verilog"],
+      ["webgpu", "wgsl"],
+      ["tf", "terraform"],
+      ["ps1", "powershell"],
+    ];
+    const first = [];
+    const duplicate = [];
+    for (const [alias, canonical] of cases) {
+      first.push(await loadLanguagePack(alias));
+      duplicate.push(await loadLanguagePack(canonical));
+    }
+    const unsafe = await loadLanguagePack("../kotlin");
+    const packs = (root.dataset.languagePacks ?? "").split(",").filter(Boolean);
+    root.dataset.languageMatrixPacks = packs.join(",");
+    root.dataset.languageMatrixCount = String(packs.length);
+    root.dataset.languageMatrixProbe =
+      first.every(Boolean) && duplicate.every(value => !value) && !unsafe && packs.length === cases.length
+        ? "pass"
+        : "fail";
+  } catch (error) {
+    root.dataset.languageMatrixProbe = "error";
+    root.dataset.languageMatrixError = String(error);
+    console.error(error);
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	solidity	sol
+keywords	abstract	after	alias	apply	auto	byte	case	catch	constant	copyof	default	define	final	immutable	implements	in	inline	let	macro	match	mutable	null	of	override	partial	promise	reference	relocatable	sealed	sizeof	static	supports	switch	typedef	typeof	unchecked	var	contract	interface	library	function	modifier	event	error	struct	enum	mapping	address	payable	memory	storage	calldata	public	private	internal	external	pure	view	virtual	returns	return	if	else	for	while	do	break	continue	throw	try	catch	emit	new	delete	this	super	import	pragma	using	assembly	true	false
+builtin_types	address	bool	bytes	bytes1	bytes2	bytes4	bytes8	bytes16	bytes32	int	int8	int16	int32	int64	int128	int256	string	uint	uint8	uint16	uint32	uint64	uint128	uint256	fixed	ufixed
+function_declarations	function	modifier
+type_declarations	contract	interface	library	struct	enum
+flags	slash_comments	block_comments	multiline_strings

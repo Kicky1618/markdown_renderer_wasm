@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	objectivec	objective-c	objc	mm
+keywords	auto	break	case	char	const	continue	default	do	double	else	enum	extern	float	for	goto	if	int	long	register	return	short	signed	sizeof	static	struct	switch	typedef	union	unsigned	void	volatile	while	id	Class	SEL	BOOL	YES	NO	nil	Nil	self	super	interface	implementation	protocol	property	synthesize	dynamic	selector	encode	try	catch	finally	throw	synchronized	autoreleasepool	import	available
+builtin_types	BOOL	Class	SEL	id	char	double	float	int	long	short	signed	unsigned	void	NSInteger	NSUInteger	CGFloat	NSString	NSArray	NSDictionary	NSNumber	NSObject
+type_declarations	struct	enum	union	typedef	interface	protocol
+flags	slash_comments	block_comments	preprocessor	multiline_strings

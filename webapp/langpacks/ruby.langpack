@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	ruby	rb
+keywords	BEGIN	END	alias	and	begin	break	case	class	def	defined	do	else	elsif	end	ensure	false	for	if	in	module	next	nil	not	or	redo	rescue	retry	return	self	super	then	true	undef	unless	until	when	while	yield	__FILE__	__LINE__	__ENCODING__
+builtin_types	Array	BasicObject	Class	Enumerator	Exception	Float	Hash	Integer	IO	Kernel	Module	Numeric	Object	Proc	Range	Regexp	String	Struct	Symbol	Time
+function_declarations	def
+type_declarations	class	module
+flags	hash_comments	multiline_strings	question_identifiers	bang_identifiers

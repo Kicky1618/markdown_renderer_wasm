@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	clojure	clj	cljs	cljc	edn
+keywords	def	defn	defn-	defmacro	defmulti	defmethod	defonce	defrecord	deftype	defprotocol	definterface	let	letfn	loop	recur	if	if-not	if-let	when	when-not	when-let	cond	condp	case	do	fn	quote	var	throw	try	catch	finally	new	set!	ns	in-ns	import	refer	require	use	gen-class	proxy	reify	this	true	false	nil
+builtin_types	String	Object	Boolean	Long	Double	BigInt	BigDecimal	Keyword	Symbol	PersistentVector	PersistentMap	PersistentList	PersistentSet
+function_declarations	defn	defn-	defmacro	defmulti	defmethod
+type_declarations	defrecord	deftype	defprotocol	definterface
+flags	semicolon_comments	hyphen_identifiers	question_identifiers	bang_identifiers	multiline_strings

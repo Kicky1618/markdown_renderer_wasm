@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	vhdl	vhd
+keywords	abs	access	after	alias	all	and	architecture	array	assert	assume	assume_guarantee	attribute	begin	block	body	buffer	bus	case	component	configuration	constant	context	cover	default	disconnect	downto	else	elsif	end	entity	exit	fair	fairness	file	for	force	function	generate	generic	group	guarded	if	impure	in	inertial	inout	is	label	library	linkage	literal	loop	map	mod	nand	new	next	nor	not	null	of	on	open	or	others	out	package	parameter	port	postponed	procedure	process	property	protected	pure	range	record	register	reject	release	rem	report	restrict	return	rol	ror	select	sequence	severity	signal	shared	sla	sll	sra	srl	strong	subtype	then	to	transport	type	unaffected	units	until	use	variable	view	vmode	vprop	vunit	wait	when	while	with	xnor	xor
+builtin_types	bit	bit_vector	boolean	character	integer	natural	positive	real	severity_level	signed	std_logic	std_logic_vector	string	time	unsigned
+function_declarations	function	procedure
+type_declarations	architecture	component	configuration	entity	package	subtype	type
+flags	dash_comments	case_insensitive_keywords	multiline_strings

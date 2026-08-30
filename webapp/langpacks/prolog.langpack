@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	prolog	plg
+keywords	is	mod	div	rem	true	false	fail	repeat	once	call	catch	throw	not	var	nonvar	atom	atomic	compound	integer	float	number	functor	arg	copy_term	ground	clause	current_predicate	abolish	assert	asserta	assertz	retract	retractall	consult	listing	dynamic	multifile	discontiguous	module	use_module	initialization
+flags	percent_comments	block_comments	multiline_strings

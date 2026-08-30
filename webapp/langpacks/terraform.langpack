@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	terraform	tf	hcl
+keywords	block	resource	data	variable	output	locals	module	provider	terraform	moved	import	check	for	in	if	true	false	null	dynamic	content	lifecycle	provisioner	connection	backend	required_providers	required_version
+builtin_types	any	bool	list	map	number	object	set	string	tuple
+flags	hash_comments	slash_comments	block_comments	multiline_strings

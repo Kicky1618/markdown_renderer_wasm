@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	fortran	f90	f95	f03	f08	f77
+keywords	abstract	allocatable	allocate	assignment	associate	asynchronous	backspace	bind	block	blockdata	call	case	class	close	codimension	common	contains	continue	cycle	data	deallocate	default	deferred	dimension	do	doubleprecision	elemental	else	elseif	elsewhere	end	endassociate	endblock	enddo	endenum	endfile	endforall	endfunction	endif	endinterface	endmodule	endprogram	endselect	endsubmodule	endsubroutine	endtype	endwhere	entry	enum	enumerator	equivalence	error	stop	exit	extends	external	final	flush	forall	format	formatted	function	generic	if	implicit	import	impure	in	include	inquire	intent	interface	intrinsic	kind	len	module	namelist	non_intrinsic	non_overridable	nopass	nullify	only	open	operator	optional	parameter	pass	pause	pointer	print	private	procedure	program	protected	public	pure	read	recursive	result	return	rewind	save	select	sequence	stop	submodule	subroutine	target	then	type	use	value	volatile	wait	where	while	write
+builtin_types	character	complex	double	integer	logical	real
+function_declarations	function	subroutine	procedure
+type_declarations	module	program	submodule	type	enum	interface
+flags	bang_comments	case_insensitive_keywords	multiline_strings

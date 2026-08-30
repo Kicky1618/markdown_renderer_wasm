@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	graphql	gql
+keywords	query	mutation	subscription	fragment	on	schema	scalar	type	interface	union	enum	input	directive	extend	implements	repeatable	true	false	null
+builtin_types	Int	Float	String	Boolean	ID
+type_declarations	scalar	type	interface	union	enum	input	schema
+flags	hash_comments	multiline_strings

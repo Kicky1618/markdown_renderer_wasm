@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	dockerfile	docker	containerfile
+keywords	ADD	ARG	CMD	COPY	ENTRYPOINT	ENV	EXPOSE	FROM	HEALTHCHECK	LABEL	MAINTAINER	ONBUILD	RUN	SHELL	STOPSIGNAL	USER	VOLUME	WORKDIR	AS
+flags	hash_comments	case_insensitive_keywords	multiline_strings

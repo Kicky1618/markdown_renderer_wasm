@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	scheme	scm	racket	rkt
+keywords	define	define-syntax	define-values	lambda	let	let*	letrec	let-values	if	cond	case	and	or	begin	do	delay	quote	quasiquote	unquote	unquote-splicing	set!	else	=>	import	export	library	module	require	provide	match	parameterize	guard	raise	with-exception-handler	call-with-values	syntax-rules
+builtin_types	boolean?	bytevector?	char?	eof-object?	number?	pair?	port?	procedure?	string?	symbol?	vector?
+function_declarations	define	define-syntax
+flags	semicolon_comments	hyphen_identifiers	question_identifiers	bang_identifiers	multiline_strings

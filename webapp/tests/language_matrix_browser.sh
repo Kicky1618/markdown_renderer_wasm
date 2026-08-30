@@ -12,7 +12,7 @@ if [ -z "$CHROME" ]; then
   done
 fi
 if [ -z "$CHROME" ]; then
-  echo "dynamic langpack browser: skipped (Chrome/Chromium not found)"
+  echo "language matrix browser: skipped (Chrome/Chromium not found)"
   exit 0
 fi
 
@@ -33,7 +33,7 @@ fi
 
 TMP_BASE=${TMPDIR:-/tmp}
 mkdir -p "$TMP_BASE"
-WORK=$(mktemp -d "$TMP_BASE/streamdown-langpack-browser.XXXXXX")
+WORK=$(mktemp -d "$TMP_BASE/streamdown-language-matrix-browser.XXXXXX")
 SERVER_PID=
 cleanup() {
   if [ -n "$SERVER_PID" ]; then
@@ -50,7 +50,7 @@ SERVER_PID=$!
 python3 - "$PORT" <<'PY'
 import sys, time, urllib.request
 port = int(sys.argv[1])
-url = f"http://127.0.0.1:{port}/"
+url = f"http://127.0.0.1:{port}/tests/language_matrix_browser.html"
 for _ in range(80):
     try:
         with urllib.request.urlopen(url, timeout=0.2) as response:
@@ -58,7 +58,7 @@ for _ in range(80):
                 raise SystemExit(0)
     except Exception:
         time.sleep(0.05)
-raise SystemExit("dynamic langpack browser: HTTP server did not start")
+raise SystemExit("language matrix browser: HTTP server did not start")
 PY
 
 HTML="$WORK/page.html"
@@ -69,28 +69,30 @@ ERR="$WORK/chrome.err"
   --disable-dev-shm-usage \
   --virtual-time-budget=30000 \
   --dump-dom \
-  "http://127.0.0.1:$PORT/tests/langpack_probe.html?renderer=canvas2d&doc=easy&tps=1000000&repeat=1&fade=0" \
+  "http://127.0.0.1:$PORT/tests/language_matrix_browser.html" \
   >"$HTML" 2>"$ERR" || true
 
-grep -q 'data-langpack-probe="pass"' "$HTML" || {
-  echo "dynamic langpack browser: probe did not complete successfully"
+grep -q 'data-language-matrix-probe="pass"' "$HTML" || {
+  echo "language matrix browser: probe failed"
   grep -o '<html[^>]*>' "$HTML" | head -1 || true
   tail -30 "$ERR" || true
   cat "$WORK/http.log"
   exit 1
 }
 
-js_count=$(grep -c 'GET /langpacks/javascript.slp HTTP/1.1.* 200' "$WORK/http.log" || true)
-if [ "$js_count" -ne 1 ]; then
-  echo "dynamic langpack browser: javascript fetched $js_count times (expected once for TypeScript + ts aliases)"
+for pack in kotlin csharp ruby haskell verilog wgsl terraform powershell; do
+  count=$(grep -c "GET /langpacks/$pack.slp HTTP/1.1.* 200" "$WORK/http.log" || true)
+  if [ "$count" -ne 1 ]; then
+    echo "language matrix browser: $pack fetched $count times (expected once)"
+    cat "$WORK/http.log"
+    exit 1
+  fi
+done
+
+if grep -q 'GET /langpacks/.*\.\.' "$WORK/http.log"; then
+  echo "language matrix browser: unsafe path probe reached HTTP server"
   cat "$WORK/http.log"
   exit 1
 fi
 
-if grep -q 'GET /langpacks/.*rust' "$WORK/http.log"; then
-  echo "dynamic langpack browser: unsafe ../rust probe reached the HTTP server"
-  cat "$WORK/http.log"
-  exit 1
-fi
-
-echo "dynamic langpack browser: alias dedupe + binary registration + path sanitization pass"
+echo "language matrix browser: 8 expanded packs + aliases + dedupe pass"

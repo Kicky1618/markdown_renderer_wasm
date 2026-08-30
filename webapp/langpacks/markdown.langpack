@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	markdown	md	mdx	commonmark
+keywords	true	false	null
+flags	multiline_strings

@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	r	rlang	rscript
+keywords	if	else	repeat	while	function	for	in	next	break	TRUE	FALSE	NULL	Inf	NaN	NA	NA_integer_	NA_real_	NA_complex_	NA_character_
+builtin_types	character	complex	double	integer	list	logical	matrix	numeric	raw	vector	data.frame	factor
+function_declarations	function
+flags	hash_comments	multiline_strings

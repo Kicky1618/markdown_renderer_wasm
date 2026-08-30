@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	ini	cfg	conf	properties
+keywords	true	false	yes	no	on	off	null	none
+flags	hash_comments	semicolon_comments	case_insensitive_keywords	multiline_strings

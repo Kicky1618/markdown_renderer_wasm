@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	swift
+keywords	associatedtype	class	deinit	enum	extension	fileprivate	func	import	init	inout	internal	let	open	operator	private	precedencegroup	protocol	public	rethrows	static	struct	subscript	typealias	var	break	continue	default	defer	do	else	fallthrough	for	guard	if	in	repeat	return	switch	where	while	as	catch	false	is	nil	super	self	Self	throw	throws	true	try	async	await	actor	any	some	nonisolated	consuming	borrowing
+builtin_types	Any	AnyObject	Bool	Character	Double	Float	Int	Int8	Int16	Int32	Int64	Never	String	UInt	UInt8	UInt16	UInt32	UInt64	Void
+function_declarations	func
+type_declarations	class	enum	protocol	struct	typealias	actor
+flags	slash_comments	block_comments	nested_block_comments	decorators	multiline_strings	triple_double_strings
