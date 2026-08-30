@@ -236,3 +236,40 @@ The wrapper deliberately reserves the `state` and `patch` runner kinds so its sn
 ```sh
 node tools/stateful-semantic-runtime.integration.mjs
 ```
+
+
+## Semantic journal and replay
+
+`SemanticJournal` records scheduler transitions and canonical state revisions as JSON-only append entries. The journal can be streamed or stored as NDJSON beside an LLM transcript, then verified and replayed without loading the Markdown parser or WASM module. State entries contain the full canonical value at each revision; scheduler entries record status transitions and JSON-serializable results when available.
+
+```js
+import { SemanticJournal, createSemanticJournalHooks } from "./tools/semantic-journal.mjs";
+import { StatefulSemanticRuntime } from "./tools/stateful-semantic-runtime.mjs";
+
+const journal = new SemanticJournal();
+const hooks = createSemanticJournalHooks(journal);
+const runtime = await StatefulSemanticRuntime.load(wasm, {
+  onTransition: hooks.onTransition,
+  onStateChange: hooks.onStateChange,
+  runners,
+});
+
+await runtime.consume(providerChunks);
+await fs.writeFile("run.ndjson", journal.toNDJSON());
+```
+
+`verify()` checks global entry ordering, monotonic state revisions, scheduler sequence ordering, and consistency between state changes and completed state/patch runner results. `replayState()` reconstructs final state/revisions from journal entries only. Non-JSON tool results are marked `resultOmitted` instead of breaking journal recording.
+
+```sh
+node tools/semantic-replay.mjs run.ndjson
+node tools/semantic-replay.mjs run.ndjson --state-only
+node tools/semantic-replay.mjs run.ndjson --entries
+```
+
+Replay verification failures exit with status 3. `--no-verify` is available for forensic inspection of a damaged journal but should not be used for trusted replay.
+
+```sh
+node tools/semantic-journal.test.mjs
+node tools/semantic-journal.integration.mjs
+node tools/semantic-replay.test.mjs
+```

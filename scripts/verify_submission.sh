@@ -71,6 +71,12 @@ node tools/semantic-graph.test.mjs
 node tools/semantic-scheduler.test.mjs
 node tools/semantic-scheduler.integration.mjs
 node tools/semantic-runtime.integration.mjs
+node tools/semantic-state.test.mjs
+node tools/semantic-state.integration.mjs
+node tools/stateful-semantic-runtime.integration.mjs
+node tools/semantic-journal.test.mjs
+node tools/semantic-journal.integration.mjs
+node tools/semantic-replay.test.mjs
 
 section "webapp native tests"
 TMPDIR="$ROOT/webapp/target/tmp" cargo test \
