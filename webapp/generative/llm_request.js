@@ -16,11 +16,13 @@ Available components:
 :::llm ui type=form id=form title="Settings" submit="Apply" action=set:submitted:1\n:::
 :::llm ui type=form id=refine title="Refine" submit="Ask model" action=llm:Update the application from these form values\n:::
 :::llm ui type=derive state=f expr="c * 9 / 5 + 32"\n:::
+:::llm ui type=state\ntemperature=58\nmode=safe\n:::
 :::llm ui type=graph id=flow\nnode a Input\nnode b Output\nedge a b stream\n:::
 :::llm ui type=canvas id=scene width=640 height=220\nline 10 10 100 100\ncircle 80 60 20\nrect 120 40 80 50\ntext 20 30 Label\n:::
 
 Any ordinary UI component may use when="state >= 1". Components following a layout are placed in it until ordinary Markdown resumes; use span=2 to span columns. Components following tabs may use tab=status. Components following a form become fields until ordinary Markdown resumes. Markdown text can bind state with {{stateName}}.
 An action beginning with llm: runs only after an explicit user click/submit. It sends a bounded snapshot of local UI state to the same user-configured POST proxy and appends the streamed continuation; it cannot select an endpoint, headers, credentials, or execute code.
+A type=state block may declaratively update primitive local UI state values. Sensitive-looking state names are ignored by the runtime; do not use it for credentials or secrets.
 Keep fences well-formed, but remember output is streamed and the runtime renders incomplete fences incrementally.`;
 
 function clean(value, max = 4096) {

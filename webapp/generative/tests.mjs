@@ -9,6 +9,7 @@ import { formSpec } from "./form.js";
 import { layoutGraph, parseGraph } from "./graph.js";
 import { consumeHttpResponse, decodeNdjsonLine, decodeSseEvent, extractDeltaText } from "./stream.js";
 import { buildInteractionPrompt, buildLlmRequest, GENERATIVE_UI_SYSTEM_PROMPT, snapshotUiComponents, snapshotUiState } from "./llm_request.js";
+import { statePatch, statePatchSignature } from "./state_patch.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
   id: "",
@@ -145,6 +146,25 @@ assert.match(interactionPrompt, /"type":"slider"/);
 assert.match(interactionPrompt, /"id":"temp"/);
 assert.doesNotMatch(interactionPrompt, /do-not-send|also-do-not-send|ignored/);
 assert.match(GENERATIVE_UI_SYSTEM_PROMPT, /action=llm:/);
+
+const patchConfig = {
+  type: "state",
+  temperature: "58",
+  exact: "true",
+  note: "ready",
+  nullable: "null",
+  password: "do-not-apply",
+  api_key: "do-not-apply-either",
+  empty: "   ",
+};
+assert.deepEqual(statePatch(patchConfig), [
+  ["temperature", 58],
+  ["exact", true],
+  ["note", "ready"],
+  ["nullable", null],
+]);
+assert.equal(statePatchSignature(patchConfig), statePatchSignature({ ...patchConfig }));
+assert.deepEqual(statePatch({ type: "state", temperature: "" }), []);
 
 const wasm = await fs.readFile(new URL("./streamdown.wasm", import.meta.url));
 const instance = await WebAssembly.instantiate(wasm, {});

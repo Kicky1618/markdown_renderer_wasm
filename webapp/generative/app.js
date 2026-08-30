@@ -7,6 +7,7 @@ import { formSpec } from "./form.js";
 import { consumeHttpResponse } from "./stream.js";
 import { buildInteractionPrompt, buildLlmRequest } from "./llm_request.js";
 import { layoutGraph, parseGraph } from "./graph.js";
+import { statePatch, statePatchSignature } from "./state_patch.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
 
@@ -171,6 +172,7 @@ let sessionChars = 0;
 let firstUiAt = null;
 let sessionUiBaseline = 0;
 const state = new Map();
+const appliedStatePatches = new Map();
 
 source.value = DEMO;
 speed.addEventListener("input", () => {
@@ -868,6 +870,7 @@ function renderUi(block, config) {
     case "tabs": return renderInvisibleMarker("tabs");
     case "form": return renderInvisibleMarker("form");
     case "derive": return renderInvisibleMarker("derive");
+    case "state": return renderInvisibleMarker("state");
     case "metric": return renderMetric(block, config);
     case "slider": return renderSlider(block, config);
     case "progress": return renderProgress(block, config);
@@ -958,6 +961,9 @@ function createBlock(block) {
 function truncateBlocks(from) {
   for (let i = blockElements.length - 1; i >= from; i--) blockElements[i]?.remove();
   blockElements.length = from;
+  for (const index of [...appliedStatePatches.keys()]) {
+    if (index >= from) appliedStatePatches.delete(index);
+  }
 }
 
 function structureType(block) {
@@ -1168,6 +1174,29 @@ function replaceBlock(index) {
   blockElements[index] = next;
 }
 
+function applyStatePatches() {
+  let changed = false;
+  for (let index = 0; index < (parser?.document?.length || 0); index++) {
+    const block = parser.document[index];
+    const config = uiConfig(block);
+    // State changes are side effects: commit them atomically only after the
+    // semantic fence is sealed, never from a token-prefix such as `58` -> `580`.
+    if (config?.type !== "state" || !block.closed) continue;
+    const signature = statePatchSignature(config);
+    if (appliedStatePatches.get(index) === signature) continue;
+    appliedStatePatches.set(index, signature);
+    for (const [key, value] of statePatch(config)) {
+      if (Object.is(state.get(key), value)) continue;
+      state.set(key, value);
+      changed = true;
+    }
+  }
+  if (changed) {
+    recomputeDerivedState();
+    syncReactiveDom();
+  }
+}
+
 function renderOperations(ops) {
   const start = performance.now();
   let structuralLayoutChange = false;
@@ -1191,6 +1220,7 @@ function renderOperations(ops) {
     recomputeDerivedState();
     syncReactiveDom();
   }
+  applyStatePatches();
   renderMs.textContent = (performance.now() - start).toFixed(3);
   blockCount.textContent = String(parser.blockCount);
   deltaStatus.textContent = ops.length ? `${ops.map(op => op.op).join(" · ")}` : "No structural change";
@@ -1211,6 +1241,7 @@ function beginInputSession(uiBaseline = generatedUiCount()) {
 
 function resetRuntime() {
   state.clear();
+  appliedStatePatches.clear();
   beginInputSession(0);
   const start = performance.now();
   const ops = parser.reset();
@@ -1419,8 +1450,19 @@ async function runInteractionSmoke() {
       const card = preview.querySelector('[data-ui-id="interaction-result"]');
       const value = card?.querySelector(".metric-value")?.textContent?.trim();
       const unit = card?.querySelector(".metric-unit")?.textContent?.trim();
+      const slider = preview.querySelector('input[data-state-input="temperature"]');
+      const progress = preview.querySelector('[data-state-progress="temperature"] .progress-fill');
+      const mode = preview.querySelector('select[data-state-input="mode"]');
+      const derived = preview.querySelector('[data-ui-id="fahrenheit"] [data-state-value="fahrenheit"]');
       const appended = source.value.includes("## Model continuation");
-      root.dataset.interactionSmoke = value === "42" && unit === "°C" && appended ? "pass" : "fail";
+      const passed = value === "58"
+        && unit === "°C"
+        && slider?.value === "58"
+        && progress?.style.width === "58%"
+        && mode?.value === "exact"
+        && derived?.textContent === "136.4"
+        && appended;
+      root.dataset.interactionSmoke = passed ? "pass" : "fail";
       return;
     }
   }

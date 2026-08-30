@@ -9,9 +9,9 @@
 - `layout`, `tabs`, `form`
 - `metric`, `chart`, `graph`, `canvas`, `progress`
 - `slider`, `input`, `select`, `button`
-- `derive` と `when=` による reactive state
+- `derive`, `state`, `when=` による reactive state
 
-任意 JavaScript や HTML は実行しません。button/form action は `set`, `increment`, `decrement` の allowlist、式は専用の安全な式評価器、canvas は固定描画DSLのみです。
+任意 JavaScript や HTML は実行しません。button/form action は `set`, `increment`, `decrement`, 明示操作型 `llm:` の allowlist、式は専用の安全な式評価器、canvas は固定描画DSLのみです。
 
 ```sh
 ./webapp/build.sh
@@ -99,3 +99,19 @@ explicit generated button click
   -> Streamdown WASM append-after-finish
   -> new semantic UI appended to the existing application
 ```
+
+## Declarative state patches (`type=state`)
+
+LLM continuationは、新しいカードを追加するだけでなく既存UIの共有stateを安全に更新できます。
+
+```md
+:::llm ui type=state
+temperature=58
+mode=exact
+alerts=true
+:::
+```
+
+`state` block自体は描画されません。fenceが完全に閉じた時だけpatch全体を原子的に適用するため、token途中の `temperature=5` を最終値と誤認して副作用を起こしません。同じblock/signatureは再適用されないので、その後のslider操作を古いpatchが巻き戻すこともありません。
+
+1 blockあたり最大32項目で、keyは限定された識別子形式のみです。空値と `password` / `secret` / `token` / `api-key` / `credential` / `auth` 系keyを拒否し、値は最大512文字のstring、有限number、boolean、`null` のprimitiveに正規化します。適用後は同じ共有state経路を通るため、slider、progress、`{{state}}` binding、`derive`、`when=`、selectが同時に更新されます。

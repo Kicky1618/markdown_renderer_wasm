@@ -75,8 +75,9 @@ class Handler(BaseHTTPRequestHandler):
             )
             chunks = [
                 "\n## Model continuation\n\n",
+                ":::llm ui type=state\ntemperature=58\nmode=exact\napi_token=server-must-not-overwrite\n:::\n\n",
                 ":::llm ui type=metric id=interaction-result\nlabel=State-aware continuation\n",
-                "value=42\nunit=°C\n",
+                "value={{temperature}}\nunit=°C\n",
                 ":::\n",
             ]
         else:
