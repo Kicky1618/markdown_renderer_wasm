@@ -110,6 +110,23 @@ fn plain_delimiter_bodies_are_character_stream_independent() {
 }
 
 #[test]
+fn display_math_plain_body_is_character_stream_independent() {
+    for markdown in ["prefix $$x+1$$ suffix", "prefix $$日本語✅$$ suffix"] {
+        let expected = parse_whole(markdown);
+        let boundaries = utf8_boundaries(markdown);
+        let actual = parse_chunks(
+            boundaries
+                .windows(2)
+                .map(|window| &markdown[window[0]..window[1]]),
+        );
+        assert_eq!(
+            actual, expected,
+            "character stream changed display math AST for {markdown:?}"
+        );
+    }
+}
+
+#[test]
 fn delimiter_run_periods_match_whole_parse_exhaustively() {
     for delimiter in ['`', '$', '*', '_'] {
         for length in 1..=128 {

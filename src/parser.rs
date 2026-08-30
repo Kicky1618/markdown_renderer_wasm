@@ -96,6 +96,7 @@ enum SpecialBracketKind {
 enum TailPendingKind {
     Code,
     Math,
+    DisplayMath,
     EmphasisStar,
     EmphasisUnderscore,
     StrongStar,
@@ -106,7 +107,7 @@ impl TailPendingKind {
     fn delimiter(self) -> u8 {
         match self {
             Self::Code => b'`',
-            Self::Math => b'$',
+            Self::Math | Self::DisplayMath => b'$',
             Self::EmphasisStar | Self::StrongStar => b'*',
             Self::EmphasisUnderscore | Self::StrongUnderscore => b'_',
         }
@@ -411,6 +412,60 @@ impl Parser {
             && pending.opener < self.line.len()
             && self.line.as_bytes()[pending.opener] == pending.kind.delimiter()
         {
+            if pending.kind == TailPendingKind::DisplayMath && pending.close_seen == 0 {
+                let body = self.line[pending.opener + 2..].to_owned();
+                let append = vec![
+                    Inline::Text("$".to_owned()),
+                    Inline::Math {
+                        source: body,
+                        display: false,
+                    },
+                ];
+                let truncate_bytes = self.line.len() - pending.opener;
+                splice_inline_tail(nodes, truncate_bytes, 0, &append);
+                self.line.push('$');
+                pending.close_seen = 1;
+                self.live_tail_pending = Some(pending);
+                self.reset_delimiter_runs();
+                self.trailing_backslash_odd = false;
+                delta.ops.push(Op::SpliceInlineTail {
+                    block: block_index as u32,
+                    remove_nodes: 0,
+                    truncate_bytes: truncate_bytes as u32,
+                    append,
+                });
+                return true;
+            }
+
+            if pending.kind == TailPendingKind::DisplayMath && pending.close_seen == 1 {
+                let body_start = pending.opener + 2;
+                let body_end = self.line.len() - 1;
+                let body = self.line[body_start..body_end].to_owned();
+                splice_inline_tail(nodes, 0, 1, &[]);
+                delta.ops.push(Op::SpliceInlineTail {
+                    block: block_index as u32,
+                    remove_nodes: 1,
+                    truncate_bytes: 0,
+                    append: Vec::new(),
+                });
+                let append = vec![Inline::Math {
+                    source: body,
+                    display: true,
+                }];
+                splice_inline_tail(nodes, 1, 0, &append);
+                delta.ops.push(Op::SpliceInlineTail {
+                    block: block_index as u32,
+                    remove_nodes: 0,
+                    truncate_bytes: 1,
+                    append,
+                });
+                self.line.push('$');
+                self.live_tail_pending = None;
+                self.reset_delimiter_runs();
+                self.trailing_backslash_odd = false;
+                return true;
+            }
+
             if matches!(
                 pending.kind,
                 TailPendingKind::StrongStar | TailPendingKind::StrongUnderscore
@@ -462,7 +517,9 @@ impl Parser {
                 TailPendingKind::EmphasisStar | TailPendingKind::EmphasisUnderscore => {
                     Inline::Emphasis(parse_inlines(&body))
                 }
-                TailPendingKind::StrongStar | TailPendingKind::StrongUnderscore => unreachable!(),
+                TailPendingKind::StrongStar
+                | TailPendingKind::StrongUnderscore
+                | TailPendingKind::DisplayMath => unreachable!(),
             }];
             let truncate_bytes = self.line.len() - pending.opener;
             splice_inline_tail(nodes, truncate_bytes, 0, &append);
@@ -751,6 +808,12 @@ impl Parser {
                 Some(TailPending {
                     kind: TailPendingKind::Code,
                     opener: self.line.len() - 1,
+                    close_seen: 0,
+                })
+            } else if self.trailing_dollar_fast && self.trailing_dollar_mod4 == 2 {
+                Some(TailPending {
+                    kind: TailPendingKind::DisplayMath,
+                    opener: self.line.len() - 2,
                     close_seen: 0,
                 })
             } else if self.trailing_dollar_fast && self.trailing_dollar_mod4 == 1 {
@@ -2387,6 +2450,32 @@ $$
             whole.append(&source);
             assert_eq!(parser.blocks(), whole.blocks(), "delimiter={delimiter:?}");
         }
+    }
+
+    #[test]
+    fn display_math_plain_body_splices_in_two_closes() {
+        let mut parser = Parser::new();
+        parser.append("prefix $");
+        parser.append("$");
+        parser.append("x+1");
+        let first = parser.append("$");
+        assert!(matches!(
+            first.ops.as_slice(),
+            [Op::SpliceInlineTail { append, .. }]
+                if matches!(append.as_slice(), [Inline::Text(text), Inline::Math { source, display: false }]
+                    if text == "$" && source == "x+1")
+        ));
+        let second = parser.append("$");
+        assert!(matches!(
+            second.ops.as_slice(),
+            [
+                Op::SpliceInlineTail { remove_nodes: 1, truncate_bytes: 0, .. },
+                Op::SpliceInlineTail { remove_nodes: 0, truncate_bytes: 1, append, .. }
+            ] if matches!(append.as_slice(), [Inline::Math { source, display: true }] if source == "x+1")
+        ));
+        let mut whole = Parser::new();
+        whole.append("prefix $$x+1$$");
+        assert_eq!(parser.blocks(), whole.blocks());
     }
 
     #[test]
