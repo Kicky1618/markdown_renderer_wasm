@@ -101,6 +101,8 @@ pub struct Parser {
     live_plain: bool,
     live_inline_appendable: bool,
     trailing_backslash_odd: bool,
+    live_has_open_bracket: bool,
+    live_has_link_destination_start: bool,
 }
 
 impl Default for Parser {
@@ -122,6 +124,8 @@ impl Parser {
             live_plain: false,
             live_inline_appendable: false,
             trailing_backslash_odd: false,
+            live_has_open_bracket: false,
+            live_has_link_destination_start: false,
         }
     }
 
@@ -167,6 +171,8 @@ impl Parser {
                 self.live_plain = false;
                 self.live_inline_appendable = false;
                 self.trailing_backslash_odd = false;
+                self.live_has_open_bracket = false;
+                self.live_has_link_destination_start = false;
                 self.line.clear();
                 self.pending.clear();
                 self.pending_kind = None;
@@ -198,6 +204,8 @@ impl Parser {
                     self.mode = Mode::Normal;
                     self.committed = self.blocks.len();
                     self.trailing_backslash_odd = false;
+                    self.live_has_open_bracket = false;
+                    self.live_has_link_destination_start = false;
                 }
             }
         }
@@ -294,6 +302,32 @@ impl Parser {
             return false;
         };
 
+        // A closing bracket/paren is inert when the live paragraph has no raw
+        // opener that it could possibly complete. Keep these common malformed
+        // streaming runs on the append-only path without weakening correctness
+        // for real references/links.
+        let inert_closer = if input.bytes().all(|byte| byte == b']') {
+            !self.live_has_open_bracket
+        } else if input.bytes().all(|byte| byte == b')') {
+            !self.live_has_link_destination_start
+        } else {
+            false
+        };
+        if inert_closer {
+            if let Some(Inline::Text(text)) = nodes.last_mut() {
+                text.push_str(input);
+            } else {
+                nodes.push(Inline::Text(input.to_owned()));
+            }
+            self.line.push_str(input);
+            self.trailing_backslash_odd = false;
+            delta.ops.push(Op::AppendInlineText {
+                block: block_index as u32,
+                append: input.to_owned(),
+            });
+            return true;
+        }
+
         // A run of backslashes is special: Markdown collapses each escaped pair
         // into one literal backslash. Track the raw trailing-run parity so a
         // token-at-a-time LLM stream does not reparse the whole paragraph on
@@ -327,6 +361,10 @@ impl Parser {
         if !inline_tail_append_is_safe(&self.line, input) {
             return false;
         }
+        let cross_link_destination = self.line.ends_with(']') && input.starts_with('(');
+        self.live_has_open_bracket |= input.as_bytes().contains(&b'[');
+        self.live_has_link_destination_start |=
+            cross_link_destination || input.as_bytes().windows(2).any(|window| window == b"](");
         if let Some(Inline::Text(text)) = nodes.last_mut() {
             text.push_str(input);
         } else {
@@ -453,11 +491,15 @@ impl Parser {
         source.push_str(&self.line);
         if source.is_empty() {
             self.trailing_backslash_odd = false;
+            self.live_has_open_bracket = false;
+            self.live_has_link_destination_start = false;
             return;
         }
         if self.pending_kind.is_none() && is_thematic(&self.line) {
             self.live_plain = false;
             self.trailing_backslash_odd = false;
+            self.live_has_open_bracket = false;
+            self.live_has_link_destination_start = false;
             self.live_inline_appendable = false;
             self.push(Block::ThematicBreak, delta);
             self.has_live = true;
@@ -485,6 +527,9 @@ impl Parser {
             .count()
             % 2
             != 0;
+        self.live_has_open_bracket = source.as_bytes().contains(&b'[');
+        self.live_has_link_destination_start =
+            source.as_bytes().windows(2).any(|window| window == b"](");
         self.push(block, delta);
         self.has_live = true;
     }
@@ -1237,6 +1282,49 @@ $$
         let delta = parser.append("-\n");
         assert!(matches!(delta.ops.first(), Some(Op::Truncate { from: 0 })));
         assert!(matches!(parser.blocks(), [Block::ThematicBreak]));
+    }
+
+    #[test]
+    fn inert_closer_runs_append_until_a_real_opener_exists() {
+        let mut parser = Parser::new();
+        parser.append("]");
+        let brackets = parser.append("]]]");
+        assert_eq!(
+            brackets.ops,
+            vec![Op::AppendInlineText {
+                block: 0,
+                append: "]]]".to_owned(),
+            }]
+        );
+
+        parser.append("[");
+        let possible_close = parser.append("]");
+        assert!(matches!(
+            possible_close.ops.first(),
+            Some(Op::Truncate { from: 0 })
+        ));
+
+        let mut parens = Parser::new();
+        parens.append(")");
+        let inert = parens.append(")))");
+        assert!(matches!(
+            inert.ops.as_slice(),
+            [Op::AppendInlineText { append, .. }] if append == ")))"
+        ));
+
+        parens.append(" [x](url");
+        let real_close = parens.append(")");
+        assert!(matches!(
+            real_close.ops.first(),
+            Some(Op::Truncate { from: 0 })
+        ));
+        assert!(matches!(
+            parens.blocks(),
+            [Block::Paragraph(nodes)] if nodes.iter().any(|node| matches!(
+                node,
+                Inline::Link { destination, .. } if destination == "url"
+            ))
+        ));
     }
 
     #[test]

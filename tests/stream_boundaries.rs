@@ -85,6 +85,11 @@ fn inline_tail_fast_path_respects_escape_and_link_completion() {
 }
 
 #[test]
+fn inert_closer_fast_path_is_chunk_boundary_independent() {
+    assert_every_single_split("]]]))) prefix [x](https://example.test) suffix ))]");
+}
+
+#[test]
 fn backslash_run_fast_path_is_chunk_boundary_independent() {
     let markdown = format!("prefix **bold** {}* escaped tail", "\\".repeat(17));
     assert_every_single_split(&markdown);
