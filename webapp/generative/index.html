@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0a0f18">
+  <title>Streamdown · Generative UI</title>
+  <link rel="stylesheet" href="./style.css">
+  <style>.mode-switch{position:fixed;z-index:30;top:14px;right:14px;min-height:38px;display:inline-flex;align-items:center;padding:0 14px;border:1px solid #29445e;border-radius:999px;color:#8fe6db;background:#0b1622e8;text-decoration:none;font:700 12px ui-monospace,monospace;backdrop-filter:blur(12px)}.mode-switch:hover{border-color:#69dfce;background:#132734}</style>
+</head>
+<body>
+  <a class="mode-switch" href="../" aria-label="Open high-performance Markdown viewer">Viewer</a>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">STREAMING GENERATIVE UI</p>
+      <h1>Streamdown Runtime</h1>
+    </div>
+    <div class="stats" aria-live="polite">
+      <span><b id="backend">WASM</b> engine</span>
+      <span><b id="blocks">0</b> blocks</span>
+      <span><b id="parse-ms">0.000</b> ms parse</span>
+      <span><b id="render-ms">0.000</b> ms render</span>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="editor-pane">
+      <div class="pane-head">
+        <div>
+          <p class="eyebrow">LLM OUTPUT</p>
+          <h2>Source stream</h2>
+        </div>
+        <div class="actions">
+          <button id="render" type="button">Render now</button>
+          <button id="stream" class="primary" type="button">▶ Stream</button>
+        </div>
+      </div>
+
+      <textarea id="source" spellcheck="false" aria-label="Markdown source"></textarea>
+
+      <div class="stream-controls">
+        <label>
+          Stream speed
+          <input id="speed" type="range" min="40" max="2500" step="20" value="520">
+        </label>
+        <output id="speed-label" for="speed">520 chars/s</output>
+        <button id="reset" type="button">Reset demo</button>
+      </div>
+
+      <details class="syntax-help">
+        <summary>Generative UI syntax</summary>
+        <pre>:::llm ui type=layout columns=2
+:::
+
+:::llm ui type=slider state=temperature min=0 max=100 value=42
+label=Temperature
+:::
+
+:::llm ui type=progress state=temperature min=0 max=100
+label=Thermal load
+:::</pre>
+      </details>
+    </section>
+
+    <section class="preview-pane">
+      <div class="pane-head preview-head">
+        <div>
+          <p class="eyebrow">LIVE APPLICATION</p>
+          <h2>Generated interface</h2>
+        </div>
+        <span id="stream-state" class="pill">READY</span>
+      </div>
+      <div id="preview" class="preview" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Rust → WASM → incremental AST → live components</span>
+    <span id="delta-status">No delta yet</span>
+  </footer>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -100,10 +100,18 @@
       .ui-status { bottom: calc(max(8px, env(safe-area-inset-bottom)) + 64px); }
       .search-panel { top: 62px; width: calc(100% - 16px); }
     }
+    .mode-switch {
+      position: fixed; z-index: 19; top: 14px; left: max(14px, env(safe-area-inset-left));
+      min-height: 42px; display: inline-flex; align-items: center; padding: 0 14px;
+      border: 1px solid #467681; border-radius: 999px; color: #8fe6db; background: #0e1a25e8;
+      text-decoration: none; font: 700 12px/1 "Streamdown Noto Sans Mono", monospace; backdrop-filter: blur(12px);
+    }
+    .mode-switch:hover, .mode-switch:focus-visible { border-color: #73e09e; outline: none; }
     @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
   </style>
 </head>
 <body>
+  <a class="mode-switch" href="./generative/" aria-label="Open Generative UI mode">Generative UI</a>
   <a class="skip-link" href="#accessible-content">Skip to text version</a>
   <canvas id="app" tabindex="0" role="region" aria-label="Rendered streaming Markdown document" aria-describedby="canvas-help">Your browser does not support canvas. Use the text version on this page.</canvas>
   <p id="canvas-help" class="screen-reader-only">Use the arrow keys, Page Up, Page Down, Home, End, or Space to scroll. Open the text version to read the document with assistive technology.</p>

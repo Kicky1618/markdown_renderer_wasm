@@ -1,5 +1,30 @@
 #!/usr/bin/env sh
 set -eu
-cargo build --manifest-path webapp/Cargo.toml --release --target wasm32-unknown-unknown
-wasm-bindgen webapp/target/wasm32-unknown-unknown/release/streamdown_web.wasm \
-  --out-dir webapp/pkg --target web --no-typescript
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+WEBAPP="$ROOT/webapp"
+TMP="$ROOT/target/tmp"
+
+mkdir -p "$TMP" "$WEBAPP/generative"
+
+# Existing high-performance renderer.
+TMPDIR="$TMP" cargo build \
+  --manifest-path "$WEBAPP/Cargo.toml" \
+  --release \
+  --target wasm32-unknown-unknown
+wasm-bindgen "$WEBAPP/target/wasm32-unknown-unknown/release/streamdown_web.wasm" \
+  --out-dir "$WEBAPP/pkg" \
+  --target web \
+  --no-typescript
+
+# Core incremental parser used by the Generative UI mode.
+TMPDIR="$TMP" cargo build \
+  --manifest-path "$ROOT/Cargo.toml" \
+  --release \
+  --target wasm32-unknown-unknown
+cp "$ROOT/target/wasm32-unknown-unknown/release/streamdown.wasm" \
+  "$WEBAPP/generative/streamdown.wasm"
+cp "$ROOT/js/streamdown.js" "$WEBAPP/generative/streamdown.js"
+
+echo "built viewer:      $WEBAPP/"
+echo "built generative: $WEBAPP/generative/"
