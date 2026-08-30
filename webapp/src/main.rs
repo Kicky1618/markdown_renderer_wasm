@@ -1674,7 +1674,19 @@ impl Scene {
             .collect();
         for (x, y, width, height, scroll_x) in selected {
             self.math_mode = scroll_x;
-            self.rect(x, y, width, height, [0.20, 0.48, 0.78, 0.42], 0.0);
+            self.rect(
+                x,
+                y,
+                width,
+                height,
+                [
+                    0x34 as f32 / 255.0,
+                    0x7a as f32 / 255.0,
+                    0xc7 as f32 / 255.0,
+                    0.38,
+                ],
+                0.0,
+            );
         }
         self.math_mode = false;
     }
@@ -1705,9 +1717,19 @@ impl Scene {
                 width,
                 height,
                 if is_active {
-                    [0.98, 0.55, 0.20, 0.68]
+                    [
+                        0xfa as f32 / 255.0,
+                        0x8c as f32 / 255.0,
+                        0x33 as f32 / 255.0,
+                        0.72,
+                    ]
                 } else {
-                    [0.92, 0.80, 0.22, 0.38]
+                    [
+                        0xea as f32 / 255.0,
+                        0xd3 as f32 / 255.0,
+                        0x3c as f32 / 255.0,
+                        0.38,
+                    ]
                 },
                 0.0,
             );
@@ -1837,7 +1859,7 @@ impl Scene {
                 code::TokenKind::Number => ORANGE,
                 code::TokenKind::Comment => MUTED,
                 code::TokenKind::Macro => YELLOW,
-                code::TokenKind::Operator => [0.68, 0.74, 0.82, 1.0],
+                code::TokenKind::Operator => rgb(0xad, 0xbc, 0xcc),
             };
             for c in span.chars() {
                 if y > clip_bottom {
@@ -2083,9 +2105,15 @@ impl Scene {
         self.snap_text = false;
     }
 
-    fn scrollbar(&mut self, x: f32, top: f32, track_height: f32, thumb_y: f32, thumb_height: f32) {
-        self.rect(x, top, 8.0, track_height, [0.09, 0.12, 0.17, 0.9], 1.0);
-        self.rect(x, thumb_y, 8.0, thumb_height, [0.32, 0.62, 0.68, 0.95], 1.0);
+    fn scrollbar(
+        &mut self,
+        x: f32,
+        _top: f32,
+        _track_height: f32,
+        thumb_y: f32,
+        thumb_height: f32,
+    ) {
+        self.rect(x, thumb_y, 8.0, thumb_height, rgb(0x24, 0x45, 0x4e), 1.0);
     }
 
     fn math_image(
@@ -2193,7 +2221,14 @@ impl Scene {
                 }
             }
             Block::ThematicBreak => {
-                self.rect(x, self.y + 4.0, self.width - 2.0 * x, 2.0, MUTED, 0.0);
+                self.rect(
+                    x,
+                    self.y + 4.0,
+                    self.width - 2.0 * x,
+                    1.0,
+                    rgb(0x4c, 0x58, 0x68),
+                    0.0,
+                );
                 self.y += 28.0;
             }
             Block::Table { headers, rows } => {
