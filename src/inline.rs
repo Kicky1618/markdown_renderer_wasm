@@ -18,7 +18,6 @@ pub(crate) fn parse_inlines(source: &str) -> Vec<Inline> {
     let mut no_strong_underscore_close = false;
     let mut no_em_star_close = false;
     let mut no_em_underscore_close = false;
-    let mut no_reference_close = false;
     let mut no_link_label_close = false;
     let mut no_link_destination_close = false;
 
@@ -33,18 +32,17 @@ pub(crate) fn parse_inlines(source: &str) -> Vec<Inline> {
         // renderers can display it without learning a new inline node.
         if b[i] == b'['
             && source[i..].starts_with("[[cite:")
-            && let Some(end) = find_cached(source, i + 2, "]]", &mut no_citation_close)
+            && let Some((end, citation_source, label)) =
+                scan_llm_citation(source, i, &mut no_citation_close)
         {
-            if let Some((citation_source, label)) = llm_citation(&source[i + 2..end]) {
-                flush(&mut plain, &mut out);
-                let visible = label.unwrap_or(citation_source);
-                out.push(Inline::Link {
-                    label: vec![Inline::Text(visible.to_owned())],
-                    destination: format!("llm:cite:{citation_source}"),
-                });
-                i = end + 2;
-                continue;
-            }
+            flush(&mut plain, &mut out);
+            let visible = label.unwrap_or(citation_source);
+            out.push(Inline::Link {
+                label: vec![Inline::Text(visible.to_owned())],
+                destination: format!("llm:cite:{citation_source}"),
+            });
+            i = end;
+            continue;
         }
 
         if b[i] == b'$' {
@@ -134,31 +132,33 @@ pub(crate) fn parse_inlines(source: &str) -> Vec<Inline> {
         // literal token while the destination carries structured metadata.
         if b[i] == b'@'
             && b.get(i + 1) == Some(&b'[')
-            && let Some(end) = find_cached(source, i + 2, "]", &mut no_reference_close)
+            && let Some((end, kind, id)) = scan_llm_reference(source, i)
         {
-            if let Some((kind, id)) = llm_reference(&source[i + 2..end]) {
-                flush(&mut plain, &mut out);
-                let label = source[i..=end].to_owned();
-                out.push(Inline::Link {
-                    label: vec![Inline::Text(label)],
-                    destination: format!("llm:{kind}:{id}"),
-                });
-                i = end + 1;
-                continue;
-            }
+            flush(&mut plain, &mut out);
+            let label = source[i..end].to_owned();
+            out.push(Inline::Link {
+                label: vec![Inline::Text(label)],
+                destination: format!("llm:{kind}:{id}"),
+            });
+            i = end;
+            continue;
         }
 
         if b[i] == b'['
             && let Some(close) = find_cached(source, i + 1, "](", &mut no_link_label_close)
-            && let Some(end) = find_cached(source, close + 2, ")", &mut no_link_destination_close)
         {
-            flush(&mut plain, &mut out);
-            out.push(Inline::Link {
-                label: parse_inlines(&source[i + 1..close]),
-                destination: source[close + 2..end].to_owned(),
-            });
-            i = end + 1;
-            continue;
+            if let Some(end) = find_cached(source, close + 2, ")", &mut no_link_destination_close) {
+                flush(&mut plain, &mut out);
+                out.push(Inline::Link {
+                    label: parse_inlines(&source[i + 1..close]),
+                    destination: source[close + 2..end].to_owned(),
+                });
+                i = end + 1;
+                continue;
+            }
+            // If there is no ')' after the earliest ](, no later '[' can
+            // form a complete link either. Avoid rescanning the same suffix.
+            no_link_label_close = true;
         }
 
         let ch = source[i..].chars().next().unwrap();
@@ -193,29 +193,72 @@ fn is_punctuation(b: u8) -> bool {
     matches!(b, b'!'..=b'/' | b':'..=b'@' | b'['..=b'`' | b'{'..=b'~')
 }
 
-fn llm_citation(body: &str) -> Option<(&str, Option<&str>)> {
-    let body = body.strip_prefix("cite:")?;
-    let (source, label) = match body.split_once('|') {
-        Some((source, label)) => (source.trim(), Some(label.trim())),
-        None => (body.trim(), None),
-    };
-    if !valid_reference_atom(source) {
-        return None;
+fn scan_llm_citation<'a>(
+    source: &'a str,
+    start: usize,
+    no_close: &mut bool,
+) -> Option<(usize, &'a str, Option<&'a str>)> {
+    const PREFIX: &str = "[[cite:";
+    let bytes = source.as_bytes();
+    let mut i = start + PREFIX.len();
+    let source_start = i;
+
+    while i < bytes.len() {
+        match bytes[i] {
+            b'[' => return None,
+            b']' if bytes.get(i + 1) == Some(&b']') => {
+                let citation_source = source[source_start..i].trim();
+                if !valid_reference_atom(citation_source) {
+                    return None;
+                }
+                return Some((i + 2, citation_source, None));
+            }
+            b']' => return None,
+            b'|' => {
+                let citation_source = source[source_start..i].trim();
+                if !valid_reference_atom(citation_source) {
+                    return None;
+                }
+                let label_start = i + 1;
+                let close = find_cached(source, label_start, "]]", no_close)?;
+                let label = source[label_start..close].trim();
+                return Some((
+                    close + 2,
+                    citation_source,
+                    (!label.is_empty()).then_some(label),
+                ));
+            }
+            byte if byte.is_ascii_control() => return None,
+            _ => i += 1,
+        }
     }
-    Some((source, label.filter(|label| !label.is_empty())))
+    None
 }
 
-fn llm_reference(body: &str) -> Option<(&str, &str)> {
-    let (kind, id) = body.split_once(':')?;
-    if kind.is_empty()
-        || !kind
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
-        || !valid_reference_atom(id)
-    {
+fn scan_llm_reference(source: &str, start: usize) -> Option<(usize, &str, &str)> {
+    let bytes = source.as_bytes();
+    let mut i = start + 2;
+    let kind_start = i;
+
+    while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || matches!(bytes[i], b'_' | b'-')) {
+        i += 1;
+    }
+    if i == kind_start || bytes.get(i) != Some(&b':') {
         return None;
     }
-    Some((kind, id))
+    let kind = &source[kind_start..i];
+    i += 1;
+    let id_start = i;
+
+    while i < bytes.len() {
+        match bytes[i] {
+            b']' if i != id_start => return Some((i + 1, kind, &source[id_start..i])),
+            b'[' | b'|' => return None,
+            byte if byte.is_ascii_control() || byte.is_ascii_whitespace() => return None,
+            _ => i += 1,
+        }
+    }
+    None
 }
 
 fn valid_reference_atom(value: &str) -> bool {
@@ -279,6 +322,38 @@ mod tests {
         assert_eq!(
             parse_inlines("@[bad kind:id]"),
             vec![Inline::Text("@[bad kind:id]".to_owned())]
+        );
+    }
+
+    #[test]
+    fn malformed_outer_llm_tokens_do_not_hide_valid_inner_tokens() {
+        assert_eq!(
+            parse_inlines("@[bad @[source:ok]"),
+            vec![
+                Inline::Text("@[bad ".to_owned()),
+                Inline::Link {
+                    label: vec![Inline::Text("@[source:ok]".to_owned())],
+                    destination: "llm:source:ok".to_owned(),
+                },
+            ]
+        );
+        assert_eq!(
+            parse_inlines("[[cite:bad [[cite:doc]]"),
+            vec![
+                Inline::Text("[[cite:bad ".to_owned()),
+                Inline::Link {
+                    label: vec![Inline::Text("doc".to_owned())],
+                    destination: "llm:cite:doc".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_link_without_destination_close_stays_text() {
+        assert_eq!(
+            parse_inlines("[[[label]("),
+            vec![Inline::Text("[[[label](".to_owned())]
         );
     }
 }
