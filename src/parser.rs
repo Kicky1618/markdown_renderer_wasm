@@ -675,7 +675,10 @@ impl Parser {
             return true;
         }
 
-        if input == "]" && self.live_special_bracket != SpecialBracketKind::None {
+        if input == "]"
+            && self.live_special_bracket != SpecialBracketKind::None
+            && !self.trailing_backslash_odd
+        {
             let replacement = match self.live_special_bracket {
                 SpecialBracketKind::Reference => {
                     llm_reference_tail_link(&self.line, self.live_special_opener)
@@ -712,7 +715,9 @@ impl Parser {
         // opener that it could possibly complete. Keep these common malformed
         // streaming runs on the append-only path without weakening correctness
         // for real references/links.
-        let inert_closer = if input.bytes().all(|byte| byte == b']') {
+        let inert_closer = if self.trailing_backslash_odd {
+            false
+        } else if input.bytes().all(|byte| byte == b']') {
             match self.live_special_bracket {
                 SpecialBracketKind::None => true,
                 SpecialBracketKind::Reference => !llm_reference_suffix_can_close(&self.line),
@@ -2583,6 +2588,28 @@ $$
         let mut whole = Parser::new();
         whole.append("[[cite:bad id]]");
         assert_eq!(invalid_cite.blocks(), whole.blocks());
+    }
+
+    #[test]
+    fn escaped_closers_crossing_chunks_reparse() {
+        for closer in [']', ')'] {
+            let mut parser = Parser::new();
+            parser.append("\\");
+            let delta = parser.append(&closer.to_string());
+            assert!(matches!(delta.ops.first(), Some(Op::Truncate { from: 0 })));
+
+            let mut whole = Parser::new();
+            whole.append(&format!("\\{closer}"));
+            assert_eq!(parser.blocks(), whole.blocks());
+        }
+
+        let mut semantic = Parser::new();
+        semantic.append("@[source:id\\");
+        let delta = semantic.append("]");
+        assert!(matches!(delta.ops.first(), Some(Op::Truncate { from: 0 })));
+        let mut whole = Parser::new();
+        whole.append("@[source:id\\]");
+        assert_eq!(semantic.blocks(), whole.blocks());
     }
 
     #[test]

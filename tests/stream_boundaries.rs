@@ -158,6 +158,11 @@ fn special_bracket_state_is_chunk_boundary_independent() {
 }
 
 #[test]
+fn escaped_closers_are_chunk_boundary_independent() {
+    assert_every_single_split(r"prefix \] \) @[source:id\] suffix");
+}
+
+#[test]
 fn inert_closer_fast_path_is_chunk_boundary_independent() {
     assert_every_single_split("]]]))) prefix [x](https://example.test) suffix ))]");
 }
