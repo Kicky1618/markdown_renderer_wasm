@@ -158,6 +158,17 @@ fn special_bracket_state_is_chunk_boundary_independent() {
 }
 
 #[test]
+fn simple_and_nested_links_are_chunk_boundary_independent() {
+    for markdown in [
+        "prefix [x](u) [y](v) suffix",
+        "[[x](u)](v)",
+        "prefix [[x](u)](v) [z](w) suffix",
+    ] {
+        assert_every_single_split(markdown);
+    }
+}
+
+#[test]
 fn escaped_closers_are_chunk_boundary_independent() {
     assert_every_single_split(r"prefix \] \) @[source:id\] suffix");
 }

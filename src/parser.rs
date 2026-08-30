@@ -121,6 +121,22 @@ struct TailPending {
     close_seen: u8,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LinkTailPending {
+    Label {
+        opener: usize,
+    },
+    Closed {
+        opener: usize,
+        label_close: usize,
+    },
+    Destination {
+        opener: usize,
+        label_close: usize,
+        destination_open: usize,
+    },
+}
+
 #[derive(Debug)]
 enum Mode {
     Normal,
@@ -158,6 +174,8 @@ pub struct Parser {
     live_has_link_label_open: bool,
     live_link_label_just_closed: bool,
     live_has_link_destination_start: bool,
+    live_link_tail_pending: Option<LinkTailPending>,
+    live_link_fast_ambiguous: bool,
     live_thematic_marker: u8,
     live_tail_pending: Option<TailPending>,
 }
@@ -194,6 +212,8 @@ impl Parser {
             live_has_link_label_open: false,
             live_link_label_just_closed: false,
             live_has_link_destination_start: false,
+            live_link_tail_pending: None,
+            live_link_fast_ambiguous: false,
             live_thematic_marker: 0,
             live_tail_pending: None,
         }
@@ -247,6 +267,8 @@ impl Parser {
                 self.live_has_link_label_open = false;
                 self.live_link_label_just_closed = false;
                 self.live_has_link_destination_start = false;
+                self.live_link_tail_pending = None;
+                self.live_link_fast_ambiguous = false;
                 self.live_thematic_marker = 0;
                 self.live_tail_pending = None;
                 self.line.clear();
@@ -286,6 +308,8 @@ impl Parser {
                     self.live_has_link_label_open = false;
                     self.live_link_label_just_closed = false;
                     self.live_has_link_destination_start = false;
+                    self.live_link_tail_pending = None;
+                    self.live_link_fast_ambiguous = false;
                     self.live_thematic_marker = 0;
                     self.live_tail_pending = None;
                 }
@@ -434,6 +458,8 @@ impl Parser {
         self.live_has_link_label_open = false;
         self.live_link_label_just_closed = false;
         self.live_has_link_destination_start = false;
+        self.live_link_tail_pending = None;
+        self.live_link_fast_ambiguous = false;
         self.live_tail_pending = None;
         self.trailing_backslash_odd = false;
         self.reset_delimiter_runs();
@@ -755,6 +781,46 @@ impl Parser {
                 self.live_has_link_label_open = false;
                 self.live_link_label_just_closed = false;
                 self.live_has_link_destination_start = false;
+                self.live_link_tail_pending = None;
+                self.live_link_fast_ambiguous = false;
+                self.live_tail_pending = None;
+                self.reset_delimiter_runs();
+                self.trailing_backslash_odd = false;
+                delta.ops.push(Op::SpliceInlineTail {
+                    block: block_index as u32,
+                    remove_nodes: 0,
+                    truncate_bytes: truncate_bytes as u32,
+                    append,
+                });
+                return true;
+            }
+        }
+
+        if input == ")"
+            && !self.trailing_backslash_odd
+            && !self.live_link_fast_ambiguous
+            && let Some(LinkTailPending::Destination {
+                opener,
+                label_close,
+                destination_open,
+            }) = self.live_link_tail_pending
+        {
+            let label = &self.line[opener + 1..label_close];
+            let destination = &self.line[destination_open + 1..];
+            if label.bytes().all(is_plain_stream_byte)
+                && destination.bytes().all(is_plain_stream_byte)
+            {
+                let truncate_bytes = self.line.len() - opener;
+                let append = vec![Inline::Link {
+                    label: vec![Inline::Text(label.to_owned())],
+                    destination: destination.to_owned(),
+                }];
+                splice_inline_tail(nodes, truncate_bytes, 0, &append);
+                self.line.push(')');
+                self.live_link_tail_pending = None;
+                self.live_has_link_label_open = false;
+                self.live_link_label_just_closed = false;
+                self.live_has_link_destination_start = false;
                 self.live_tail_pending = None;
                 self.reset_delimiter_runs();
                 self.trailing_backslash_odd = false;
@@ -788,6 +854,21 @@ impl Parser {
             false
         };
         if inert_closer {
+            if input == "]" {
+                self.live_link_tail_pending = match self.live_link_tail_pending {
+                    Some(LinkTailPending::Label { opener }) if !self.live_link_fast_ambiguous => {
+                        Some(LinkTailPending::Closed {
+                            opener,
+                            label_close: self.line.len(),
+                        })
+                    }
+                    Some(_) => {
+                        self.live_link_fast_ambiguous = true;
+                        None
+                    }
+                    None => None,
+                };
+            }
             if let Some(Inline::Text(text)) = nodes.last_mut() {
                 text.push_str(input);
             } else {
@@ -918,7 +999,52 @@ impl Parser {
         if let Some((kind, opener)) = special_bracket_opener(&self.line, input) {
             self.live_special_bracket = kind;
             self.live_special_opener = opener;
+            self.live_link_tail_pending = None;
+            self.live_link_fast_ambiguous = true;
         }
+
+        if input == "[" {
+            if !self.live_has_link_label_open
+                && !self.live_link_fast_ambiguous
+                && self.live_special_bracket == SpecialBracketKind::None
+            {
+                self.live_link_tail_pending = Some(LinkTailPending::Label {
+                    opener: self.line.len(),
+                });
+            } else {
+                self.live_link_tail_pending = None;
+                self.live_link_fast_ambiguous = true;
+            }
+        } else if input == "(" {
+            self.live_link_tail_pending = match self.live_link_tail_pending {
+                Some(LinkTailPending::Closed {
+                    opener,
+                    label_close,
+                }) if self.live_link_label_just_closed && !self.live_link_fast_ambiguous => {
+                    Some(LinkTailPending::Destination {
+                        opener,
+                        label_close,
+                        destination_open: self.line.len(),
+                    })
+                }
+                Some(_) => None,
+                None => None,
+            };
+        } else if matches!(
+            self.live_link_tail_pending,
+            Some(LinkTailPending::Closed { .. })
+        ) {
+            self.live_link_tail_pending = None;
+            self.live_link_fast_ambiguous = false;
+        } else if matches!(
+            self.live_link_tail_pending,
+            Some(LinkTailPending::Destination { .. })
+        ) && !body_is_plain
+        {
+            self.live_link_tail_pending = None;
+            self.live_link_fast_ambiguous = true;
+        }
+
         self.live_has_link_label_open |= input.as_bytes().contains(&b'[');
         self.live_link_label_just_closed = false;
         self.live_has_link_destination_start |= cross_link_destination;
@@ -1178,6 +1304,9 @@ impl Parser {
         self.live_has_link_label_open = link_label_open;
         self.live_link_label_just_closed = link_label_just_closed;
         self.live_has_link_destination_start = closing_paren_sensitive(&source);
+        self.live_link_tail_pending = simple_link_label_tail_from_source(&source);
+        self.live_link_fast_ambiguous =
+            (link_label_open && self.live_link_tail_pending.is_none()) || link_label_just_closed;
         self.live_thematic_marker = 0;
         self.live_tail_pending = None;
         self.push(block, delta);
@@ -1586,6 +1715,26 @@ fn complete_llm_citation_end(source: &str, start: usize) -> Option<usize> {
         }
     }
     None
+}
+
+fn simple_link_label_tail_from_source(source: &str) -> Option<LinkTailPending> {
+    let opener = source.len().checked_sub(1)?;
+    if source.as_bytes().get(opener) != Some(&b'[') {
+        return None;
+    }
+    let escaped = source.as_bytes()[..opener]
+        .iter()
+        .rev()
+        .take_while(|&&byte| byte == b'\\')
+        .count()
+        % 2
+        != 0;
+    if escaped || special_bracket_state_from_source(source).0 != SpecialBracketKind::None {
+        return None;
+    }
+    let prefix = &source[..opener];
+    let (open, just_closed) = link_label_state_from_source(prefix);
+    (!open && !just_closed).then_some(LinkTailPending::Label { opener })
 }
 
 fn link_label_state_from_source(source: &str) -> (bool, bool) {
@@ -2784,6 +2933,49 @@ $$
     }
 
     #[test]
+    fn simple_links_splice_only_without_outer_openers() {
+        let mut parser = Parser::new();
+        parser.append("prefix ");
+        parser.append("[");
+        parser.append("x");
+        parser.append("]");
+        parser.append("(");
+        parser.append("url");
+        let close = parser.append(")");
+        assert!(matches!(
+            close.ops.as_slice(),
+            [Op::SpliceInlineTail { truncate_bytes, append, .. }]
+                if *truncate_bytes == 7
+                    && matches!(append.as_slice(), [Inline::Link { label, destination }]
+                        if destination == "url"
+                            && matches!(label.as_slice(), [Inline::Text(text)] if text == "x"))
+        ));
+        let mut whole = Parser::new();
+        whole.append("prefix [x](url)");
+        assert_eq!(parser.blocks(), whole.blocks());
+
+        let mut escaped = Parser::new();
+        let markdown = r"\[x](u)";
+        for ch in markdown.chars() {
+            let mut buf = [0; 4];
+            escaped.append(ch.encode_utf8(&mut buf));
+        }
+        let mut whole = Parser::new();
+        whole.append(markdown);
+        assert_eq!(escaped.blocks(), whole.blocks());
+
+        let mut outer = Parser::new();
+        let markdown = "[[x](u)](v)";
+        for ch in markdown.chars() {
+            let mut buf = [0; 4];
+            outer.append(ch.encode_utf8(&mut buf));
+        }
+        let mut whole = Parser::new();
+        whole.append(markdown);
+        assert_eq!(outer.blocks(), whole.blocks());
+    }
+
+    #[test]
     fn escaped_closers_crossing_chunks_reparse() {
         for closer in [']', ')'] {
             let mut parser = Parser::new();
@@ -2832,8 +3024,9 @@ $$
         parser.append("url");
         let link_close = parser.append(")");
         assert!(matches!(
-            link_close.ops.first(),
-            Some(Op::Truncate { from: 0 })
+            link_close.ops.as_slice(),
+            [Op::SpliceInlineTail { append, .. }]
+                if matches!(append.as_slice(), [Inline::Link { destination, .. }] if destination == "url")
         ));
         assert!(matches!(
             parser.blocks(),
