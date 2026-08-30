@@ -88,7 +88,7 @@ if [ "$index_count" -ne 1 ]; then
 fi
 
 for alias in kt c%23 c%2B%2B f%23 rb hs sv webgpu tf ps1; do
-  count=$(grep -c "GET /langpacks/$alias.slp HTTP/1.1.* 200" "$WORK/http.log" || true)
+  count=$(grep -c "GET /langpacks/$alias.slp?v=[0-9a-f]* HTTP/1.1.* 200" "$WORK/http.log" || true)
   if [ "$count" -ne 1 ]; then
     echo "language matrix browser: alias $alias pack fetched $count times (expected once)"
     cat "$WORK/http.log"

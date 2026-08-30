@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -108,6 +109,7 @@ function normalizedAliases(profile, packName) {
 export function buildAll({ check = false } = {}) {
   const sources = fs.readdirSync(LANGPACK_DIR).filter(name => name.endsWith(".langpack")).sort();
   const outputs = new Map();
+  const versionHash = createHash("sha256");
   let totalSource = 0;
   let totalBinary = 0;
 
@@ -116,6 +118,9 @@ export function buildAll({ check = false } = {}) {
     const source = fs.readFileSync(path.join(LANGPACK_DIR, name), "utf8");
     const profile = parsePack(source);
     const binary = encodePack(profile);
+    // Version the emitted bytes, not the source text. Encoder/schema changes that
+    // alter SLP1 therefore invalidate browser caches even when .langpack text is unchanged.
+    versionHash.update(packName).update("\0").update(binary).update("\0");
     const aliases = normalizedAliases(profile, packName);
     totalSource += Buffer.byteLength(source);
     totalBinary += binary.byteLength;
@@ -129,7 +134,11 @@ export function buildAll({ check = false } = {}) {
   if (outputs.has(INDEX_NAME)) throw new Error(`${INDEX_NAME} is reserved`);
   const aliasCount = outputs.size;
   const emittedBytes = [...outputs.values()].reduce((sum, binary) => sum + binary.byteLength, 0);
-  const index = encoder.encode(JSON.stringify([...outputs.keys()].map(name => name.slice(0, -4)).sort()));
+  const version = versionHash.digest("hex").slice(0, 16);
+  const index = encoder.encode(JSON.stringify({
+    v: version,
+    a: [...outputs.keys()].map(name => name.slice(0, -4)).sort(),
+  }));
   outputs.set(INDEX_NAME, index);
 
   const stale = [];
@@ -156,11 +165,12 @@ export function buildAll({ check = false } = {}) {
     binaryBytes: totalBinary,
     emittedBytes,
     indexBytes: index.byteLength,
+    version,
   };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const check = process.argv.includes("--check");
   const result = buildAll({ check });
-  console.log(`langpacks ${check ? "checked" : "built"}: ${result.count} packs / ${result.aliases} aliases, ${result.sourceBytes} text bytes -> ${result.binaryBytes} canonical SLP1 bytes (${result.emittedBytes} alias-file bytes + ${result.indexBytes} index bytes)`);
+  console.log(`langpacks ${check ? "checked" : "built"}: ${result.count} packs / ${result.aliases} aliases, version=${result.version}, ${result.sourceBytes} text bytes -> ${result.binaryBytes} canonical SLP1 bytes (${result.emittedBytes} alias-file bytes + ${result.indexBytes} index bytes)`);
 }

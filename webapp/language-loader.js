@@ -2,6 +2,7 @@ const MAX_CONCURRENT_PACKS = 16;
 const MAX_PACK_BYTES = 16 * 1024;
 const MAX_INDEX_BYTES = 16 * 1024;
 const SAFE_LANGUAGE = /^[a-z0-9_+#-]+$/;
+const SAFE_VERSION = /^[0-9a-f]{16}$/;
 const INDEX_URL = new URL("./langpacks/_index.slp", import.meta.url);
 const inFlight = new Map();
 const failedAliases = new Set();
@@ -56,17 +57,19 @@ async function responseBytes(response, maxBytes, label) {
 function loadAliasIndex() {
   if (!aliasIndexPromise) {
     aliasIndexPromise = (async () => {
-      const response = await fetch(INDEX_URL, { cache: "force-cache" });
+      const response = await fetch(INDEX_URL, { cache: "no-cache" });
       const bytes = await responseBytes(response, MAX_INDEX_BYTES, "langpack index");
-      const values = JSON.parse(decoder.decode(bytes));
-      if (!Array.isArray(values) || values.length === 0) throw new Error("invalid langpack index");
+      const index = JSON.parse(decoder.decode(bytes));
+      if (!index || !SAFE_VERSION.test(index.v) || !Array.isArray(index.a) || index.a.length === 0) {
+        throw new Error("invalid langpack index");
+      }
       const aliases = new Set();
-      for (const value of values) {
+      for (const value of index.a) {
         const alias = normalizeLanguage(value);
         if (!alias || alias !== value || aliases.has(alias)) throw new Error("invalid langpack index alias");
         aliases.add(alias);
       }
-      return aliases;
+      return { aliases, version: index.v };
     })().catch(error => {
       aliasIndexPromise = undefined;
       throw error;
@@ -113,10 +116,10 @@ export async function loadLanguagePack(name) {
     console.warn("language pack index unavailable:", error);
     return false;
   }
-  if (!knownAliases.has(alias)) {
-    failedAliases.add(alias);
-    return false;
-  }
+  // Unknown fence names never reach the network and are not cached locally: the
+  // index membership check is cheap, while caching attacker-controlled misses
+  // would make memory usage grow with document input.
+  if (!knownAliases.aliases.has(alias)) return false;
 
   const existing = inFlight.get(alias);
   if (existing) return existing.then(() => false, () => false);
@@ -126,6 +129,7 @@ export async function loadLanguagePack(name) {
     try {
       if (loadedAliases.has(alias)) return false;
       const url = new URL(`./langpacks/${encodeURIComponent(alias)}.slp`, import.meta.url);
+      url.searchParams.set("v", knownAliases.version);
       const response = await fetch(url, { cache: "force-cache" });
       const binary = await responseBytes(response, MAX_PACK_BYTES, "langpack");
       const packAliases = readPackAliases(binary);
