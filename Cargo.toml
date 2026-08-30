@@ -22,3 +22,5 @@ inherits = "release"
 [[bin]]
 name = "stream-bench"
 path = "benches/stream.rs"
+test = false
+bench = false

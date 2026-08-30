@@ -7,6 +7,21 @@ pub(crate) fn parse_inlines(source: &str) -> Vec<Inline> {
     let mut i = 0;
     let b = source.as_bytes();
 
+    // Once a delimiter search fails for the current suffix, it cannot succeed
+    // at any later byte offset. Remember that fact to keep malformed or
+    // half-streamed Markdown from repeatedly scanning the same suffix.
+    let mut no_citation_close = false;
+    let mut no_inline_math_close = false;
+    let mut no_display_math_close = false;
+    let mut no_code_close = false;
+    let mut no_strong_star_close = false;
+    let mut no_strong_underscore_close = false;
+    let mut no_em_star_close = false;
+    let mut no_em_underscore_close = false;
+    let mut no_reference_close = false;
+    let mut no_link_label_close = false;
+    let mut no_link_destination_close = false;
+
     while i < b.len() {
         if b[i] == b'\\' && i + 1 < b.len() && is_punctuation(b[i + 1]) {
             plain.push(b[i + 1] as char);
@@ -17,10 +32,9 @@ pub(crate) fn parse_inlines(source: &str) -> Vec<Inline> {
         // LLM/RAG citation. It is normalized to the existing Link AST so old
         // renderers can display it without learning a new inline node.
         if b[i] == b'['
-            && b.get(i + 1) == Some(&b'[')
-            && let Some(rel_end) = source[i + 2..].find("]]")
+            && source[i..].starts_with("[[cite:")
+            && let Some(end) = find_cached(source, i + 2, "]]", &mut no_citation_close)
         {
-            let end = i + 2 + rel_end;
             if let Some((citation_source, label)) = llm_citation(&source[i + 2..end]) {
                 flush(&mut plain, &mut out);
                 let visible = label.unwrap_or(citation_source);
@@ -37,11 +51,12 @@ pub(crate) fn parse_inlines(source: &str) -> Vec<Inline> {
             let display = b.get(i + 1) == Some(&b'$');
             let delimiter_len = if display { 2 } else { 1 };
             let body_start = i + delimiter_len;
-            let delimiter = if display { "$$" } else { "$" };
-            if let Some(end) = source[body_start..]
-                .find(delimiter)
-                .map(|offset| body_start + offset)
-            {
+            let (delimiter, exhausted) = if display {
+                ("$$", &mut no_display_math_close)
+            } else {
+                ("$", &mut no_inline_math_close)
+            };
+            if let Some(end) = find_cached(source, body_start, delimiter, exhausted) {
                 flush(&mut plain, &mut out);
                 out.push(Inline::Math {
                     source: source[body_start..end].to_owned(),
@@ -77,7 +92,7 @@ pub(crate) fn parse_inlines(source: &str) -> Vec<Inline> {
         }
 
         if b[i] == b'`'
-            && let Some(end) = source[i + 1..].find('`').map(|x| i + 1 + x)
+            && let Some(end) = find_cached(source, i + 1, "`", &mut no_code_close)
         {
             flush(&mut plain, &mut out);
             out.push(Inline::Code(source[i + 1..end].to_owned()));
@@ -88,8 +103,12 @@ pub(crate) fn parse_inlines(source: &str) -> Vec<Inline> {
         if i + 1 < b.len()
             && ((b[i] == b'*' && b[i + 1] == b'*') || (b[i] == b'_' && b[i + 1] == b'_'))
         {
-            let delim = &source[i..i + 2];
-            if let Some(end) = source[i + 2..].find(delim).map(|x| i + 2 + x) {
+            let (delim, exhausted) = if b[i] == b'*' {
+                ("**", &mut no_strong_star_close)
+            } else {
+                ("__", &mut no_strong_underscore_close)
+            };
+            if let Some(end) = find_cached(source, i + 2, delim, exhausted) {
                 flush(&mut plain, &mut out);
                 out.push(Inline::Strong(parse_inlines(&source[i + 2..end])));
                 i = end + 2;
@@ -98,8 +117,12 @@ pub(crate) fn parse_inlines(source: &str) -> Vec<Inline> {
         }
 
         if b[i] == b'*' || b[i] == b'_' {
-            let delim = b[i] as char;
-            if let Some(end) = source[i + 1..].find(delim).map(|x| i + 1 + x) {
+            let (delim, exhausted) = if b[i] == b'*' {
+                ("*", &mut no_em_star_close)
+            } else {
+                ("_", &mut no_em_underscore_close)
+            };
+            if let Some(end) = find_cached(source, i + 1, delim, exhausted) {
                 flush(&mut plain, &mut out);
                 out.push(Inline::Emphasis(parse_inlines(&source[i + 1..end])));
                 i = end + 1;
@@ -111,9 +134,8 @@ pub(crate) fn parse_inlines(source: &str) -> Vec<Inline> {
         // literal token while the destination carries structured metadata.
         if b[i] == b'@'
             && b.get(i + 1) == Some(&b'[')
-            && let Some(rel_end) = source[i + 2..].find(']')
+            && let Some(end) = find_cached(source, i + 2, "]", &mut no_reference_close)
         {
-            let end = i + 2 + rel_end;
             if let Some((kind, id)) = llm_reference(&source[i + 2..end]) {
                 flush(&mut plain, &mut out);
                 let label = source[i..=end].to_owned();
@@ -127,8 +149,8 @@ pub(crate) fn parse_inlines(source: &str) -> Vec<Inline> {
         }
 
         if b[i] == b'['
-            && let Some(close) = source[i + 1..].find("](").map(|x| i + 1 + x)
-            && let Some(end) = source[close + 2..].find(')').map(|x| close + 2 + x)
+            && let Some(close) = find_cached(source, i + 1, "](", &mut no_link_label_close)
+            && let Some(end) = find_cached(source, close + 2, ")", &mut no_link_destination_close)
         {
             flush(&mut plain, &mut out);
             out.push(Inline::Link {
@@ -146,6 +168,19 @@ pub(crate) fn parse_inlines(source: &str) -> Vec<Inline> {
 
     flush(&mut plain, &mut out);
     out
+}
+
+fn find_cached(source: &str, start: usize, needle: &str, exhausted: &mut bool) -> Option<usize> {
+    if *exhausted {
+        return None;
+    }
+    match source[start..].find(needle) {
+        Some(offset) => Some(start + offset),
+        None => {
+            *exhausted = true;
+            None
+        }
+    }
 }
 
 fn flush(plain: &mut String, out: &mut Vec<Inline>) {
