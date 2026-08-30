@@ -1,8 +1,8 @@
-use std::{cell::RefCell, collections::HashMap, io::Cursor, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use ratex_layout::{LayoutOptions, layout, to_display_list};
+use ratex_layout::{layout, to_display_list, LayoutOptions};
 use ratex_parser::parse;
-use ratex_render::{RenderOptions, render_to_png};
+use ratex_render::{render_to_rgba_premultiplied, PremultipliedRgbaImage, RenderOptions};
 use ratex_types::{color::Color, math_style::MathStyle};
 
 const INLINE_FONT_SIZE: f32 = 16.0;
@@ -33,8 +33,9 @@ thread_local! {
     static CACHE: RefCell<HashMap<(String, bool, u16), Rc<MathImage>>> = RefCell::new(HashMap::new());
 }
 
-/// Typesets LaTeX with RaTeX, rasterizes its display list into a transparent
-/// PNG with the bundled KaTeX fonts, then decodes it to RGBA for wgpu.
+/// Typesets LaTeX with RaTeX and keeps the raster in memory as RGBA. The
+/// renderer exposes tiny-skia's premultiplied pixels directly, avoiding the old
+/// PNG encode/decode round-trip before supersample reduction.
 pub fn rasterize(source: &str, display: bool, text_scale: f32) -> Result<Rc<MathImage>, String> {
     let scale_key = (text_scale.clamp(0.5, 4.0) * 64.0).round() as u16;
     let key = (source.to_owned(), display, scale_key);
@@ -74,7 +75,7 @@ fn rasterize_uncached(source: &str, display: bool, text_scale: f32) -> Result<Ma
     let baseline = (display_list.height as f32 * font_size + PADDING)
         .round()
         .max(0.0) as u32;
-    let png = render_to_png(
+    let high_resolution = render_to_rgba_premultiplied(
         &display_list,
         &RenderOptions {
             font_size,
@@ -85,21 +86,41 @@ fn rasterize_uncached(source: &str, display: bool, text_scale: f32) -> Result<Ma
         },
     )
     .map_err(|error| format!("RaTeX render error: {error}"))?;
-    let high_resolution = decode_png(&png, baseline * SUPERSAMPLE)?;
-    Ok(downsample_rgba(high_resolution, SUPERSAMPLE, baseline))
+    Ok(downsample_premultiplied_rgba(
+        high_resolution,
+        SUPERSAMPLE,
+        baseline,
+    ))
 }
 
-/// Box-filter a supersampled RaTeX image in premultiplied-alpha space. Averaging
-/// straight RGB would create pale fringes around thin mathematical strokes.
-fn downsample_rgba(source: MathImage, factor: u32, baseline: u32) -> MathImage {
+/// Box-filter tiny-skia's native premultiplied RGBA directly. The old path
+/// demultiplied every high-resolution pixel for PNG, compressed it, decoded it,
+/// then premultiplied it again here. Summing premultiplied bytes preserves the
+/// same coverage model while requiring only one final demultiply per output pixel.
+fn downsample_premultiplied_rgba(
+    source: PremultipliedRgbaImage,
+    factor: u32,
+    baseline: u32,
+) -> MathImage {
+    if factor == 2 {
+        return downsample_premultiplied_rgba_2x(source, baseline);
+    }
+    downsample_premultiplied_rgba_generic(source, factor, baseline)
+}
+
+fn downsample_premultiplied_rgba_generic(
+    source: PremultipliedRgbaImage,
+    factor: u32,
+    baseline: u32,
+) -> MathImage {
     let width = source.width.div_ceil(factor);
     let height = source.height.div_ceil(factor);
     let mut pixels = vec![0; (width * height * 4) as usize];
     for y in 0..height {
         for x in 0..width {
-            let mut alpha_sum = 0.0f32;
-            let mut premultiplied = [0.0f32; 3];
-            let mut samples = 0.0f32;
+            let mut alpha_sum = 0u32;
+            let mut premultiplied = [0u32; 3];
+            let mut samples = 0u32;
             for sy in 0..factor {
                 for sx in 0..factor {
                     let source_x = x * factor + sx;
@@ -108,24 +129,142 @@ fn downsample_rgba(source: MathImage, factor: u32, baseline: u32) -> MathImage {
                         continue;
                     }
                     let index = ((source_y * source.width + source_x) * 4) as usize;
-                    let alpha = source.pixels[index + 3] as f32 / 255.0;
-                    alpha_sum += alpha;
+                    alpha_sum += source.pixels[index + 3] as u32;
                     for (channel, sum) in premultiplied.iter_mut().enumerate() {
-                        *sum += source.pixels[index + channel] as f32 * alpha;
+                        *sum += source.pixels[index + channel] as u32;
                     }
-                    samples += 1.0;
+                    samples += 1;
                 }
             }
-            let alpha = alpha_sum / samples.max(1.0);
+
             let target = ((y * width + x) * 4) as usize;
-            if alpha_sum > 0.0 {
+            if alpha_sum != 0 {
                 for (channel, sum) in premultiplied.iter().enumerate() {
-                    pixels[target + channel] = (*sum / alpha_sum).round().clamp(0.0, 255.0) as u8;
+                    pixels[target + channel] =
+                        (((*sum * 255) + alpha_sum / 2) / alpha_sum).min(255) as u8;
                 }
             }
-            pixels[target + 3] = (alpha * 255.0).round().clamp(0.0, 255.0) as u8;
+            pixels[target + 3] = ((alpha_sum + samples / 2) / samples.max(1)).min(255) as u8;
         }
     }
+    let runs = build_runs(width, height, &pixels);
+    MathImage {
+        width,
+        height,
+        baseline: baseline.min(height),
+        pixels,
+        runs,
+    }
+}
+
+#[inline]
+fn store_downsampled_pixel(
+    pixels: &mut [u8],
+    target: usize,
+    premultiplied: [u32; 3],
+    alpha_sum: u32,
+    samples: u32,
+) {
+    if alpha_sum != 0 {
+        pixels[target] = (((premultiplied[0] * 255) + alpha_sum / 2) / alpha_sum).min(255) as u8;
+        pixels[target + 1] =
+            (((premultiplied[1] * 255) + alpha_sum / 2) / alpha_sum).min(255) as u8;
+        pixels[target + 2] =
+            (((premultiplied[2] * 255) + alpha_sum / 2) / alpha_sum).min(255) as u8;
+    }
+    pixels[target + 3] = ((alpha_sum + samples / 2) / samples).min(255) as u8;
+}
+
+/// Fast path for the fixed 2× supersampling used by the web renderer. Interior
+/// pixels always consume a complete 2×2 source block, so avoid the generic
+/// nested sample loops and four bounds checks per output pixel.
+fn downsample_premultiplied_rgba_2x(source: PremultipliedRgbaImage, baseline: u32) -> MathImage {
+    let width = source.width.div_ceil(2);
+    let height = source.height.div_ceil(2);
+    let mut pixels = vec![0; (width * height * 4) as usize];
+    let source_stride = source.width as usize * 4;
+    let full_width = source.width / 2;
+    let full_height = source.height / 2;
+
+    for y in 0..full_height {
+        let row0 = y as usize * 2 * source_stride;
+        let row1 = row0 + source_stride;
+        let target_row = y as usize * width as usize * 4;
+        for x in 0..full_width {
+            let i0 = row0 + x as usize * 8;
+            let i1 = i0 + 4;
+            let i2 = row1 + x as usize * 8;
+            let i3 = i2 + 4;
+            let alpha_sum = source.pixels[i0 + 3] as u32
+                + source.pixels[i1 + 3] as u32
+                + source.pixels[i2 + 3] as u32
+                + source.pixels[i3 + 3] as u32;
+            let sums = [
+                source.pixels[i0] as u32
+                    + source.pixels[i1] as u32
+                    + source.pixels[i2] as u32
+                    + source.pixels[i3] as u32,
+                source.pixels[i0 + 1] as u32
+                    + source.pixels[i1 + 1] as u32
+                    + source.pixels[i2 + 1] as u32
+                    + source.pixels[i3 + 1] as u32,
+                source.pixels[i0 + 2] as u32
+                    + source.pixels[i1 + 2] as u32
+                    + source.pixels[i2 + 2] as u32
+                    + source.pixels[i3 + 2] as u32,
+            ];
+            store_downsampled_pixel(&mut pixels, target_row + x as usize * 4, sums, alpha_sum, 4);
+        }
+
+        if source.width & 1 != 0 {
+            let i0 = row0 + (source.width as usize - 1) * 4;
+            let i1 = row1 + (source.width as usize - 1) * 4;
+            let alpha_sum = source.pixels[i0 + 3] as u32 + source.pixels[i1 + 3] as u32;
+            let sums = [
+                source.pixels[i0] as u32 + source.pixels[i1] as u32,
+                source.pixels[i0 + 1] as u32 + source.pixels[i1 + 1] as u32,
+                source.pixels[i0 + 2] as u32 + source.pixels[i1 + 2] as u32,
+            ];
+            store_downsampled_pixel(
+                &mut pixels,
+                target_row + full_width as usize * 4,
+                sums,
+                alpha_sum,
+                2,
+            );
+        }
+    }
+
+    if source.height & 1 != 0 {
+        let row = (source.height as usize - 1) * source_stride;
+        let target_row = full_height as usize * width as usize * 4;
+        for x in 0..full_width {
+            let i0 = row + x as usize * 8;
+            let i1 = i0 + 4;
+            let alpha_sum = source.pixels[i0 + 3] as u32 + source.pixels[i1 + 3] as u32;
+            let sums = [
+                source.pixels[i0] as u32 + source.pixels[i1] as u32,
+                source.pixels[i0 + 1] as u32 + source.pixels[i1 + 1] as u32,
+                source.pixels[i0 + 2] as u32 + source.pixels[i1 + 2] as u32,
+            ];
+            store_downsampled_pixel(&mut pixels, target_row + x as usize * 4, sums, alpha_sum, 2);
+        }
+        if source.width & 1 != 0 {
+            let i = row + (source.width as usize - 1) * 4;
+            store_downsampled_pixel(
+                &mut pixels,
+                target_row + full_width as usize * 4,
+                [
+                    source.pixels[i] as u32,
+                    source.pixels[i + 1] as u32,
+                    source.pixels[i + 2] as u32,
+                ],
+                source.pixels[i + 3] as u32,
+                1,
+            );
+        }
+    }
+
     let runs = build_runs(width, height, &pixels);
     MathImage {
         width,
@@ -182,30 +321,51 @@ fn build_runs(width: u32, height: u32, pixels: &[u8]) -> Vec<MathRun> {
     runs
 }
 
-fn decode_png(bytes: &[u8], baseline: u32) -> Result<MathImage, String> {
-    let mut decoder = png::Decoder::new(Cursor::new(bytes));
-    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
-    let mut reader = decoder
-        .read_info()
-        .map_err(|error| format!("RaTeX PNG header error: {error}"))?;
-    let mut buffer = vec![0; reader.output_buffer_size()];
-    let info = reader
-        .next_frame(&mut buffer)
-        .map_err(|error| format!("RaTeX PNG decode error: {error}"))?;
-    let source = &buffer[..info.buffer_size()];
-    let pixels = match info.color_type {
-        png::ColorType::Rgba => source.to_vec(),
-        png::ColorType::Rgb => source
-            .chunks_exact(3)
-            .flat_map(|pixel| [pixel[0], pixel[1], pixel[2], 255])
-            .collect(),
-        other => return Err(format!("unsupported RaTeX PNG color type: {other:?}")),
-    };
-    Ok(MathImage {
-        width: info.width,
-        height: info.height,
-        baseline: baseline.min(info.height),
-        pixels,
-        runs: Vec::new(),
-    })
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn synthetic(width: u32, height: u32) -> PremultipliedRgbaImage {
+        let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                let alpha = ((x * 37 + y * 61 + 17) % 256) as u8;
+                let straight = [
+                    ((x * 29 + y * 11 + 31) % 256) as u8,
+                    ((x * 7 + y * 43 + 79) % 256) as u8,
+                    ((x * 53 + y * 5 + 127) % 256) as u8,
+                ];
+                pixels.extend(
+                    straight.map(|channel| ((channel as u16 * alpha as u16 + 127) / 255) as u8),
+                );
+                pixels.push(alpha);
+            }
+        }
+        PremultipliedRgbaImage {
+            width,
+            height,
+            pixels,
+        }
+    }
+
+    #[test]
+    fn two_x_downsample_matches_generic_for_odd_and_even_edges() {
+        for (width, height) in [(1, 1), (2, 2), (3, 2), (2, 3), (3, 3), (8, 7), (9, 10)] {
+            let fast = downsample_premultiplied_rgba_2x(synthetic(width, height), 3);
+            let generic = downsample_premultiplied_rgba_generic(synthetic(width, height), 2, 3);
+            assert_eq!(
+                (fast.width, fast.height, fast.baseline),
+                (generic.width, generic.height, generic.baseline)
+            );
+            assert_eq!(fast.pixels, generic.pixels, "{width}x{height}");
+            assert_eq!(
+                fast.runs.len(),
+                generic.runs.len(),
+                "{width}x{height} run count"
+            );
+            for (a, b) in fast.runs.iter().zip(&generic.runs) {
+                assert_eq!((a.x, a.y, a.width, a.rgba), (b.x, b.y, b.width, b.rgba));
+            }
+        }
+    }
 }

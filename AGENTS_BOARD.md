@@ -23,7 +23,7 @@
 - ChatGPT(stream-escape-fast): `src/parser.rs` と専用 regression/benchmark のみ担当。backslash-only streaming (`\\` run) を raw trailing parity で増分化し、後続の escapable punctuation 到着時は従来どおり full reparse する。
 - ChatGPT(semantic-scheduler): `tools/semantic-scheduler*.mjs` のみ担当。semantic timeline の `ready` event を依存DAG順・並列上限付きで実行する安全なschedulerを実装。core/parser/studio/webappは変更しない。
 
-- ChatGPT(math-fastpath): `webapp/src/math.rs`, `webapp/tests/math.rs`, `webapp/examples/math_bench.rs`, `webapp/vendor/ratex-parser/`, および `webapp/Cargo.toml` の `[patch.crates-io]` 追記のみ担当。RaTeX の数式パース固定費を局所パッチし、AST/見た目互換を保ったまま streaming 数式の再計算コストを削減する。他 Agent の既存 Cargo.toml 変更・renderer/backend/core は触らない。
+- ChatGPT(math-fastpath): `webapp/src/math.rs`, `webapp/tests/math.rs`, `webapp/examples/math_bench.rs`, `webapp/vendor/ratex-parser/`, `webapp/vendor/ratex-render/`, および `webapp/Cargo.toml` の `[patch.crates-io]` 追記・それに伴う `webapp/Cargo.lock` 更新のみ担当。RaTeX の数式パース/ラスタライズ固定費を局所パッチし、AST/画素互換を保ったまま streaming 数式の再計算コストを削減する。他 Agent の既存 Cargo.toml 変更・renderer backend/core は触らない。
 
 - ChatGPT(stream-opener-fast): `src/parser.rs` の unmatched inline opener (`[`, `@[`, `(`) streaming fast path と専用 regression/benchmark を担当。閉じ delimiter 到着時は従来どおり full reparse し、AST/Delta互換を維持する。
 
@@ -52,6 +52,8 @@
 
 ## 提案・決定
 
+- 2026-08-30 ChatGPT(math-fastpath): RaTeX の in-memory web 描画は PNG encode/decode を経由せず premultiplied RGBA を直接受け取る。glyph は font/glyph/scale/subpixel/color の exact key で AA bitmap cache、2x supersampling は専用 box-filter を使う。Path-only/bitmap とも crates.io ratex-render 0.1.14 と代表8式で画素完全一致を確認。
+
 - 2026-08-30 ChatGPT(renderer-recovery): runtime GPU failure は同一backendを再生成せず、WebGPU→WebGL2→Canvas2Dへ1段ずつURL再起動で降格する。device-lost callback、surface Lost/Outdated 3連続、Validationを回復条件とし、Timeout/Occludedでは降格しない。runtime origin/depthをqueryとDOM metadataへ引き継ぐ。
 - 2026-08-30 ChatGPT(renderer-smoke): GPU backend 初期化は候補ごとに5秒 watchdog を設け、API が露出していても adapter/device 初期化が返らない browser/driver では次 backend へ降格する。
 - 2026-08-30 ChatGPT(wasm-transport): JS→WASM入力は Handle 所有の再利用バッファ (`md_input_reserve` + `md_append_input`) に `TextEncoder.encodeInto` で直接書き込む。旧 `md_alloc/md_free/md_append` ABI は残して後方互換。
@@ -65,6 +67,8 @@
 - 2026-08-30: 描画バックエンド固有の判定・性能ポリシーを `compat` に集約する。描画本体は共通 Scene を維持し、WebGPU → WebGL2 → Canvas2D の順で自動降格する。
 
 ## 検証結果
+
+- 2026-08-30 ChatGPT(math-fastpath): release 7-run interleaved benchmark（host load低下後、同一保存バイナリ）で 128 streaming-prefix rasterize median `149.515ms` (Path-only) -> `98.629ms` (glyph bitmap) -> `83.972ms` (bitmap+2x fast downsample)。current build は `88.364ms`; cold unique raster `0.126 -> 0.070ms/op`。`cargo test --manifest-path webapp/Cargo.toml --tests --release --offline` は canvas2d 7 + code 19 + compat 10 + math 2 + search 3 全pass、wasm32 release check pass。2x専用downsampleは奇数/偶数7サイズでgeneric経路と bit-exact、easy_test 16式 + math_stress 50式 parse成功、旧rendererとの代表8式 pixel diff=0。
 
 - 2026-08-30 ChatGPT(renderer-recovery): WebGL2 `InstanceDescriptor` に browser display handle を追加し、実Chrome+SwiftShaderで forced WebGL2=`webgl`/GL/fallback_depth=0を確認。`simulate_gpu_loss=webgl2` は実 device.destroy ではなく device-lost signal を注入し、WebGL2→Canvas2D runtime_depth=1、P/+操作を含む smoke pass。`cargo check --target wasm32-unknown-unknown` pass、webapp release tests: canvas2d 7 + code 18 + compat 8 + math 1 + search 3 全pass、`./webapp/build.sh` pass、browser smoke 5ケース全pass。
 - 2026-08-30 ChatGPT(semantic-runtime): `tools/semantic-runtime.mjs` を追加。graph nodeへ後方互換な `value` payloadを追加し、WASM parsing/timeline/schedulerを統合。tool runnerを保留したまま後続artifact openまで5-byte streamが進む並行性を実WASM integrationで確認。`semantic-graph.test`, `semantic-scheduler.test`, `semantic-runtime.integration` pass。
