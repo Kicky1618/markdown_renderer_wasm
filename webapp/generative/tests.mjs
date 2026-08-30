@@ -278,6 +278,7 @@ assert.throws(() => chunkBudget.push("c"), error => error instanceof ResponseBud
 
 const securityHtml = await fs.readFile(new URL("./index.html", import.meta.url), "utf8");
 const securityApp = await fs.readFile(new URL("./app.js", import.meta.url), "utf8");
+assert.match(securityHtml, /id=\"review-mode\" type=\"checkbox\" checked/);
 assert.match(securityHtml, /script-src 'self' 'wasm-unsafe-eval'/);
 assert.match(securityHtml, /object-src 'none'/);
 assert.match(securityHtml, /frame-src 'none'/);

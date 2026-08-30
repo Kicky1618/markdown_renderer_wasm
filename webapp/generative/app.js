@@ -301,6 +301,12 @@ function updateReviewControls() {
   updateHistoryControls();
 }
 
+function responseNeedsHumanReview(responseText) {
+  if (!reviewMode.checked) return false;
+  const summary = summarizeStagedEffects(responseText);
+  return summary.stateCount > 0 || summary.patchCount > 0;
+}
+
 function clearModelHistory() {
   modelHistoryPast.length = 0;
   modelHistoryFuture.length = 0;
@@ -781,7 +787,7 @@ async function runLlmInteraction(instruction) {
     renderOperations(parser.finish());
     source.value += prefix + received;
     const meta = { responseText: received, format: result.format, chunks: result.chunks, firstUiMs: firstUiAt };
-    if (reviewMode.checked) {
+    if (responseNeedsHumanReview(received)) {
       pendingModelReview = { before: historyBefore, meta };
       endSemanticCommitBarrier({ review: true });
       setRuntimeState("REVIEW");
@@ -1750,11 +1756,19 @@ remoteForm.addEventListener("submit", async event => {
       },
     });
     renderOperations(parser.finish());
-    endSemanticCommitBarrier();
     source.value = received;
-    recordModelHistory(historyBefore, { responseText: received, format: result.format, chunks: result.chunks, firstUiMs: firstUiAt });
-    setRuntimeState("LIVE");
-    deltaStatus.textContent = `${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
+    const meta = { responseText: received, format: result.format, chunks: result.chunks, firstUiMs: firstUiAt };
+    if (responseNeedsHumanReview(received)) {
+      pendingModelReview = { before: historyBefore, meta };
+      endSemanticCommitBarrier({ review: true });
+      setRuntimeState("REVIEW");
+      deltaStatus.textContent = `${result.format.toUpperCase()} staged · review state/patch effects`;
+    } else {
+      endSemanticCommitBarrier();
+      recordModelHistory(historyBefore, meta);
+      setRuntimeState("LIVE");
+      deltaStatus.textContent = `${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
+    }
   } catch (error) {
     cancelSemanticCommitBarrier("discarded");
     if (controller.signal.aborted || error?.name === "AbortError") {
@@ -1805,6 +1819,7 @@ async function runInteractionSmoke() {
   requestProtocol.value = "chat";
   streamFormat.value = "sse";
   streamModel.value = "fixture-model";
+  reviewMode.checked = false;
   requestProtocol.dispatchEvent(new Event("change", { bubbles: true }));
 
   // These keys must never leave the browser through action=llm.
