@@ -79,6 +79,13 @@ button.primary:hover { background: #84ebdc; }
 }
 .pane-head h2 { font-size: 16px; }
 .actions { display: flex; gap: 8px; }
+.history-controls { display: flex; align-items: center; gap: 7px; }
+.history-controls button {
+  min-height: 34px; padding: 0 10px; border-radius: 999px;
+  color: #9fb3c8; background: #0d1722; font-size: 11px;
+}
+.history-controls button:disabled { opacity: .38; cursor: not-allowed; }
+.history-controls button:not(:disabled):hover { color: #8fe6db; border-color: #4f8d86; }
 #source {
   width: 100%;
   min-height: 0;
@@ -357,4 +364,7 @@ footer {
   .generated-layout-header span { display: none; }
   .generated-tabs-header { align-items: stretch; flex-direction: column; }
   .generated-tab-panel, .generated-form-fields { grid-template-columns: 1fr; }
+  .preview-head { align-items: flex-start; }
+  .history-controls { flex-wrap: wrap; justify-content: flex-end; }
 }
+

@@ -161,6 +161,8 @@ const streamModel = document.querySelector("#stream-model");
 const streamPrompt = document.querySelector("#stream-prompt");
 const postOnly = document.querySelector("[data-post-only]");
 const connectStreamButton = document.querySelector("#connect-stream");
+const undoModelButton = document.querySelector("#undo-model");
+const redoModelButton = document.querySelector("#redo-model");
 
 let parser;
 let blockElements = [];
@@ -177,6 +179,10 @@ const appliedStatePatches = new Map();
 let componentPatches = new Map();
 let componentPatchesSignature = "[]";
 let semanticCommitDepth = 0;
+const modelHistoryPast = [];
+const modelHistoryFuture = [];
+const MODEL_HISTORY_LIMIT = 8;
+const MODEL_HISTORY_SOURCE_MAX = 4 * 1024 * 1024;
 
 source.value = DEMO;
 speed.addEventListener("input", () => {
@@ -195,6 +201,93 @@ function setRuntimeState(value) {
   streamState.textContent = value;
 }
 
+function snapshotLocalState(maxEntries = 128) {
+  const entries = [];
+  for (const [key, value] of state) {
+    if (entries.length >= maxEntries) break;
+    if (typeof value === "string" || typeof value === "boolean" || value === null || (typeof value === "number" && Number.isFinite(value))) {
+      entries.push([String(key), value]);
+    }
+  }
+  return entries;
+}
+
+function runtimeHistorySnapshot() {
+  if (source.value.length > MODEL_HISTORY_SOURCE_MAX) return null;
+  return { source: source.value, state: snapshotLocalState() };
+}
+
+function updateHistoryControls() {
+  const busy = Boolean(remoteController);
+  undoModelButton.disabled = busy || modelHistoryPast.length === 0;
+  redoModelButton.disabled = busy || modelHistoryFuture.length === 0;
+  undoModelButton.title = modelHistoryPast.length ? `Undo model response (${modelHistoryPast.length})` : "No model response to undo";
+  redoModelButton.title = modelHistoryFuture.length ? `Redo model response (${modelHistoryFuture.length})` : "No model response to redo";
+}
+
+function clearModelHistory() {
+  modelHistoryPast.length = 0;
+  modelHistoryFuture.length = 0;
+  updateHistoryControls();
+}
+
+function recordModelHistory(before) {
+  if (!before) {
+    updateHistoryControls();
+    return false;
+  }
+  const after = runtimeHistorySnapshot();
+  if (!after || (before.source === after.source && JSON.stringify(before.state) === JSON.stringify(after.state))) {
+    updateHistoryControls();
+    return false;
+  }
+  modelHistoryPast.push(before);
+  if (modelHistoryPast.length > MODEL_HISTORY_LIMIT) modelHistoryPast.splice(0, modelHistoryPast.length - MODEL_HISTORY_LIMIT);
+  modelHistoryFuture.length = 0;
+  updateHistoryControls();
+  return true;
+}
+
+function restoreRuntimeHistorySnapshot(snapshot, label) {
+  if (!snapshot) return false;
+  cancelRemoteStream();
+  cancelStreaming();
+  source.value = snapshot.source;
+  renderAll();
+  state.clear();
+  for (const [key, value] of snapshot.state) state.set(key, value);
+  recomputeDerivedState();
+  syncReactiveDom();
+  setRuntimeState("LIVE");
+  deltaStatus.textContent = label;
+  preview.scrollTop = preview.scrollHeight;
+  return true;
+}
+
+function undoModelResponse() {
+  if (!modelHistoryPast.length || remoteController) return false;
+  const current = runtimeHistorySnapshot();
+  const previous = modelHistoryPast.pop();
+  if (current) modelHistoryFuture.push(current);
+  const restored = restoreRuntimeHistorySnapshot(previous, "Undid model response");
+  updateHistoryControls();
+  return restored;
+}
+
+function redoModelResponse() {
+  if (!modelHistoryFuture.length || remoteController) return false;
+  const current = runtimeHistorySnapshot();
+  const next = modelHistoryFuture.pop();
+  if (current) modelHistoryPast.push(current);
+  const restored = restoreRuntimeHistorySnapshot(next, "Redid model response");
+  updateHistoryControls();
+  return restored;
+}
+
+undoModelButton.addEventListener("click", undoModelResponse);
+redoModelButton.addEventListener("click", redoModelResponse);
+updateHistoryControls();
+
 function cancelStreaming() {
   generation += 1;
   if (animation) cancelAnimationFrame(animation);
@@ -206,6 +299,7 @@ function cancelRemoteStream() {
   if (remoteController) remoteController.abort();
   remoteController = null;
   connectStreamButton.textContent = "Connect";
+  updateHistoryControls();
 }
 
 function parseBody(body) {
@@ -558,11 +652,13 @@ async function runLlmInteraction(instruction) {
     prompt,
     model: streamModel.value,
   });
+  const historyBefore = runtimeHistorySnapshot();
 
   cancelStreaming();
   beginInputSession(generatedUiCount());
   const controller = new AbortController();
   remoteController = controller;
+  updateHistoryControls();
   connectStreamButton.textContent = "■ Stop";
   setRuntimeState("LLM ACTION");
   deltaStatus.textContent = `Sending state to ${url.host}…`;
@@ -594,6 +690,7 @@ async function runLlmInteraction(instruction) {
     renderOperations(parser.finish());
     endSemanticCommitBarrier();
     source.value += prefix + received;
+    recordModelHistory(historyBefore);
     setRuntimeState("LIVE");
     deltaStatus.textContent = `LLM ${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
     return result;
@@ -611,6 +708,7 @@ async function runLlmInteraction(instruction) {
   } finally {
     if (remoteController === controller) remoteController = null;
     connectStreamButton.textContent = "Connect";
+    updateHistoryControls();
   }
 }
 
@@ -1398,12 +1496,19 @@ streamButton.addEventListener("click", () => {
   if (animation) {
     cancelStreaming();
     setRuntimeState("PAUSED");
-  } else streamAll();
+  } else {
+    clearModelHistory();
+    streamAll();
+  }
 });
-renderNowButton.addEventListener("click", renderAll);
+renderNowButton.addEventListener("click", () => {
+  clearModelHistory();
+  renderAll();
+});
 resetButton.addEventListener("click", () => {
   cancelRemoteStream();
   cancelStreaming();
+  clearModelHistory();
   source.value = DEMO;
   renderAll();
 });
@@ -1426,10 +1531,12 @@ remoteForm.addEventListener("submit", async event => {
     return;
   }
 
+  const historyBefore = runtimeHistorySnapshot();
   cancelStreaming();
   resetRuntime();
   const controller = new AbortController();
   remoteController = controller;
+  updateHistoryControls();
   connectStreamButton.textContent = "■ Stop";
   setRuntimeState("CONNECTING");
   deltaStatus.textContent = `Connecting to ${url.host}…`;
@@ -1466,6 +1573,7 @@ remoteForm.addEventListener("submit", async event => {
     renderOperations(parser.finish());
     endSemanticCommitBarrier();
     source.value = received;
+    recordModelHistory(historyBefore);
     setRuntimeState("LIVE");
     deltaStatus.textContent = `${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
   } catch (error) {
@@ -1481,6 +1589,7 @@ remoteForm.addEventListener("submit", async event => {
   } finally {
     if (remoteController === controller) remoteController = null;
     connectStreamButton.textContent = "Connect";
+    updateHistoryControls();
   }
 });
 
@@ -1541,7 +1650,7 @@ async function runInteractionSmoke() {
       const throughputValue = throughput?.querySelector(".metric-value")?.textContent?.trim();
       const throughputTrend = throughput?.querySelector(".metric-trend")?.textContent?.trim();
       const appended = source.value.includes("## Model continuation");
-      const passed = value === "58"
+      const responsePassed = value === "58"
         && unit === "°C"
         && slider?.value === "58"
         && progress?.style.width === "58%"
@@ -1551,8 +1660,33 @@ async function runInteractionSmoke() {
         && throughputValue === "3.1M"
         && throughputTrend === "patched safely"
         && root.dataset.semanticCommit === "committed"
-        && appended;
-      root.dataset.interactionSmoke = passed ? "pass" : "fail";
+        && appended
+        && !undoModelButton.disabled;
+
+      const undid = undoModelResponse();
+      const undoSlider = preview.querySelector('input[data-state-input="temperature"]');
+      const undoThroughput = preview.querySelector('[data-ui-id="throughput"]');
+      const undoPassed = undid
+        && undoSlider?.value === "42"
+        && undoThroughput?.querySelector("h3")?.textContent?.trim() === "Current throughput"
+        && undoThroughput?.querySelector(".metric-value")?.textContent?.trim() === "2.4M"
+        && !preview.querySelector('[data-ui-id="interaction-result"]')
+        && !source.value.includes("## Model continuation")
+        && !redoModelButton.disabled;
+
+      const redid = redoModelResponse();
+      const redoSlider = preview.querySelector('input[data-state-input="temperature"]');
+      const redoThroughput = preview.querySelector('[data-ui-id="throughput"]');
+      const redoResult = preview.querySelector('[data-ui-id="interaction-result"]');
+      const redoPassed = redid
+        && redoSlider?.value === "58"
+        && redoThroughput?.querySelector("h3")?.textContent?.trim() === "Model-updated throughput"
+        && redoThroughput?.querySelector(".metric-value")?.textContent?.trim() === "3.1M"
+        && redoResult?.querySelector(".metric-value")?.textContent?.trim() === "58"
+        && source.value.includes("## Model continuation");
+
+      root.dataset.historySmoke = undoPassed && redoPassed ? "pass" : "fail";
+      root.dataset.interactionSmoke = responsePassed && undoPassed && redoPassed ? "pass" : "fail";
       return;
     }
   }

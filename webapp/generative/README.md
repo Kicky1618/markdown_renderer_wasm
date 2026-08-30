@@ -136,4 +136,9 @@ patchはfenceが完全に閉じた時だけ反映され、複数patchは文書�
 HTTP/LLM responses act as a commit boundary for generated side effects. Ordinary Markdown, metrics, charts, graphs and other newly-created UI can continue to render as tokens arrive, but closed `type=state` and `type=patch` fences are staged while the network response is active. After `Parser::finish()` for that response, all staged state and component overlays are applied in the same JavaScript turn, followed by one reactive-state reconciliation.
 
 This avoids transient screens where, for example, `temperature=58` has already changed a progress bar while a matching component patch later in the same model response has not arrived yet. The document root exposes `data-semantic-commit="staging|committed|clean"` for diagnostics and browser smoke tests. Manual/local source rendering keeps the existing immediate closed-fence behavior.
+## Model response Undo / Redo
+
+The preview header keeps a bounded response history for LLM/HTTP transitions. Before a successful remote response mutates the application, the runtime snapshots the current Markdown source plus local primitive state. `Undo model` rebuilds the WASM parser/UI from that previous source and restores the local state snapshot; `Redo` reconstructs the response again. Raw DOM nodes are never serialized into history.
+
+History is intentionally bounded to 8 response snapshots, and snapshots are skipped when the source exceeds 4 MiB. Manual `Render now`, local stream replay, and `Reset demo` establish a new baseline and clear model-response history. The browser interaction smoke verifies `58°C + component patch -> Undo -> 42°C + original component -> Redo -> 58°C + patch` and exposes `data-history-smoke="pass"`.
 

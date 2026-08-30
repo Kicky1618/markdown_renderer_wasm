@@ -102,7 +102,11 @@ edge llm ui stream
           <p class="eyebrow">LIVE APPLICATION</p>
           <h2>Generated interface</h2>
         </div>
-        <span id="stream-state" class="pill">READY</span>
+        <div class="history-controls" aria-label="Model response history">
+          <button id="undo-model" type="button" disabled title="Undo last model response">↶ Undo model</button>
+          <button id="redo-model" type="button" disabled title="Redo model response">↷ Redo</button>
+          <span id="stream-state" class="pill">READY</span>
+        </div>
       </div>
       <div id="preview" class="preview" aria-live="polite"></div>
     </section>
