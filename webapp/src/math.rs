@@ -179,38 +179,88 @@ fn downsample_premultiplied_rgba_generic(
 }
 
 #[inline]
-fn store_downsampled_pixel(
-    pixels: &mut [u8],
-    target: usize,
-    premultiplied: [u32; 3],
-    alpha_sum: u32,
-    samples: u32,
-) {
+fn downsampled_rgba(premultiplied: [u32; 3], alpha_sum: u32, samples: u32) -> [u8; 4] {
+    let mut rgba = [0u8; 4];
     if alpha_sum != 0 {
-        pixels[target] = (((premultiplied[0] * 255) + alpha_sum / 2) / alpha_sum).min(255) as u8;
-        pixels[target + 1] =
-            (((premultiplied[1] * 255) + alpha_sum / 2) / alpha_sum).min(255) as u8;
-        pixels[target + 2] =
-            (((premultiplied[2] * 255) + alpha_sum / 2) / alpha_sum).min(255) as u8;
+        rgba[0] = (((premultiplied[0] * 255) + alpha_sum / 2) / alpha_sum).min(255) as u8;
+        rgba[1] = (((premultiplied[1] * 255) + alpha_sum / 2) / alpha_sum).min(255) as u8;
+        rgba[2] = (((premultiplied[2] * 255) + alpha_sum / 2) / alpha_sum).min(255) as u8;
     }
-    pixels[target + 3] = ((alpha_sum + samples / 2) / samples).min(255) as u8;
+    rgba[3] = ((alpha_sum + samples / 2) / samples).min(255) as u8;
+    rgba
 }
 
-/// Fast path for the fixed 2× supersampling used by the web renderer. Interior
-/// pixels always consume a complete 2×2 source block, so avoid the generic
-/// nested sample loops and four bounds checks per output pixel.
+#[inline]
+fn append_run_pixel(
+    runs: &mut Vec<MathRun>,
+    y: u32,
+    x: u32,
+    rgba: [u8; 4],
+    run_start: &mut u32,
+    run_color: &mut u32,
+) {
+    let color = quantized_rgba(&rgba);
+    if color >> 24 == 0 {
+        if *run_color != 0 {
+            runs.push(MathRun {
+                x: *run_start,
+                y,
+                width: x - *run_start,
+                rgba: run_color.to_le_bytes(),
+            });
+            *run_color = 0;
+        }
+        return;
+    }
+    if *run_color == color {
+        return;
+    }
+    if *run_color != 0 {
+        runs.push(MathRun {
+            x: *run_start,
+            y,
+            width: x - *run_start,
+            rgba: run_color.to_le_bytes(),
+        });
+    }
+    *run_start = x;
+    *run_color = color;
+}
+
+#[inline]
+fn finish_run_row(runs: &mut Vec<MathRun>, y: u32, width: u32, run_start: u32, run_color: u32) {
+    if run_color != 0 {
+        runs.push(MathRun {
+            x: run_start,
+            y,
+            width: width - run_start,
+            rgba: run_color.to_le_bytes(),
+        });
+    }
+}
+
+/// Fast path for the fixed 2× supersampling used by the web renderer. Runtime
+/// builds fuse box filtering and horizontal-run construction, so the temporary
+/// low-resolution RGBA surface exists only in tests that compare pixel output.
 fn downsample_premultiplied_rgba_2x(source: PremultipliedRgbaImage, baseline: u32) -> MathImage {
     let width = source.width.div_ceil(2);
     let height = source.height.div_ceil(2);
-    let mut pixels = vec![0; (width * height * 4) as usize];
     let source_stride = source.width as usize * 4;
     let full_width = source.width / 2;
     let full_height = source.height / 2;
+    let estimate = (width as usize)
+        .saturating_mul(height as usize)
+        .div_ceil(6)
+        .min(16_384);
+    let mut runs = Vec::with_capacity(estimate);
+    #[cfg(test)]
+    let mut pixels = vec![0; (width * height * 4) as usize];
 
     for y in 0..full_height {
         let row0 = y as usize * 2 * source_stride;
         let row1 = row0 + source_stride;
-        let target_row = y as usize * width as usize * 4;
+        let mut run_start = 0u32;
+        let mut run_color = 0u32;
         for x in 0..full_width {
             let i0 = row0 + x as usize * 8;
             let i1 = i0 + 4;
@@ -220,78 +270,111 @@ fn downsample_premultiplied_rgba_2x(source: PremultipliedRgbaImage, baseline: u3
                 + source.pixels[i1 + 3] as u32
                 + source.pixels[i2 + 3] as u32
                 + source.pixels[i3 + 3] as u32;
-            // Math rasters are mostly transparent. Avoid twelve RGB loads and
-            // three demultiply divisions for empty 2x2 source blocks.
-            if alpha_sum == 0 {
-                continue;
-            }
-            let sums = [
-                source.pixels[i0] as u32
-                    + source.pixels[i1] as u32
-                    + source.pixels[i2] as u32
-                    + source.pixels[i3] as u32,
-                source.pixels[i0 + 1] as u32
-                    + source.pixels[i1 + 1] as u32
-                    + source.pixels[i2 + 1] as u32
-                    + source.pixels[i3 + 1] as u32,
-                source.pixels[i0 + 2] as u32
-                    + source.pixels[i1 + 2] as u32
-                    + source.pixels[i2 + 2] as u32
-                    + source.pixels[i3 + 2] as u32,
-            ];
-            store_downsampled_pixel(&mut pixels, target_row + x as usize * 4, sums, alpha_sum, 4);
+            let rgba = if alpha_sum == 0 {
+                [0; 4]
+            } else {
+                downsampled_rgba(
+                    [
+                        source.pixels[i0] as u32
+                            + source.pixels[i1] as u32
+                            + source.pixels[i2] as u32
+                            + source.pixels[i3] as u32,
+                        source.pixels[i0 + 1] as u32
+                            + source.pixels[i1 + 1] as u32
+                            + source.pixels[i2 + 1] as u32
+                            + source.pixels[i3 + 1] as u32,
+                        source.pixels[i0 + 2] as u32
+                            + source.pixels[i1 + 2] as u32
+                            + source.pixels[i2 + 2] as u32
+                            + source.pixels[i3 + 2] as u32,
+                    ],
+                    alpha_sum,
+                    4,
+                )
+            };
+            #[cfg(test)]
+            pixels[((y * width + x) * 4) as usize..((y * width + x) * 4 + 4) as usize]
+                .copy_from_slice(&rgba);
+            append_run_pixel(&mut runs, y, x, rgba, &mut run_start, &mut run_color);
         }
-
         if source.width & 1 != 0 {
+            let x = full_width;
             let i0 = row0 + (source.width as usize - 1) * 4;
             let i1 = row1 + (source.width as usize - 1) * 4;
             let alpha_sum = source.pixels[i0 + 3] as u32 + source.pixels[i1 + 3] as u32;
-            let sums = [
-                source.pixels[i0] as u32 + source.pixels[i1] as u32,
-                source.pixels[i0 + 1] as u32 + source.pixels[i1 + 1] as u32,
-                source.pixels[i0 + 2] as u32 + source.pixels[i1 + 2] as u32,
-            ];
-            store_downsampled_pixel(
-                &mut pixels,
-                target_row + full_width as usize * 4,
-                sums,
-                alpha_sum,
-                2,
-            );
+            let rgba = if alpha_sum == 0 {
+                [0; 4]
+            } else {
+                downsampled_rgba(
+                    [
+                        source.pixels[i0] as u32 + source.pixels[i1] as u32,
+                        source.pixels[i0 + 1] as u32 + source.pixels[i1 + 1] as u32,
+                        source.pixels[i0 + 2] as u32 + source.pixels[i1 + 2] as u32,
+                    ],
+                    alpha_sum,
+                    2,
+                )
+            };
+            #[cfg(test)]
+            pixels[((y * width + x) * 4) as usize..((y * width + x) * 4 + 4) as usize]
+                .copy_from_slice(&rgba);
+            append_run_pixel(&mut runs, y, x, rgba, &mut run_start, &mut run_color);
         }
+        finish_run_row(&mut runs, y, width, run_start, run_color);
     }
 
     if source.height & 1 != 0 {
+        let y = full_height;
         let row = (source.height as usize - 1) * source_stride;
-        let target_row = full_height as usize * width as usize * 4;
+        let mut run_start = 0u32;
+        let mut run_color = 0u32;
         for x in 0..full_width {
             let i0 = row + x as usize * 8;
             let i1 = i0 + 4;
             let alpha_sum = source.pixels[i0 + 3] as u32 + source.pixels[i1 + 3] as u32;
-            let sums = [
-                source.pixels[i0] as u32 + source.pixels[i1] as u32,
-                source.pixels[i0 + 1] as u32 + source.pixels[i1 + 1] as u32,
-                source.pixels[i0 + 2] as u32 + source.pixels[i1 + 2] as u32,
-            ];
-            store_downsampled_pixel(&mut pixels, target_row + x as usize * 4, sums, alpha_sum, 2);
+            let rgba = if alpha_sum == 0 {
+                [0; 4]
+            } else {
+                downsampled_rgba(
+                    [
+                        source.pixels[i0] as u32 + source.pixels[i1] as u32,
+                        source.pixels[i0 + 1] as u32 + source.pixels[i1 + 1] as u32,
+                        source.pixels[i0 + 2] as u32 + source.pixels[i1 + 2] as u32,
+                    ],
+                    alpha_sum,
+                    2,
+                )
+            };
+            #[cfg(test)]
+            pixels[((y * width + x) * 4) as usize..((y * width + x) * 4 + 4) as usize]
+                .copy_from_slice(&rgba);
+            append_run_pixel(&mut runs, y, x, rgba, &mut run_start, &mut run_color);
         }
         if source.width & 1 != 0 {
+            let x = full_width;
             let i = row + (source.width as usize - 1) * 4;
-            store_downsampled_pixel(
-                &mut pixels,
-                target_row + full_width as usize * 4,
-                [
-                    source.pixels[i] as u32,
-                    source.pixels[i + 1] as u32,
-                    source.pixels[i + 2] as u32,
-                ],
-                source.pixels[i + 3] as u32,
-                1,
-            );
+            let alpha_sum = source.pixels[i + 3] as u32;
+            let rgba = if alpha_sum == 0 {
+                [0; 4]
+            } else {
+                downsampled_rgba(
+                    [
+                        source.pixels[i] as u32,
+                        source.pixels[i + 1] as u32,
+                        source.pixels[i + 2] as u32,
+                    ],
+                    alpha_sum,
+                    1,
+                )
+            };
+            #[cfg(test)]
+            pixels[((y * width + x) * 4) as usize..((y * width + x) * 4 + 4) as usize]
+                .copy_from_slice(&rgba);
+            append_run_pixel(&mut runs, y, x, rgba, &mut run_start, &mut run_color);
         }
+        finish_run_row(&mut runs, y, width, run_start, run_color);
     }
 
-    let runs = build_runs(width, height, &pixels);
     MathImage {
         width,
         height,

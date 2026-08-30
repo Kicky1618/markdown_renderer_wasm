@@ -70,6 +70,8 @@
 
 ## 検証結果
 
+- 2026-08-30 ChatGPT(math-fastpath): fixed 2x box-filterとhorizontal MathRun生成を1passへ融合し、runtimeでは低解像度RGBA Vecの書込+再走査を廃止（test buildのみpixel回帰用に保持）。透明skip版との保存済みbinary 7-run interleaved medianは128 streaming-prefix raster `46.838→42.798ms`（約8.6%短縮）、cold raster `0.050→0.049ms/op`、8448-run数は完全一致。既存generic-vs-2x pixel/run回帰を含むwebapp全tests（canvas2d 7 + code 19 + compat 10 + language_matrix 11 + math 5 + palette 2 + search 3）pass、wasm32 release check pass。
+
 - 2026-08-30 ChatGPT(math-fastpath): 2x downsampleで完全透明2x2 blockを早期skipし、不要な12 RGB load + 3 demultiply divisionを除去。保存済み前後binaryの7-run interleaved medianは128 streaming-prefix raster `51.534→46.148ms`（約10.5%短縮）、cold raster `0.053→0.048ms/op`（約9.4%短縮）。transparent block専用のgeneric経路bit-exact回帰を追加し、webapp全tests（canvas2d 7 + code 19 + compat 10 + language_matrix 11 + math 5 + palette 2 + search 3）pass、wasm32 release check pass。
 
 - 2026-08-30 ChatGPT(math-fastpath): runtime `MathImage` から未使用のdownsampled RGBA `pixels` 保持を外し、`#[cfg(test)]` でpixel-level回帰時だけ残す。128 streaming-prefix cacheは従来 `pixels=13.45MiB + runs≈8.30MiB`、新runtimeはrunsのみ。128-prefix workloadの5-run peak-RSS medianは `30,404→18,296KiB`（-12,108KiB、約39.8%削減）。pixel/run既存testsを維持したまま webapp tests canvas2d 7 + code 19 + compat 10 + language_matrix 11 + math 4 + palette 2 + search 3 全pass、wasm32 release check pass。
