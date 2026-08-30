@@ -9,7 +9,7 @@
 - `layout`, `tabs`, `form`
 - `metric`, `chart`, `graph`, `canvas`, `progress`
 - `slider`, `input`, `select`, `button`
-- `derive`, `state`, `when=` による reactive state
+- `derive`, `state`, `patch`, `when=` による reactive state / component updates
 
 任意 JavaScript や HTML は実行しません。button/form action は `set`, `increment`, `decrement`, 明示操作型 `llm:` の allowlist、式は専用の安全な式評価器、canvas は固定描画DSLのみです。
 
@@ -115,3 +115,19 @@ alerts=true
 `state` block自体は描画されません。fenceが完全に閉じた時だけpatch全体を原子的に適用するため、token途中の `temperature=5` を最終値と誤認して副作用を起こしません。同じblock/signatureは再適用されないので、その後のslider操作を古いpatchが巻き戻すこともありません。
 
 1 blockあたり最大32項目で、keyは限定された識別子形式のみです。空値と `password` / `secret` / `token` / `api-key` / `credential` / `auth` 系keyを拒否し、値は最大512文字のstring、有限number、boolean、`null` のprimitiveに正規化します。適用後は同じ共有state経路を通るため、slider、progress、`{{state}}` binding、`derive`、`when=`、selectが同時に更新されます。
+
+## Safe component overlays (`type=patch`)
+
+LLM continuationは、既存componentをID指定で安全にoverlayできます。DOM selectorやJavaScriptは受け付けません。
+
+```md
+:::llm ui type=patch target=throughput
+label=Model-updated throughput
+value=3.1M
+trend=patched safely
+:::
+```
+
+patchはfenceが完全に閉じた時だけ反映され、複数patchは文書順にmergeされます。後続patchは同じ属性だけを上書きします。truncateでpatch blockが消えた場合はoverlayも消え、元のcomponent記述へ戻ります。
+
+変更可能なのは `label`, `title`, `value`, `unit`, `trend`, `min`, `max`, `step`, `options`, `values`, `placeholder`, `when`, `height`, `width` のbounded文字列だけです。`action`, `state`, `type`, `id`, `target`, `tab`, `span`, endpoint, HTTP header, credentialは変更できません。したがってmodel responseは既存UIの見た目や安全な入力候補を更新できますが、実行権限や接続先を昇格できません。

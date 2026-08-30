@@ -10,6 +10,7 @@ import { layoutGraph, parseGraph } from "./graph.js";
 import { consumeHttpResponse, decodeNdjsonLine, decodeSseEvent, extractDeltaText } from "./stream.js";
 import { buildInteractionPrompt, buildLlmRequest, GENERATIVE_UI_SYSTEM_PROMPT, snapshotUiComponents, snapshotUiState } from "./llm_request.js";
 import { statePatch, statePatchSignature } from "./state_patch.js";
+import { componentPatch, componentPatchSignature, mergeComponentPatches } from "./component_patch.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
   id: "",
@@ -146,6 +147,7 @@ assert.match(interactionPrompt, /"type":"slider"/);
 assert.match(interactionPrompt, /"id":"temp"/);
 assert.doesNotMatch(interactionPrompt, /do-not-send|also-do-not-send|ignored/);
 assert.match(GENERATIVE_UI_SYSTEM_PROMPT, /action=llm:/);
+assert.match(GENERATIVE_UI_SYSTEM_PROMPT, /type=patch target=/);
 
 const patchConfig = {
   type: "state",
@@ -165,6 +167,40 @@ assert.deepEqual(statePatch(patchConfig), [
 ]);
 assert.equal(statePatchSignature(patchConfig), statePatchSignature({ ...patchConfig }));
 assert.deepEqual(statePatch({ type: "state", temperature: "" }), []);
+
+const visualPatch = componentPatch({
+  type: "patch",
+  target: "throughput",
+  label: "Model throughput",
+  value: "3.1M",
+  unit: "chars/s",
+  trend: "safe overlay",
+  when: "temperature >= 50",
+  action: "llm:must-not-change",
+  state: "must-not-change",
+  span: "4",
+  tab: "controls",
+});
+assert.deepEqual({ target: visualPatch.target, values: { ...visualPatch.values } }, {
+  target: "throughput",
+  values: {
+    label: "Model throughput",
+    value: "3.1M",
+    unit: "chars/s",
+    trend: "safe overlay",
+    when: "temperature >= 50",
+  },
+});
+assert.equal(componentPatch({ type: "patch", target: "bad target!", value: "x" }), null);
+const mergedPatches = mergeComponentPatches([
+  componentPatch({ target: "throughput", label: "First", value: "1" }),
+  componentPatch({ target: "throughput", value: "2", trend: "latest" }),
+]);
+assert.deepEqual({ ...mergedPatches.get("throughput") }, { label: "First", value: "2", trend: "latest" });
+assert.equal(
+  componentPatchSignature([componentPatch({ target: "x", value: "1" })]),
+  componentPatchSignature([componentPatch({ target: "x", value: "1" })]),
+);
 
 const wasm = await fs.readFile(new URL("./streamdown.wasm", import.meta.url));
 const instance = await WebAssembly.instantiate(wasm, {});

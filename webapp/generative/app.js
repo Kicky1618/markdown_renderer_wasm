@@ -8,6 +8,7 @@ import { consumeHttpResponse } from "./stream.js";
 import { buildInteractionPrompt, buildLlmRequest } from "./llm_request.js";
 import { layoutGraph, parseGraph } from "./graph.js";
 import { statePatch, statePatchSignature } from "./state_patch.js";
+import { componentPatch, componentPatchSignature, mergeComponentPatches } from "./component_patch.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
 
@@ -173,6 +174,8 @@ let firstUiAt = null;
 let sessionUiBaseline = 0;
 const state = new Map();
 const appliedStatePatches = new Map();
+let componentPatches = new Map();
+let componentPatchesSignature = "[]";
 
 source.value = DEMO;
 speed.addEventListener("input", () => {
@@ -225,6 +228,13 @@ function uiConfig(block) {
   const descriptor = parseLlmDescriptor(block.language);
   if (!descriptor || descriptor.kind !== "ui") return null;
   return Object.assign(Object.create(null), descriptor.attributes, parseBody(block.value));
+}
+
+function effectiveUiConfig(block) {
+  const config = uiConfig(block);
+  if (!config || !config.id || config.type === "patch") return config;
+  const overlay = componentPatches.get(config.id);
+  return overlay ? Object.assign(Object.create(null), config, overlay) : config;
 }
 
 function appendBoundText(parent, text) {
@@ -506,8 +516,8 @@ function renderInvisibleMarker(kind) {
 
 function currentUiContext() {
   return (parser?.document || []).flatMap(block => {
-    const config = uiConfig(block);
-    if (!config?.type) return [];
+    const config = effectiveUiConfig(block);
+    if (!config?.type || config.type === "patch" || config.type === "state") return [];
     return [{
       type: config.type,
       id: config.id,
@@ -871,6 +881,7 @@ function renderUi(block, config) {
     case "form": return renderInvisibleMarker("form");
     case "derive": return renderInvisibleMarker("derive");
     case "state": return renderInvisibleMarker("state");
+    case "patch": return renderInvisibleMarker("patch");
     case "metric": return renderMetric(block, config);
     case "slider": return renderSlider(block, config);
     case "progress": return renderProgress(block, config);
@@ -896,7 +907,7 @@ function renderUi(block, config) {
 
 function createBlock(block) {
   if (block.type === "codeBlock") {
-    const config = uiConfig(block);
+    const config = effectiveUiConfig(block);
     if (config) return renderUi(block, config);
     const pre = document.createElement("pre");
     pre.className = "md-block";
@@ -1083,7 +1094,7 @@ function composeStructures() {
   for (let index = 0; index < parser.document.length; index++) {
     const block = parser.document[index];
     const element = blockElements[index];
-    const config = uiConfig(block);
+    const config = effectiveUiConfig(block);
 
     if (config?.type === "layout") {
       closeStructures();
@@ -1165,13 +1176,47 @@ function replaceBlock(index) {
   const previous = blockElements[index];
   const parentLayout = previous?.closest?.(".generated-layout");
   if (parentLayout) {
-    const config = uiConfig(block);
+    const config = effectiveUiConfig(block);
     const columns = number(parentLayout.dataset.layoutColumns, 1);
     next.style?.setProperty("--component-span", String(componentSpan(config || {}, columns)));
   }
   if (previous) previous.replaceWith(next);
   else if (!structuresComposed && !hasStructure()) preview.append(next);
   blockElements[index] = next;
+}
+
+function refreshComponentPatches() {
+  const patches = [];
+  for (const block of parser?.document || []) {
+    const config = uiConfig(block);
+    if (config?.type !== "patch" || !block.closed) continue;
+    const patch = componentPatch(config);
+    if (patch) patches.push(patch);
+  }
+
+  const signature = componentPatchSignature(patches);
+  if (signature === componentPatchesSignature) return false;
+
+  const previousTargets = new Set(componentPatches.keys());
+  const next = mergeComponentPatches(patches);
+  for (const target of next.keys()) previousTargets.add(target);
+  componentPatches = next;
+  componentPatchesSignature = signature;
+
+  let structural = false;
+  const rerender = [];
+  for (let index = 0; index < (parser?.document?.length || 0); index++) {
+    const block = parser.document[index];
+    const base = uiConfig(block);
+    if (!base?.id || !previousTargets.has(base.id) || base.type === "patch") continue;
+    if (structureType(block)) structural = true;
+    else rerender.push(index);
+  }
+
+  for (const index of rerender) replaceBlock(index);
+  if (structural) composeStructures();
+  else syncReactiveDom();
+  return true;
 }
 
 function applyStatePatches() {
@@ -1221,6 +1266,7 @@ function renderOperations(ops) {
     syncReactiveDom();
   }
   applyStatePatches();
+  refreshComponentPatches();
   renderMs.textContent = (performance.now() - start).toFixed(3);
   blockCount.textContent = String(parser.blockCount);
   deltaStatus.textContent = ops.length ? `${ops.map(op => op.op).join(" · ")}` : "No structural change";
@@ -1242,6 +1288,8 @@ function beginInputSession(uiBaseline = generatedUiCount()) {
 function resetRuntime() {
   state.clear();
   appliedStatePatches.clear();
+  componentPatches = new Map();
+  componentPatchesSignature = "[]";
   beginInputSession(0);
   const start = performance.now();
   const ops = parser.reset();
@@ -1454,6 +1502,10 @@ async function runInteractionSmoke() {
       const progress = preview.querySelector('[data-state-progress="temperature"] .progress-fill');
       const mode = preview.querySelector('select[data-state-input="mode"]');
       const derived = preview.querySelector('[data-ui-id="fahrenheit"] [data-state-value="fahrenheit"]');
+      const throughput = preview.querySelector('[data-ui-id="throughput"]');
+      const throughputLabel = throughput?.querySelector("h3")?.textContent?.trim();
+      const throughputValue = throughput?.querySelector(".metric-value")?.textContent?.trim();
+      const throughputTrend = throughput?.querySelector(".metric-trend")?.textContent?.trim();
       const appended = source.value.includes("## Model continuation");
       const passed = value === "58"
         && unit === "°C"
@@ -1461,6 +1513,9 @@ async function runInteractionSmoke() {
         && progress?.style.width === "58%"
         && mode?.value === "exact"
         && derived?.textContent === "136.4"
+        && throughputLabel === "Model-updated throughput"
+        && throughputValue === "3.1M"
+        && throughputTrend === "patched safely"
         && appended;
       root.dataset.interactionSmoke = passed ? "pass" : "fail";
       return;
@@ -1531,7 +1586,7 @@ window.addEventListener("resize", () => {
   for (const element of document.querySelectorAll(".ui-card canvas")) {
     const index = blockElements.findIndex(block => block.contains(element));
     const block = parser.document[index];
-    const config = block && uiConfig(block);
+    const config = block && effectiveUiConfig(block);
     if (config?.type === "chart") {
       const values = String(config.values || "").split(",").map(Number).filter(Number.isFinite);
       drawChart(element, values);
