@@ -62,6 +62,8 @@ const scenarios = [
   { name: "plain-token", chunk: "token " },
   { name: "markdown-boundary", chunk: " **fast**\n\n" },
   { name: "markdown-link", chunk: "[x](url) " },
+  { name: "unordered-list-line", setup: "- seed\n", chunk: "- item\n" },
+  { name: "ordered-list-line", setup: "1. seed\n", chunk: "2. item\n" },
   { name: "semantic-reference", chunk: "@[source:bench] " },
   { name: "semantic-citation", chunk: "[[cite:doc|Spec]] " },
   { name: "open-code", setup: "```text\n", chunk: "0123456789abcdef0123456789abcdef\n" },
