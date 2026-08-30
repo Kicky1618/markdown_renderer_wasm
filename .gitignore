@@ -5,3 +5,5 @@
 /.commit-*/
 /.bench-head/
 /.agent_*.py
+
+/webapp/langpacks/*.slp
