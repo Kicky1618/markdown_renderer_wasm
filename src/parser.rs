@@ -100,6 +100,7 @@ pub struct Parser {
     has_live: bool,
     live_plain: bool,
     live_inline_appendable: bool,
+    trailing_backslash_odd: bool,
 }
 
 impl Default for Parser {
@@ -120,6 +121,7 @@ impl Parser {
             has_live: false,
             live_plain: false,
             live_inline_appendable: false,
+            trailing_backslash_odd: false,
         }
     }
 
@@ -164,6 +166,7 @@ impl Parser {
                 self.has_live = false;
                 self.live_plain = false;
                 self.live_inline_appendable = false;
+                self.trailing_backslash_odd = false;
                 self.line.clear();
                 self.pending.clear();
                 self.pending_kind = None;
@@ -194,6 +197,7 @@ impl Parser {
                     });
                     self.mode = Mode::Normal;
                     self.committed = self.blocks.len();
+                    self.trailing_backslash_odd = false;
                 }
             }
         }
@@ -266,6 +270,7 @@ impl Parser {
         };
         text.push_str(input);
         self.line.push_str(input);
+        self.trailing_backslash_odd = false;
         delta.ops.push(Op::AppendText {
             block: block_index as u32,
             append: input.to_owned(),
@@ -278,7 +283,6 @@ impl Parser {
             || !matches!(self.mode, Mode::Normal)
             || !self.has_live
             || !self.live_inline_appendable
-            || !inline_tail_append_is_safe(&self.line, input)
         {
             return false;
         }
@@ -289,12 +293,48 @@ impl Parser {
         let Some(Block::Paragraph(nodes)) = self.blocks.get_mut(block_index) else {
             return false;
         };
+
+        // A run of backslashes is special: Markdown collapses each escaped pair
+        // into one literal backslash. Track the raw trailing-run parity so a
+        // token-at-a-time LLM stream does not reparse the whole paragraph on
+        // every second byte. Any later escapable punctuation still takes the
+        // conservative full-reparse path below.
+        if input.bytes().all(|byte| byte == b'\\') {
+            let append_len = if self.trailing_backslash_odd {
+                input.len() / 2
+            } else {
+                input.len().div_ceil(2)
+            };
+            if append_len != 0 {
+                let append = "\\".repeat(append_len);
+                if let Some(Inline::Text(text)) = nodes.last_mut() {
+                    text.push_str(&append);
+                } else {
+                    nodes.push(Inline::Text(append.clone()));
+                }
+                delta.ops.push(Op::AppendInlineText {
+                    block: block_index as u32,
+                    append,
+                });
+            }
+            self.line.push_str(input);
+            if input.len() % 2 != 0 {
+                self.trailing_backslash_odd = !self.trailing_backslash_odd;
+            }
+            return true;
+        }
+
+        if !inline_tail_append_is_safe(&self.line, input) {
+            return false;
+        }
         if let Some(Inline::Text(text)) = nodes.last_mut() {
             text.push_str(input);
         } else {
             nodes.push(Inline::Text(input.to_owned()));
         }
         self.line.push_str(input);
+        self.trailing_backslash_odd =
+            trailing_backslash_odd_after(self.trailing_backslash_odd, input);
         delta.ops.push(Op::AppendInlineText {
             block: block_index as u32,
             append: input.to_owned(),
@@ -412,10 +452,12 @@ impl Parser {
         let mut source = self.pending.clone();
         source.push_str(&self.line);
         if source.is_empty() {
+            self.trailing_backslash_odd = false;
             return;
         }
         if self.pending_kind.is_none() && is_thematic(&self.line) {
             self.live_plain = false;
+            self.trailing_backslash_odd = false;
             self.live_inline_appendable = false;
             self.push(Block::ThematicBreak, delta);
             self.has_live = true;
@@ -434,6 +476,15 @@ impl Parser {
         self.live_plain = stable_single_line_paragraph && source.bytes().all(is_plain_stream_byte);
         self.live_inline_appendable =
             (stable_single_line_paragraph && !self.live_plain) || stable_multiline_paragraph;
+        self.trailing_backslash_odd = self
+            .line
+            .as_bytes()
+            .iter()
+            .rev()
+            .take_while(|&&byte| byte == b'\\')
+            .count()
+            % 2
+            != 0;
         self.push(block, delta);
         self.has_live = true;
     }
@@ -568,6 +619,22 @@ fn inline_tail_append_is_safe(line: &str, input: &str) -> bool {
         i += 1;
     }
     true
+}
+
+fn trailing_backslash_odd_after(old_odd: bool, input: &str) -> bool {
+    let trailing = input
+        .as_bytes()
+        .iter()
+        .rev()
+        .take_while(|&&byte| byte == b'\\')
+        .count();
+    if trailing == 0 {
+        false
+    } else if trailing == input.len() {
+        old_odd ^ (trailing % 2 != 0)
+    } else {
+        trailing % 2 != 0
+    }
 }
 
 fn is_escapable_punctuation(byte: u8) -> bool {
@@ -1170,6 +1237,43 @@ $$
         let delta = parser.append("-\n");
         assert!(matches!(delta.ops.first(), Some(Op::Truncate { from: 0 })));
         assert!(matches!(parser.blocks(), [Block::ThematicBreak]));
+    }
+
+    #[test]
+    fn backslash_runs_use_parity_delta_then_reparse_on_escape_completion() {
+        let mut parser = Parser::new();
+        parser.append("\\");
+
+        let even = parser.append("\\");
+        assert!(even.ops.is_empty());
+        assert_eq!(
+            parser.blocks(),
+            &[Block::Paragraph(vec![Inline::Text("\\".to_owned())])]
+        );
+
+        let odd = parser.append("\\");
+        assert_eq!(
+            odd.ops,
+            vec![Op::AppendInlineText {
+                block: 0,
+                append: "\\".to_owned(),
+            }]
+        );
+        assert_eq!(
+            parser.blocks(),
+            &[Block::Paragraph(vec![Inline::Text("\\\\".to_owned())])]
+        );
+
+        parser.append("\\");
+        let completed_escape = parser.append("*");
+        assert!(matches!(
+            completed_escape.ops.first(),
+            Some(Op::Truncate { from: 0 })
+        ));
+
+        let mut whole = Parser::new();
+        whole.append("\\\\\\\\*");
+        assert_eq!(parser.blocks(), whole.blocks());
     }
 
     #[test]
