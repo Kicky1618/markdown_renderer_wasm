@@ -202,13 +202,22 @@ impl Parser {
 
     /// Append a UTF-8 chunk and return only mutations caused by that chunk.
     pub fn append(&mut self, input: &str) -> Delta {
-        if let Some(delta) = self.try_append_plain(input) {
-            return delta;
-        }
-        if let Some(delta) = self.try_append_inline_text(input) {
-            return delta;
-        }
         let mut delta = Delta::default();
+        self.append_into(input, &mut delta);
+        delta
+    }
+
+    /// Append into a caller-owned delta buffer so high-frequency callers can
+    /// reuse the `ops` allocation across token chunks. Existing operations are
+    /// cleared before parsing.
+    pub fn append_into(&mut self, input: &str, delta: &mut Delta) {
+        delta.ops.clear();
+        if self.try_append_plain(input, delta) {
+            return;
+        }
+        if self.try_append_inline_text(input, delta) {
+            return;
+        }
         let mut rest = input;
         loop {
             match self.mode {
@@ -216,10 +225,10 @@ impl Parser {
                     if rest.is_empty() {
                         break;
                     }
-                    self.begin_normal_update(&mut delta);
-                    rest = self.consume_normal(rest, &mut delta);
+                    self.begin_normal_update(delta);
+                    rest = self.consume_normal(rest, delta);
                     if matches!(self.mode, Mode::Normal) {
-                        self.publish_live(&mut delta);
+                        self.publish_live(delta);
                         break;
                     }
                     if rest.is_empty() {
@@ -227,44 +236,44 @@ impl Parser {
                     }
                 }
                 Mode::Fence { .. } => {
-                    rest = self.consume_fence(rest, &mut delta);
+                    rest = self.consume_fence(rest, delta);
                     if rest.is_empty() {
                         break;
                     }
                 }
             }
         }
-        delta
     }
 
-    fn try_append_plain(&mut self, input: &str) -> Option<Delta> {
+    fn try_append_plain(&mut self, input: &str, delta: &mut Delta) -> bool {
         if input.is_empty()
             || !matches!(self.mode, Mode::Normal)
             || !self.has_live
             || !self.live_plain
             || !input.bytes().all(is_plain_stream_byte)
         {
-            return None;
+            return false;
         }
 
-        let block_index = self.blocks.len().checked_sub(1)?;
-        let Block::Paragraph(nodes) = self.blocks.get_mut(block_index)? else {
-            return None;
+        let Some(block_index) = self.blocks.len().checked_sub(1) else {
+            return false;
+        };
+        let Some(Block::Paragraph(nodes)) = self.blocks.get_mut(block_index) else {
+            return false;
         };
         let [Inline::Text(text)] = nodes.as_mut_slice() else {
-            return None;
+            return false;
         };
         text.push_str(input);
         self.line.push_str(input);
-        Some(Delta {
-            ops: vec![Op::AppendText {
-                block: block_index as u32,
-                append: input.to_owned(),
-            }],
-        })
+        delta.ops.push(Op::AppendText {
+            block: block_index as u32,
+            append: input.to_owned(),
+        });
+        true
     }
 
-    fn try_append_inline_text(&mut self, input: &str) -> Option<Delta> {
+    fn try_append_inline_text(&mut self, input: &str, delta: &mut Delta) -> bool {
         if input.is_empty()
             || !matches!(self.mode, Mode::Normal)
             || !self.has_live
@@ -276,12 +285,14 @@ impl Parser {
                     .first()
                     .is_some_and(|&byte| is_escapable_punctuation(byte)))
         {
-            return None;
+            return false;
         }
 
-        let block_index = self.blocks.len().checked_sub(1)?;
-        let Block::Paragraph(nodes) = self.blocks.get_mut(block_index)? else {
-            return None;
+        let Some(block_index) = self.blocks.len().checked_sub(1) else {
+            return false;
+        };
+        let Some(Block::Paragraph(nodes)) = self.blocks.get_mut(block_index) else {
+            return false;
         };
         if let Some(Inline::Text(text)) = nodes.last_mut() {
             text.push_str(input);
@@ -289,12 +300,11 @@ impl Parser {
             nodes.push(Inline::Text(input.to_owned()));
         }
         self.line.push_str(input);
-        Some(Delta {
-            ops: vec![Op::AppendInlineText {
-                block: block_index as u32,
-                append: input.to_owned(),
-            }],
-        })
+        delta.ops.push(Op::AppendInlineText {
+            block: block_index as u32,
+            append: input.to_owned(),
+        });
+        true
     }
 
     fn begin_normal_update(&mut self, delta: &mut Delta) {
@@ -615,10 +625,10 @@ fn block_from_complete(source: &str, kind: PendingKind) -> Block {
             content: parse_inlines(text),
         };
     }
-    if kind == PendingKind::Paragraph {
-        if let Some(table) = table_from_complete(source) {
-            return table;
-        }
+    if kind == PendingKind::Paragraph
+        && let Some(table) = table_from_complete(source)
+    {
+        return table;
     }
     match kind {
         PendingKind::Paragraph => Block::Paragraph(parse_multiline(source)),
