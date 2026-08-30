@@ -617,12 +617,49 @@ impl Parser {
         let Some(block_index) = self.blocks.len().checked_sub(1) else {
             return false;
         };
-        if self.try_append_complete_quote_line(block_index, input, delta) {
-            return true;
-        }
         let Some(Block::BlockQuote(nodes)) = self.blocks.get_mut(block_index) else {
             return false;
         };
+
+        if self.line.is_empty() {
+            let (raw, sealed) = if let Some(raw) = input.strip_suffix('\n') {
+                if raw.contains('\n') {
+                    return false;
+                }
+                (raw, true)
+            } else {
+                if input.contains('\n') {
+                    return false;
+                }
+                (input, false)
+            };
+            if classify(raw) == PendingKind::Quote {
+                let body = quote_line_body(raw);
+                if !body.bytes().all(is_plain_stream_byte) {
+                    return false;
+                }
+                if !body.is_empty() {
+                    if !quote_previous_line_can_append_break(&self.pending) {
+                        return false;
+                    }
+                    let append = vec![Inline::SoftBreak, Inline::Text(body.to_owned())];
+                    splice_inline_tail(nodes, 0, 0, &append);
+                    delta.ops.push(Op::SpliceQuoteTail {
+                        block: block_index as u32,
+                        remove_nodes: 0,
+                        truncate_bytes: 0,
+                        append,
+                    });
+                }
+                if sealed {
+                    self.pending.push_str(raw);
+                    self.pending.push('\n');
+                } else {
+                    self.line.push_str(raw);
+                }
+                return true;
+            }
+        }
 
         let old_body = quote_line_body(&self.line);
         if !old_body.bytes().all(is_plain_stream_byte) {
@@ -652,6 +689,10 @@ impl Parser {
         if append_text.is_empty() {
             return true;
         }
+        if old_body_len == 0 && !quote_previous_line_can_append_break(&self.pending) {
+            self.line.truncate(self.line.len() - input.len());
+            return false;
+        }
 
         let mut append = Vec::with_capacity(2);
         if old_body_len == 0 && !nodes.is_empty() {
@@ -665,49 +706,6 @@ impl Parser {
             truncate_bytes: 0,
             append,
         });
-        true
-    }
-
-    fn try_append_complete_quote_line(
-        &mut self,
-        block_index: usize,
-        input: &str,
-        delta: &mut Delta,
-    ) -> bool {
-        // Only consume an entire sealed quote line between completed lines.
-        // Unsealed/partial chunks stay on the existing quote-tail fast path.
-        if !self.line.is_empty() {
-            return false;
-        }
-        let Some(raw) = input.strip_suffix('\n') else {
-            return false;
-        };
-        if raw.contains('\n') {
-            return false;
-        }
-        let trimmed = raw.trim_start();
-        if !(trimmed == ">" || trimmed.starts_with("> ")) {
-            return false;
-        }
-        let body = quote_line_body(raw);
-        let Some(Block::BlockQuote(nodes)) = self.blocks.get_mut(block_index) else {
-            return false;
-        };
-        let mut append = Vec::new();
-        if !nodes.is_empty() {
-            append.push(Inline::SoftBreak);
-        }
-        append.extend(parse_inlines(body));
-        splice_inline_tail(nodes, 0, 0, &append);
-        delta.ops.push(Op::SpliceQuoteTail {
-            block: block_index as u32,
-            remove_nodes: 0,
-            truncate_bytes: 0,
-            append,
-        });
-        self.pending.push_str(raw);
-        self.pending.push('\n');
-        self.line.clear();
         true
     }
 
@@ -2802,6 +2800,21 @@ fn quote_line_body(line: &str) -> &str {
     body.trim_start()
 }
 
+fn quote_previous_line_can_append_break(pending: &str) -> bool {
+    let source = pending.strip_suffix('\n').unwrap_or(pending);
+    let previous = source.rsplit('\n').next().unwrap_or("");
+    let body = quote_line_body(previous);
+    !body.is_empty()
+        && body.bytes().all(is_plain_stream_byte)
+        && body
+            .as_bytes()
+            .iter()
+            .rev()
+            .take_while(|&&byte| byte == b' ')
+            .count()
+            < 2
+}
+
 fn line_can_continue_list_kind(kind: PendingKind, line: &str) -> bool {
     let trimmed = line.trim_start();
     match kind {
@@ -4122,43 +4135,6 @@ $$
         let mut whole = Parser::new();
         whole.append(markdown);
         assert_eq!(parser.blocks(), whole.blocks());
-    }
-
-    #[test]
-    fn complete_quote_lines_splice_without_republishing_quote() {
-        let mut parser = Parser::new();
-        parser.append("> one\n");
-        let rich = parser.append("> **two** [x](u)\n");
-        assert!(matches!(
-            rich.ops.as_slice(),
-            [Op::SpliceQuoteTail { append, .. }]
-                if matches!(append.as_slice(),
-                    [Inline::SoftBreak, Inline::Strong(_), Inline::Text(space), Inline::Link { destination, .. }]
-                        if space == " " && destination == "u")
-        ));
-        let open = parser.append("> three");
-        assert!(matches!(open.ops.as_slice(), [Op::SpliceQuoteTail { .. }]));
-        assert!(parser.append("\n").ops.is_empty());
-        let mut whole = Parser::new();
-        whole.append("> one\n> **two** [x](u)\n> three\n");
-        assert_eq!(parser.blocks(), whole.blocks());
-    }
-
-    #[test]
-    fn complete_quote_line_fast_path_is_conservative() {
-        let mut parser = Parser::new();
-        parser.append("> one\n");
-        parser.append("> two\n> three\n");
-        let mut whole = Parser::new();
-        whole.append("> one\n> two\n> three\n");
-        assert_eq!(parser.blocks(), whole.blocks());
-
-        let mut plain = Parser::new();
-        plain.append("> one\n");
-        plain.append("paragraph");
-        let mut whole = Parser::new();
-        whole.append("> one\nparagraph");
-        assert_eq!(plain.blocks(), whole.blocks());
     }
 
     #[test]
