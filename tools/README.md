@@ -231,7 +231,18 @@ console.log(result.state.values["state:session"]);
 console.log(result.state.revisions["state:session"]);
 ```
 
-The wrapper deliberately reserves the `state` and `patch` runner kinds so its snapshot always reflects the state actually applied by the scheduler. Use the base `SemanticRuntime` directly when custom state semantics are required.
+The wrapper deliberately reserves the `state` and `patch` runner kinds so its snapshot always reflects the state actually applied by the scheduler. Use the base `SemanticRuntime` directly when custom state semantics are required. A `SemanticJournal` can also be auto-wired at construction time. `journalScheduler: "terminal"` keeps only completed/failed/blocked scheduler outcomes in the persisted journal while optional callbacks still receive every transition.
+
+```js
+const journal = new SemanticJournal();
+const runtime = await StatefulSemanticRuntime.load(wasm, {
+  journal,
+  journalScheduler: "terminal",
+  runners,
+});
+await runtime.consume(providerChunks);
+console.log(journal.toNDJSON());
+```
 
 ```sh
 node tools/stateful-semantic-runtime.integration.mjs

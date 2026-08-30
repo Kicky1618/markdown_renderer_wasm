@@ -1,5 +1,6 @@
 import { SemanticRuntime } from "./semantic-runtime.mjs";
 import { createStateRunners, SemanticStateStore } from "./semantic-state.mjs";
+import { createSemanticJournalHooks, SemanticJournal } from "./semantic-journal.mjs";
 
 /**
  * Convenience wrapper that wires `:::llm state` / `:::llm patch` into the
@@ -13,32 +14,52 @@ export class StatefulSemanticRuntime {
   static async load(wasmSource, {
     stateStore = null,
     onStateChange = null,
+    onTransition = null,
+    journal = null,
+    journalScheduler = "all",
     runners = {},
     ...runtimeOptions
   } = {}) {
-    const store = stateStore ?? new SemanticStateStore({ onChange: onStateChange });
-    if (!(store instanceof SemanticStateStore)) {
-      throw new TypeError("stateStore must be a SemanticStateStore");
+    if (journal !== null && !(journal instanceof SemanticJournal)) {
+      throw new TypeError("journal must be a SemanticJournal");
     }
     if (stateStore && onStateChange !== null) {
       throw new TypeError("onStateChange cannot be used with an explicit stateStore; configure the store callback directly");
     }
+    if (stateStore && journal !== null) {
+      throw new TypeError("journal cannot be auto-wired with an explicit stateStore; use createSemanticJournalHooks() on that store instead");
+    }
+
+    const hooks = journal === null
+      ? { onTransition, onStateChange }
+      : createSemanticJournalHooks(journal, {
+          scheduler: journalScheduler,
+          onTransition,
+          onStateChange,
+        });
+    const store = stateStore ?? new SemanticStateStore({ onChange: hooks.onStateChange });
+    if (!(store instanceof SemanticStateStore)) {
+      throw new TypeError("stateStore must be a SemanticStateStore");
+    }
 
     const runtime = await SemanticRuntime.load(wasmSource, {
       ...runtimeOptions,
+      onTransition: hooks.onTransition,
       runners: {
         ...runners,
         ...createStateRunners(store),
       },
     });
-    return new StatefulSemanticRuntime(runtime, store);
+    return new StatefulSemanticRuntime(runtime, store, journal);
   }
 
-  constructor(runtime, stateStore) {
+  constructor(runtime, stateStore, journal = null) {
     if (!(runtime instanceof SemanticRuntime)) throw new TypeError("runtime must be a SemanticRuntime");
     if (!(stateStore instanceof SemanticStateStore)) throw new TypeError("stateStore must be a SemanticStateStore");
+    if (journal !== null && !(journal instanceof SemanticJournal)) throw new TypeError("journal must be a SemanticJournal");
     this.runtime = runtime;
     this.stateStore = stateStore;
+    this.journal = journal;
   }
 
   append(chunk) {

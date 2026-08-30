@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { StatefulSemanticRuntime } from "./stateful-semantic-runtime.mjs";
+import { SemanticJournal } from "./semantic-journal.mjs";
+import { SemanticStateStore } from "./semantic-state.mjs";
 
 const wasmPath = process.argv[2] ?? "target/wasm32-unknown-unknown/release/streamdown.wasm";
 const wasm = await readFile(wasmPath);
@@ -59,9 +61,37 @@ for (const width of [1, 5, 23]) {
   }
 }
 
+const compactJournal = new SemanticJournal();
+const journalRuntime = await StatefulSemanticRuntime.load(wasm, {
+  journal: compactJournal,
+  journalScheduler: "terminal",
+  runners: { artifact: async (_node, { dependencyResults }) => dependencyResults["patch:ready"] },
+});
+try {
+  const result = await journalRuntime.consume(chunks(markdown, 11));
+  assert.deepEqual(compactJournal.verify(), { ok: true, errors: [] });
+  assert.deepEqual(compactJournal.replayState(), result.state);
+  const schedulerStatuses = compactJournal.snapshot()
+    .filter((entry) => entry.type === "scheduler")
+    .map((entry) => entry.status);
+  assert.ok(schedulerStatuses.length > 0);
+  assert.ok(schedulerStatuses.every((status) => ["completed", "failed", "blocked"].includes(status)));
+  assert.equal(journalRuntime.journal, compactJournal);
+} finally {
+  journalRuntime.dispose();
+}
+
 await assert.rejects(
   StatefulSemanticRuntime.load(wasm, { stateStore: {}, onStateChange() {} }),
   /stateStore must be a SemanticStateStore|onStateChange cannot be used/,
+);
+await assert.rejects(
+  StatefulSemanticRuntime.load(wasm, { journal: {} }),
+  /journal must be a SemanticJournal/,
+);
+await assert.rejects(
+  StatefulSemanticRuntime.load(wasm, { stateStore: new SemanticStateStore(), journal: new SemanticJournal() }),
+  /journal cannot be auto-wired with an explicit stateStore/,
 );
 
 console.log("stateful semantic runtime WASM integration: ok");
