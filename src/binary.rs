@@ -2,7 +2,17 @@ use crate::parser::{Block, Delta, Inline, Op};
 
 /// Compact little-endian wire format. See FORMAT.md.
 pub fn encode_delta(delta: &Delta) -> Vec<u8> {
-    let mut w = Writer(Vec::with_capacity(64));
+    let mut output = Vec::with_capacity(64);
+    encode_delta_into(delta, &mut output);
+    output
+}
+
+/// Encode into a caller-owned buffer, preserving its allocation for reuse.
+///
+/// This is the preferred path for high-frequency streaming/WASM callers.
+pub fn encode_delta_into(delta: &Delta, output: &mut Vec<u8>) {
+    output.clear();
+    let mut w = Writer(output);
     w.0.extend_from_slice(b"MDA1");
     w.u32(delta.ops.len() as u32);
     for op in &delta.ops {
@@ -34,13 +44,17 @@ pub fn encode_delta(delta: &Delta) -> Vec<u8> {
                 w.u32(*block);
                 w.string(append);
             }
+            Op::AppendInlineText { block, append } => {
+                w.u8(6);
+                w.u32(*block);
+                w.string(append);
+            }
         }
     }
-    w.0
 }
 
-struct Writer(Vec<u8>);
-impl Writer {
+struct Writer<'a>(&'a mut Vec<u8>);
+impl Writer<'_> {
     fn u8(&mut self, x: u8) {
         self.0.push(x);
     }
@@ -142,5 +156,27 @@ impl Writer {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::{Block, Delta, Inline, Op};
+
+    #[test]
+    fn encode_into_matches_owned_encoder_and_reuses_capacity() {
+        let delta = Delta {
+            ops: vec![Op::Push(Block::Paragraph(vec![Inline::Text(
+                "streamed output".to_owned(),
+            )]))],
+        };
+        let expected = encode_delta(&delta);
+        let mut output = Vec::with_capacity(4096);
+        let capacity = output.capacity();
+        output.extend_from_slice(b"stale bytes");
+        encode_delta_into(&delta, &mut output);
+        assert_eq!(output, expected);
+        assert_eq!(output.capacity(), capacity);
     }
 }

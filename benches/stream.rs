@@ -42,6 +42,21 @@ fn main() {
         start.elapsed(),
     );
 
+    // Real LLM paragraphs usually contain some Markdown early, then many plain tokens.
+    let formatted_tokens = 20_000;
+    let mut parser = Parser::new();
+    parser.append("Answer with **important** context: ");
+    let start = Instant::now();
+    for _ in 0..formatted_tokens {
+        black_box(parser.append("token "));
+    }
+    throughput(
+        "formatted live paragraph",
+        formatted_tokens,
+        formatted_tokens * "token ".len(),
+        start.elapsed(),
+    );
+
     let mut parser = Parser::new();
     parser.append("```text\n");
     let line = "0123456789abcdef0123456789abcdef\n";

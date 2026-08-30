@@ -57,9 +57,23 @@ fn llm_semantic_fence_is_chunk_boundary_independent_exhaustively() {
 }
 
 #[test]
+fn long_llm_fence_with_short_colons_is_chunk_boundary_independent() {
+    assert_every_single_split(
+        "Before\n\n::::llm artifact mime=text/plain\nalpha\n:::\nomega\n::::\n\nAfter",
+    );
+}
+
+#[test]
 fn mixed_markdown_plain_fast_path_is_chunk_boundary_independent() {
     assert_every_single_split(
         "A long plain token stream keeps going until **bold**, then `code`, then [[cite:bench-1]].",
+    );
+}
+
+#[test]
+fn inline_tail_fast_path_respects_escape_and_link_completion() {
+    assert_every_single_split(
+        "Prefix **bold** escaped \\. and [docs](https://example.com/path) suffix",
     );
 }
 
@@ -102,6 +116,16 @@ fn apply(document: &mut Vec<Block>, delta: &Delta) {
                     panic!("AppendText target has no trailing text")
                 };
                 text.push_str(append);
+            }
+            Op::AppendInlineText { block, append } => {
+                let Block::Paragraph(nodes) = &mut document[*block as usize] else {
+                    panic!("AppendInlineText target is not paragraph")
+                };
+                if let Some(Inline::Text(text)) = nodes.last_mut() {
+                    text.push_str(append);
+                } else {
+                    nodes.push(Inline::Text(append.clone()));
+                }
             }
         }
     }

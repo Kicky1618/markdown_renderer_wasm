@@ -47,6 +47,7 @@ export function decodeDelta(bytes) {
       case 3: return { op: "spliceCode", block: u32(), truncateBytes: u32(), append: string() };
       case 4: return { op: "sealCode", block: u32() };
       case 5: return { op: "appendText", block: u32(), append: string() };
+      case 6: return { op: "appendInlineText", block: u32(), append: string() };
       default: throw new Error("unknown delta operation");
     }
   });
@@ -66,6 +67,13 @@ export function applyDelta(document, ops) {
         throw new Error("appendText target is not a plain paragraph");
       }
       node.children[0].value += change.append;
+    }
+    else if (change.op === "appendInlineText") {
+      const node = document[change.block];
+      if (node.type !== "paragraph") throw new Error("appendInlineText target is not a paragraph");
+      const tail = node.children[node.children.length - 1];
+      if (tail?.type === "text") tail.value += change.append;
+      else node.children.push({ type: "text", value: change.append });
     }
     else if (change.op === "spliceCode") {
       const node = document[change.block];
@@ -191,16 +199,49 @@ export class Streamdown {
     this.exports = instance.exports;
     this.handle = this.exports.md_create();
     this.document = [];
+    this.inputPtr = 0;
+    this.inputCapacity = 0;
+    this.inputMemory = null;
+    this.inputView = null;
   }
 
   append(chunk) {
     this.#assertActive();
     if (typeof chunk !== "string") throw new TypeError("append() expects a string");
-    const input = utf8.encode(chunk);
-    const ptr = this.exports.md_alloc(input.length);
-    if (input.length) new Uint8Array(this.exports.memory.buffer, ptr, input.length).set(input);
-    const ok = this.exports.md_append(this.handle, ptr, input.length);
-    this.exports.md_free(ptr);
+
+    let ok;
+    if (this.exports.md_input_reserve && this.exports.md_append_input && utf8.encodeInto) {
+      // Three bytes per UTF-16 code unit is a safe upper bound for UTF-8. Grow
+      // geometrically so normal token streams reserve WASM input memory once.
+      const needed = chunk.length * 3;
+      if (needed > this.inputCapacity) {
+        const capacity = Math.max(64, needed, this.inputCapacity * 2);
+        this.inputPtr = this.exports.md_input_reserve(this.handle, capacity);
+        this.inputCapacity = capacity;
+        this.inputMemory = null;
+        this.inputView = null;
+      }
+      const memory = this.exports.memory.buffer;
+      if (this.inputCapacity && this.inputMemory !== memory) {
+        this.inputMemory = memory;
+        this.inputView = new Uint8Array(memory, this.inputPtr, this.inputCapacity);
+      }
+      let written = 0;
+      if (needed) {
+        const encoded = utf8.encodeInto(chunk, this.inputView);
+        if (encoded.read !== chunk.length) throw new Error("WASM input buffer was too small");
+        written = encoded.written;
+      }
+      ok = this.exports.md_append_input(this.handle, written);
+    } else {
+      // Compatibility path for older Streamdown WASM binaries.
+      const input = utf8.encode(chunk);
+      const ptr = this.exports.md_alloc(input.length);
+      if (input.length) new Uint8Array(this.exports.memory.buffer, ptr, input.length).set(input);
+      ok = this.exports.md_append(this.handle, ptr, input.length);
+      this.exports.md_free(ptr);
+    }
+
     if (!ok) throw new Error("WASM parser rejected the input");
     const ops = this.#readDelta();
     applyDelta(this.document, ops);
@@ -430,8 +471,9 @@ export class Streamdown {
   #readDelta() {
     const outPtr = this.exports.md_delta_ptr(this.handle);
     const outLen = this.exports.md_delta_len(this.handle);
-    // Copy because the next parser call reuses the Rust output allocation.
-    const bytes = new Uint8Array(this.exports.memory.buffer, outPtr, outLen).slice();
+    // Decode synchronously before the next parser call mutates the reusable
+    // output buffer. No copy is needed because decodeDelta returns owned JS data.
+    const bytes = new Uint8Array(this.exports.memory.buffer, outPtr, outLen);
     return decodeDelta(bytes);
   }
 }

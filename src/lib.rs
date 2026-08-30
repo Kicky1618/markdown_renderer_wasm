@@ -8,7 +8,7 @@ mod binary;
 mod inline;
 mod parser;
 
-pub use binary::encode_delta;
+pub use binary::{encode_delta, encode_delta_into};
 pub use parser::{Block, Delta, Inline, Op, Parser};
 
 #[cfg(target_arch = "wasm32")]
@@ -19,6 +19,7 @@ mod wasm {
     pub struct Handle {
         parser: Parser,
         output: Vec<u8>,
+        input: Vec<u8>,
     }
 
     thread_local! {
@@ -30,6 +31,7 @@ mod wasm {
         Box::into_raw(Box::new(Handle {
             parser: Parser::new(),
             output: Vec::new(),
+            input: Vec::new(),
         }))
     }
 
@@ -59,8 +61,54 @@ mod wasm {
         });
     }
 
+    fn append_utf8(h: &mut Handle, bytes: &[u8]) -> u32 {
+        let Ok(text) = str::from_utf8(bytes) else {
+            return 0;
+        };
+        let delta = h.parser.append(text);
+        crate::encode_delta_into(&delta, &mut h.output);
+        1
+    }
+
+    /// Returns reusable input memory owned by this parser handle. The buffer is
+    /// valid until another call that can grow the handle input buffer.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn md_input_reserve(handle: *mut Handle, len: usize) -> *mut u8 {
+        let Some(h) = (unsafe { handle.as_mut() }) else {
+            return std::ptr::null_mut();
+        };
+        h.input.resize(len, 0);
+        if len == 0 {
+            std::ptr::null_mut()
+        } else {
+            h.input.as_mut_ptr()
+        }
+    }
+
+    /// Appends bytes previously written into `md_input_reserve` memory. This is
+    /// the zero-allocation hot path used by the JavaScript streaming wrapper.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn md_append_input(handle: *mut Handle, len: usize) -> u32 {
+        let Some(h) = (unsafe { handle.as_mut() }) else {
+            return 0;
+        };
+        if len > h.input.len() {
+            return 0;
+        }
+        let bytes = &h.input[..len];
+        // Parser append may mutate other handle fields, so validate UTF-8 first
+        // and then borrow the parser/output fields independently.
+        let Ok(text) = str::from_utf8(bytes) else {
+            return 0;
+        };
+        let delta = h.parser.append(text);
+        crate::encode_delta_into(&delta, &mut h.output);
+        1
+    }
+
     /// Appends UTF-8 and stores an MDA1 delta in the handle's output buffer.
-    /// Returns 1 on success and 0 for invalid arguments/UTF-8.
+    /// Returns 1 on success and 0 for invalid arguments/UTF-8. Kept for ABI
+    /// compatibility; new JavaScript callers should use the reusable input path.
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn md_append(handle: *mut Handle, ptr: *const u8, len: usize) -> u32 {
         let Some(h) = (unsafe { handle.as_mut() }) else {
@@ -74,12 +122,7 @@ mod wasm {
         } else {
             unsafe { slice::from_raw_parts(ptr, len) }
         };
-        let Ok(text) = str::from_utf8(bytes) else {
-            return 0;
-        };
-        let delta = h.parser.append(text);
-        h.output = crate::encode_delta(&delta);
-        1
+        append_utf8(h, bytes)
     }
 
     /// Clears the document and stores its truncate delta in the output buffer.
@@ -88,7 +131,7 @@ mod wasm {
         let Some(h) = (unsafe { handle.as_mut() }) else {
             return 0;
         };
-        h.output = crate::encode_delta(&h.parser.reset());
+        crate::encode_delta_into(&h.parser.reset(), &mut h.output);
         1
     }
 
@@ -98,7 +141,7 @@ mod wasm {
         let Some(h) = (unsafe { handle.as_mut() }) else {
             return 0;
         };
-        h.output = crate::encode_delta(&h.parser.finish());
+        crate::encode_delta_into(&h.parser.finish(), &mut h.output);
         1
     }
 

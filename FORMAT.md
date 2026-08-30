@@ -11,6 +11,7 @@ count.
 | `SpliceCode` | 3 | block index, UTF-8 tail byte count, appended string |
 | `SealCode` | 4 | block index |
 | `AppendText` | 5 | paragraph block index, appended UTF-8 string |
+| `AppendInlineText` | 6 | paragraph block index, appended UTF-8 string |
 
 Block tags are paragraph (1), heading (2), fenced code (3), quote (4),
 unordered list (5), ordered list (6), thematic break (7), and table (8). Inline tags are

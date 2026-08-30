@@ -59,6 +59,9 @@ pub enum Op {
     SealCode { block: u32 },
     /// Append plain UTF-8 text to the sole text inline of a live paragraph.
     AppendText { block: u32, append: String },
+    /// Append plain UTF-8 text to the inline tail of a live paragraph.
+    /// If the paragraph does not currently end in `Text`, a new text node is created.
+    AppendInlineText { block: u32, append: String },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -96,6 +99,7 @@ pub struct Parser {
     committed: usize,
     has_live: bool,
     live_plain: bool,
+    live_inline_appendable: bool,
 }
 
 impl Default for Parser {
@@ -115,6 +119,7 @@ impl Parser {
             committed: 0,
             has_live: false,
             live_plain: false,
+            live_inline_appendable: false,
         }
     }
 
@@ -158,6 +163,7 @@ impl Parser {
                 self.committed = self.blocks.len();
                 self.has_live = false;
                 self.live_plain = false;
+                self.live_inline_appendable = false;
                 self.line.clear();
                 self.pending.clear();
                 self.pending_kind = None;
@@ -197,6 +203,9 @@ impl Parser {
     /// Append a UTF-8 chunk and return only mutations caused by that chunk.
     pub fn append(&mut self, input: &str) -> Delta {
         if let Some(delta) = self.try_append_plain(input) {
+            return delta;
+        }
+        if let Some(delta) = self.try_append_inline_text(input) {
             return delta;
         }
         let mut delta = Delta::default();
@@ -255,6 +264,44 @@ impl Parser {
         })
     }
 
+    fn try_append_inline_text(&mut self, input: &str) -> Option<Delta> {
+        if input.is_empty()
+            || !matches!(self.mode, Mode::Normal)
+            || !self.has_live
+            || !self.live_inline_appendable
+            || !input.bytes().all(is_plain_stream_byte)
+            || (self.line.ends_with('\\')
+                && input
+                    .as_bytes()
+                    .first()
+                    .is_some_and(|&byte| is_escapable_punctuation(byte)))
+            || (self.line.ends_with('\\')
+                && input
+                    .as_bytes()
+                    .first()
+                    .is_some_and(|byte| byte.is_ascii_punctuation()))
+        {
+            return None;
+        }
+
+        let block_index = self.blocks.len().checked_sub(1)?;
+        let Block::Paragraph(nodes) = self.blocks.get_mut(block_index)? else {
+            return None;
+        };
+        if let Some(Inline::Text(text)) = nodes.last_mut() {
+            text.push_str(input);
+        } else {
+            nodes.push(Inline::Text(input.to_owned()));
+        }
+        self.line.push_str(input);
+        Some(Delta {
+            ops: vec![Op::AppendInlineText {
+                block: block_index as u32,
+                append: input.to_owned(),
+            }],
+        })
+    }
+
     fn begin_normal_update(&mut self, delta: &mut Delta) {
         if self.has_live {
             self.blocks.truncate(self.committed);
@@ -263,6 +310,7 @@ impl Parser {
             });
             self.has_live = false;
             self.live_plain = false;
+            self.live_inline_appendable = false;
         }
     }
 
@@ -277,7 +325,7 @@ impl Parser {
             }
             let line = std::mem::take(&mut self.line);
             offset = end + 1;
-            if let Some(language) = llm_fence_open(&line) {
+            if let Some((marker_len, language)) = llm_fence_open(&line) {
                 self.finish_pending(delta);
                 let index = self.blocks.len();
                 self.push(
@@ -292,7 +340,7 @@ impl Parser {
                 self.mode = Mode::Fence {
                     block: index,
                     marker: b':',
-                    marker_len: 3,
+                    marker_len,
                     line_start: 0,
                 };
                 return &input[offset..];
@@ -366,10 +414,19 @@ impl Parser {
         if source.is_empty() {
             return;
         }
+        if self.pending_kind.is_none() && is_thematic(&self.line) {
+            self.live_plain = false;
+            self.live_inline_appendable = false;
+            self.push(Block::ThematicBreak, delta);
+            self.has_live = true;
+            return;
+        }
         let kind = self.pending_kind.unwrap_or_else(|| classify(&self.line));
-        self.live_plain = kind == PendingKind::Paragraph
-            && source.bytes().all(is_plain_stream_byte)
-            && (self.pending_kind.is_some() || first_line_paragraph_is_stable(&self.line));
+        let stable_single_line_paragraph = kind == PendingKind::Paragraph
+            && self.pending_kind.is_none()
+            && first_line_paragraph_is_stable(&self.line);
+        self.live_plain = stable_single_line_paragraph && source.bytes().all(is_plain_stream_byte);
+        self.live_inline_appendable = stable_single_line_paragraph && !self.live_plain;
         self.push(
             block_from_complete(source.trim_end_matches('\n'), kind),
             delta,
@@ -388,7 +445,6 @@ impl Parser {
             unreachable!()
         };
         let old_len = code_text(&self.blocks[block]).len();
-        let old_line_start = line_start;
         let mut cursor = 0;
         let mut current_start = line_start;
         let mut closed_at = None;
@@ -411,13 +467,26 @@ impl Parser {
                 current_start = end + 1;
             }
         }
-        let new_text = code_text(&self.blocks[block]);
-        let append = new_text[old_line_start.min(new_text.len())..].to_owned();
-        delta.ops.push(Op::SpliceCode {
-            block: block as u32,
-            truncate_bytes: (old_len - old_line_start) as u32,
-            append,
-        });
+
+        // The external mirror already owns every byte before this append. Keep
+        // ordinary fence streaming strictly append-only; only retract bytes if
+        // a closing fence began inside the previously published partial line.
+        let (truncate_bytes, append) = if let Some(close_start) = closed_at {
+            if close_start < old_len {
+                ((old_len - close_start) as u32, String::new())
+            } else {
+                (0, input[..close_start - old_len].to_owned())
+            }
+        } else {
+            (0, input.to_owned())
+        };
+        if truncate_bytes != 0 || !append.is_empty() {
+            delta.ops.push(Op::SpliceCode {
+                block: block as u32,
+                truncate_bytes,
+                append,
+            });
+        }
         if closed_at.is_some() {
             if let Block::CodeBlock { closed, .. } = &mut self.blocks[block] {
                 *closed = true;
@@ -461,8 +530,12 @@ fn code_text_mut(block: &mut Block) -> &mut String {
 fn is_plain_stream_byte(b: u8) -> bool {
     !matches!(
         b,
-        b'\n' | b'\r' | b'\\' | b'$' | b'`' | b'*' | b'_' | b'[' | b'@'
+        b'\n' | b'\r' | b'\\' | b'$' | b'`' | b'*' | b'_' | b'[' | b']' | b'(' | b')' | b'@'
     )
+}
+
+fn is_escapable_punctuation(byte: u8) -> bool {
+    matches!(byte, b'!'..=b'/' | b':'..=b'@' | b'['..=b'`' | b'{'..=b'~')
 }
 
 fn first_line_paragraph_is_stable(line: &str) -> bool {
@@ -480,7 +553,8 @@ fn first_line_paragraph_is_stable(line: &str) -> bool {
         return false;
     }
 
-    if matches!(text, "-" | "*" | "+") {
+    if matches!(text, "-" | "*" | "+") || (text.len() < 3 && text.bytes().all(|byte| byte == b'-'))
+    {
         return false;
     }
 
@@ -630,9 +704,13 @@ fn heading(line: &str) -> Option<(u8, &str)> {
     Some((count as u8, t[count + 1..].trim_end_matches('#').trim_end()))
 }
 
-fn llm_fence_open(line: &str) -> Option<String> {
+fn llm_fence_open(line: &str) -> Option<(usize, String)> {
     let t = line.trim_start();
-    let rest = t.strip_prefix(":::llm")?;
+    let marker_len = t.as_bytes().iter().take_while(|&&b| b == b':').count();
+    if marker_len < 3 {
+        return None;
+    }
+    let rest = t.get(marker_len..)?.strip_prefix("llm")?;
     if rest
         .as_bytes()
         .first()
@@ -641,14 +719,15 @@ fn llm_fence_open(line: &str) -> Option<String> {
         return None;
     }
     let info = rest.trim();
-    Some(if info.is_empty() {
+    let language = if info.is_empty() {
         "llm".to_owned()
     } else {
         let mut language = String::with_capacity(4 + info.len());
         language.push_str("llm:");
         language.push_str(info);
         language
-    })
+    };
+    Some((marker_len, language))
 }
 
 fn fence_open(line: &str) -> Option<(u8, usize, Option<String>)> {
@@ -885,6 +964,26 @@ $$
     }
 
     #[test]
+    fn longer_llm_fence_allows_short_colons_in_body() {
+        let mut parser = Parser::new();
+        parser.append("::::llm artifact mime=text/plain\n");
+        let middle = parser.append("alpha\n:::\nomega\n");
+        assert!(
+            !middle
+                .ops
+                .iter()
+                .any(|op| matches!(op, Op::SealCode { .. }))
+        );
+        let close = parser.append("::::\n");
+        assert!(matches!(close.ops.last(), Some(Op::SealCode { block: 0 })));
+        assert!(matches!(
+            parser.blocks(),
+            [Block::CodeBlock { text, closed: true, .. }]
+                if text == "alpha\n:::\nomega\n"
+        ));
+    }
+
+    #[test]
     fn llm_fence_is_chunk_boundary_independent() {
         let markdown =
             "before\n\n:::llm artifact mime=application/json name=plan\n{\"step\":1}\n:::\n\nafter";
@@ -912,6 +1011,56 @@ $$
         let mut parser = Parser::new();
         parser.append(":::llmish tool\nnot an llm fence\n");
         assert!(matches!(parser.blocks(), [Block::Paragraph(_)]));
+    }
+
+    #[test]
+    fn formatted_live_paragraph_uses_inline_tail_delta() {
+        let mut parser = Parser::new();
+        parser.append("Answer with **important** context: ");
+        let delta = parser.append("token ");
+        assert_eq!(
+            delta.ops,
+            vec![Op::AppendInlineText {
+                block: 0,
+                append: "token ".to_owned(),
+            }]
+        );
+        assert!(matches!(
+            parser.blocks(),
+            [Block::Paragraph(nodes)]
+                if matches!(nodes.as_slice(), [Inline::Text(_), Inline::Strong(_), Inline::Text(text)] if text == " context: token ")
+        ));
+
+        // Syntax-sensitive input must still reparse the complete live source.
+        let delta = parser.append("[[cite:doc-1]]");
+        assert!(matches!(delta.ops.first(), Some(Op::Truncate { from: 0 })));
+        assert!(matches!(
+            parser.blocks(),
+            [Block::Paragraph(nodes)]
+                if nodes.iter().any(|node| matches!(node, Inline::Link { destination, .. } if destination == "llm:cite:doc-1"))
+        ));
+    }
+
+    #[test]
+    fn inline_tail_fast_path_respects_cross_chunk_escape() {
+        let mut parser = Parser::new();
+        parser.append("Formatted **x** \\");
+        let delta = parser.append("!");
+        assert!(matches!(delta.ops.first(), Some(Op::Truncate { from: 0 })));
+        assert!(matches!(
+            parser.blocks(),
+            [Block::Paragraph(nodes)]
+                if matches!(nodes.last(), Some(Inline::Text(text)) if text.ends_with(" !"))
+        ));
+    }
+
+    #[test]
+    fn two_dashes_reparse_when_they_become_thematic_break() {
+        let mut parser = Parser::new();
+        parser.append("--");
+        let delta = parser.append("-\n");
+        assert!(matches!(delta.ops.first(), Some(Op::Truncate { from: 0 })));
+        assert!(matches!(parser.blocks(), [Block::ThematicBreak]));
     }
 
     #[test]
@@ -955,6 +1104,16 @@ $$
                         panic!("paragraph is not plain text")
                     };
                     text.push_str(append);
+                }
+                Op::AppendInlineText { block, append } => {
+                    let Block::Paragraph(nodes) = &mut document[*block as usize] else {
+                        panic!("not paragraph")
+                    };
+                    if let Some(Inline::Text(text)) = nodes.last_mut() {
+                        text.push_str(append);
+                    } else {
+                        nodes.push(Inline::Text(append.clone()));
+                    }
                 }
                 Op::SealCode { block } => {
                     let Block::CodeBlock { closed, .. } = &mut document[*block as usize] else {

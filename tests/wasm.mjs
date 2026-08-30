@@ -76,6 +76,12 @@ assert.deepEqual(apiParser.getCitations(), [{ block: 0, source: "doc-42", label:
 assert.ok(apiParser.getLinks().some((link) => link.destination === "llm:artifact:plot-1"));
 
 apiParser.reset();
+apiParser.append("Answer with **important** context: ");
+const inlineTailOps = apiParser.append("token ");
+assert.deepEqual(inlineTailOps, [{ op: "appendInlineText", block: 0, append: "token " }]);
+assert.equal(apiParser.toPlainText(), "Answer with important context: token ");
+
+apiParser.reset();
 apiParser.append(':::llm tool name="web search" id=q1\n');
 apiParser.append('{"query":"rust wasm"}');
 apiParser.append('\n:::\n');

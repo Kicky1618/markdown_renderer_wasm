@@ -12,6 +12,16 @@ Streamdown は通常の Markdown に加えて、LLM の逐次出力で機械可�
 :::
 ```
 
+本文に `:::` 単独行が含まれる場合は、コードフェンスと同様に開始側のコロンを増やせる。終了側は開始時と同数以上のコロンを使う。
+
+```md
+::::llm artifact mime=text/plain
+alpha
+:::
+omega
+::::
+```
+
 例:
 
 ```md
@@ -80,7 +90,7 @@ cargo run --release --example llm_stream
 LLM 向け拡張は、専用の巨大 AST や JSON 中間表現を増やさず、既存の差分経路を再利用する。
 
 - 素の未改行テキスト: `AppendText`
-- `:::llm` / fenced code body: `SpliceCode`
+- `:::llm`（3個以上の可変長コロン）/ fenced code body: `SpliceCode`
 - 通常 Markdown: 不安定な末尾 suffix のみ `Truncate + Push`
 - WASM 境界: JSON ではなく MDA1 バイナリ
 
