@@ -13,11 +13,12 @@ pub use parser::{Block, Delta, Inline, Op, Parser};
 
 #[cfg(target_arch = "wasm32")]
 mod wasm {
-    use super::Parser;
+    use super::{Delta, Parser};
     use std::{cell::RefCell, mem, slice, str};
 
     pub struct Handle {
         parser: Parser,
+        delta: Delta,
         output: Vec<u8>,
         input: Vec<u8>,
     }
@@ -30,6 +31,7 @@ mod wasm {
     pub extern "C" fn md_create() -> *mut Handle {
         Box::into_raw(Box::new(Handle {
             parser: Parser::new(),
+            delta: Delta::default(),
             output: Vec::new(),
             input: Vec::new(),
         }))
@@ -65,8 +67,8 @@ mod wasm {
         let Ok(text) = str::from_utf8(bytes) else {
             return 0;
         };
-        let delta = h.parser.append(text);
-        crate::encode_delta_into(&delta, &mut h.output);
+        h.parser.append_into(text, &mut h.delta);
+        crate::encode_delta_into(&h.delta, &mut h.output);
         1
     }
 
@@ -101,8 +103,8 @@ mod wasm {
         let Ok(text) = str::from_utf8(bytes) else {
             return 0;
         };
-        let delta = h.parser.append(text);
-        crate::encode_delta_into(&delta, &mut h.output);
+        h.parser.append_into(text, &mut h.delta);
+        crate::encode_delta_into(&h.delta, &mut h.output);
         1
     }
 
