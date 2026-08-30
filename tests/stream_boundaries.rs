@@ -85,6 +85,29 @@ fn inline_tail_fast_path_respects_escape_and_link_completion() {
 }
 
 #[test]
+fn plain_delimiter_bodies_are_character_stream_independent() {
+    for markdown in [
+        "prefix `code` suffix",
+        "prefix $x+1$ suffix",
+        "prefix *bold* suffix",
+        "prefix _em_ suffix",
+        "prefix `日本語✅` $数式$ *強調* _文字_ suffix",
+    ] {
+        let expected = parse_whole(markdown);
+        let boundaries = utf8_boundaries(markdown);
+        let actual = parse_chunks(
+            boundaries
+                .windows(2)
+                .map(|window| &markdown[window[0]..window[1]]),
+        );
+        assert_eq!(
+            actual, expected,
+            "character stream changed AST for {markdown:?}"
+        );
+    }
+}
+
+#[test]
 fn delimiter_run_periods_match_whole_parse_exhaustively() {
     for delimiter in ['`', '$', '*', '_'] {
         for length in 1..=128 {

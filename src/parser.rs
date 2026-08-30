@@ -92,6 +92,31 @@ enum SpecialBracketKind {
     Citation,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TailPendingKind {
+    Code,
+    Math,
+    EmphasisStar,
+    EmphasisUnderscore,
+}
+
+impl TailPendingKind {
+    fn delimiter(self) -> u8 {
+        match self {
+            Self::Code => b'`',
+            Self::Math => b'$',
+            Self::EmphasisStar => b'*',
+            Self::EmphasisUnderscore => b'_',
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TailPending {
+    kind: TailPendingKind,
+    opener: usize,
+}
+
 #[derive(Debug)]
 enum Mode {
     Normal,
@@ -129,6 +154,7 @@ pub struct Parser {
     live_link_label_just_closed: bool,
     live_has_link_destination_start: bool,
     live_thematic_marker: u8,
+    live_tail_pending: Option<TailPending>,
 }
 
 impl Default for Parser {
@@ -163,6 +189,7 @@ impl Parser {
             live_link_label_just_closed: false,
             live_has_link_destination_start: false,
             live_thematic_marker: 0,
+            live_tail_pending: None,
         }
     }
 
@@ -214,6 +241,7 @@ impl Parser {
                 self.live_link_label_just_closed = false;
                 self.live_has_link_destination_start = false;
                 self.live_thematic_marker = 0;
+                self.live_tail_pending = None;
                 self.line.clear();
                 self.pending.clear();
                 self.pending_kind = None;
@@ -251,6 +279,7 @@ impl Parser {
                     self.live_link_label_just_closed = false;
                     self.live_has_link_destination_start = false;
                     self.live_thematic_marker = 0;
+                    self.live_tail_pending = None;
                 }
             }
         }
@@ -367,6 +396,43 @@ impl Parser {
         let Some(Block::Paragraph(nodes)) = self.blocks.get_mut(block_index) else {
             return false;
         };
+
+        if let Some(pending) = self.live_tail_pending
+            && input.len() == 1
+            && input.as_bytes()[0] == pending.kind.delimiter()
+            && !self.trailing_backslash_odd
+            && pending.opener < self.line.len()
+            && self.line.as_bytes()[pending.opener] == pending.kind.delimiter()
+        {
+            let body = self.line[pending.opener + 1..].to_owned();
+            let append = vec![match pending.kind {
+                TailPendingKind::Code => Inline::Code(body),
+                TailPendingKind::Math => Inline::Math {
+                    source: body,
+                    display: false,
+                },
+                TailPendingKind::EmphasisStar | TailPendingKind::EmphasisUnderscore => {
+                    Inline::Emphasis(parse_inlines(&body))
+                }
+            }];
+            let truncate_bytes = self.line.len() - pending.opener;
+            splice_inline_tail(nodes, truncate_bytes, 0, &append);
+            self.line.push_str(input);
+            self.live_tail_pending = None;
+            self.reset_delimiter_runs();
+            self.trailing_backslash_odd = false;
+            delta.ops.push(Op::SpliceInlineTail {
+                block: block_index as u32,
+                remove_nodes: 0,
+                truncate_bytes: truncate_bytes as u32,
+                append,
+            });
+            return true;
+        }
+
+        if self.live_tail_pending.is_some() && !input.bytes().all(is_plain_stream_byte) {
+            return false;
+        }
 
         if input.bytes().all(|byte| byte == b'`')
             && self.trailing_backtick_fast
@@ -584,6 +650,37 @@ impl Parser {
         if !inline_tail_append_is_safe(&self.line, input) {
             return false;
         }
+        let body_is_plain = input.bytes().all(is_plain_stream_byte);
+        if self.live_tail_pending.is_some() && !body_is_plain {
+            return false;
+        }
+        let new_tail_pending = if self.live_tail_pending.is_none() && body_is_plain {
+            if self.trailing_backtick_fast && self.trailing_backtick_mod2 == 1 {
+                Some(TailPending {
+                    kind: TailPendingKind::Code,
+                    opener: self.line.len() - 1,
+                })
+            } else if self.trailing_dollar_fast && self.trailing_dollar_mod4 == 1 {
+                Some(TailPending {
+                    kind: TailPendingKind::Math,
+                    opener: self.line.len() - 1,
+                })
+            } else if self.trailing_star_fast && self.trailing_star_mod4 == 1 {
+                Some(TailPending {
+                    kind: TailPendingKind::EmphasisStar,
+                    opener: self.line.len() - 1,
+                })
+            } else if self.trailing_underscore_fast && self.trailing_underscore_mod4 == 1 {
+                Some(TailPending {
+                    kind: TailPendingKind::EmphasisUnderscore,
+                    opener: self.line.len() - 1,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         let cross_link_destination = self.live_link_label_just_closed && input.starts_with('(');
         if let Some(kind) = special_bracket_opener_kind(&self.line, input) {
             self.live_special_bracket = kind;
@@ -599,7 +696,14 @@ impl Parser {
         self.line.push_str(input);
         self.trailing_backslash_odd =
             trailing_backslash_odd_after(self.trailing_backslash_odd, input);
-        self.break_delimiter_runs();
+        if let Some(pending) = new_tail_pending {
+            self.reset_delimiter_runs();
+            self.live_tail_pending = Some(pending);
+        } else if self.live_tail_pending.is_some() {
+            self.reset_delimiter_runs();
+        } else {
+            self.break_delimiter_runs();
+        }
         delta.ops.push(Op::AppendInlineText {
             block: block_index as u32,
             append: input.to_owned(),
@@ -669,6 +773,7 @@ impl Parser {
             self.live_link_label_just_closed = false;
             self.live_has_link_destination_start = false;
             self.live_thematic_marker = 0;
+            self.live_tail_pending = None;
         }
     }
 
@@ -777,6 +882,7 @@ impl Parser {
             self.live_link_label_just_closed = false;
             self.live_has_link_destination_start = false;
             self.live_thematic_marker = 0;
+            self.live_tail_pending = None;
             return;
         }
         if self.pending_kind.is_none() && is_thematic(&self.line) {
@@ -789,6 +895,7 @@ impl Parser {
             self.live_has_link_destination_start = false;
             self.live_inline_appendable = false;
             self.live_thematic_marker = thematic_marker(&self.line);
+            self.live_tail_pending = None;
             self.push(Block::ThematicBreak, delta);
             self.has_live = true;
             return;
@@ -833,6 +940,7 @@ impl Parser {
         self.live_link_label_just_closed = link_label_just_closed;
         self.live_has_link_destination_start = closing_paren_sensitive(&source);
         self.live_thematic_marker = 0;
+        self.live_tail_pending = None;
         self.push(block, delta);
         self.has_live = true;
     }
@@ -2008,7 +2116,10 @@ $$
         normal_code.append("`");
         normal_code.append("body");
         let close = normal_code.append("`");
-        assert!(matches!(close.ops.first(), Some(Op::Truncate { from: 0 })));
+        assert!(matches!(
+            close.ops.as_slice(),
+            [Op::SpliceInlineTail { append, .. }] if append == &vec![Inline::Code("body".to_owned())]
+        ));
         let mut whole_code = Parser::new();
         whole_code.append("`body`");
         assert_eq!(normal_code.blocks(), whole_code.blocks());
@@ -2017,7 +2128,11 @@ $$
         normal_math.append("$");
         normal_math.append("x+1");
         let close = normal_math.append("$");
-        assert!(matches!(close.ops.first(), Some(Op::Truncate { from: 0 })));
+        assert!(matches!(
+            close.ops.as_slice(),
+            [Op::SpliceInlineTail { append, .. }]
+                if append == &vec![Inline::Math { source: "x+1".to_owned(), display: false }]
+        ));
         let mut whole_math = Parser::new();
         whole_math.append("$x+1$");
         assert_eq!(normal_math.blocks(), whole_math.blocks());
@@ -2072,10 +2187,31 @@ $$
             normal.append(&token);
             normal.append("body");
             let close = normal.append(&token);
-            assert!(matches!(close.ops.first(), Some(Op::Truncate { from: 0 })));
+            assert!(matches!(
+                close.ops.as_slice(),
+                [Op::SpliceInlineTail { append, .. }]
+                    if append == &vec![Inline::Emphasis(vec![Inline::Text("body".to_owned())])]
+            ));
             let mut whole = Parser::new();
             whole.append(&format!("prefix {delimiter}body{delimiter}"));
             assert_eq!(normal.blocks(), whole.blocks());
+        }
+    }
+
+    #[test]
+    fn alternating_plain_delimiter_bodies_match_whole_parse() {
+        for delimiter in ['`', '$', '*', '_'] {
+            let mut parser = Parser::new();
+            parser.append("prefix ");
+            let token = delimiter.to_string();
+            for _ in 0..64 {
+                parser.append(&token);
+                parser.append("x");
+            }
+            let source = format!("prefix {}", format!("{delimiter}x").repeat(64));
+            let mut whole = Parser::new();
+            whole.append(&source);
+            assert_eq!(parser.blocks(), whole.blocks(), "delimiter={delimiter:?}");
         }
     }
 
