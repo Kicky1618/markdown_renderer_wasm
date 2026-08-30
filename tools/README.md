@@ -180,12 +180,12 @@ On the i7-12700 development host, the 500k-token / 7-repeat median measured abou
 {"count":0,"status":"warming"}
 :::
 
-:::llm patch id=ready target=state:session depends=state:session
+:::llm patch id=ready target=state:session depends=state:session if_revision=1
 {"count":1,"status":"ready"}
 :::
 ```
 
-Patch ordering is expressed in the same semantic DAG. Multiple updates to one state should form a dependency chain (`patch:b depends=patch:a`) so concurrent scheduler execution cannot reorder them. `format=replace` replaces the whole state; `merge`, `merge-patch`, and `application/merge-patch+json` use Merge Patch. Unsafe JSON keys such as `__proto__`, `prototype`, and `constructor` are rejected.
+Patch ordering is expressed in the same semantic DAG. Multiple updates to one state should form a dependency chain (`patch:b depends=patch:a`) so concurrent scheduler execution cannot reorder them. `if_revision=N` adds an optimistic concurrency guard: the patch fails with `SemanticRevisionConflictError` unless the target state is still at revision `N`. `format=replace` replaces the whole state; `merge`, `merge-patch`, and `application/merge-patch+json` use Merge Patch. Unsafe JSON keys such as `__proto__`, `prototype`, and `constructor` are rejected.
 
 The state store exposes monotonically increasing revisions and clones values at its public boundary so runner consumers cannot mutate canonical state by retaining a reference.
 

@@ -8,13 +8,13 @@ Initialize shared state:
 
 Apply the first merge patch after initialization:
 
-:::llm patch id=step1 target=state:session depends=state:session
+:::llm patch id=step1 target=state:session depends=state:session if_revision=1
 {"count":1,"status":"ready","nested":{"b":2}}
 :::
 
 Apply another patch after the first one so updates stay deterministic:
 
-:::llm patch id=step2 target=state:session depends=patch:step1
+:::llm patch id=step2 target=state:session depends=patch:step1 if_revision=2
 {"nested":{"a":null},"extra":true}
 :::
 

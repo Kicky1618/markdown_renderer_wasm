@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { applyJsonMergePatch, createStateRunners, SemanticStateStore, validateSemanticStateProtocol } from "./semantic-state.mjs";
+import { applyJsonMergePatch, createStateRunners, SemanticRevisionConflictError, SemanticStateStore, validateSemanticStateProtocol } from "./semantic-state.mjs";
 import { buildSemanticGraph } from "./semantic-graph.mjs";
 
 assert.deepEqual(
@@ -31,7 +31,7 @@ assert.equal(store.get("state:session").count, 0, "runner result must not alias 
 const patched = runners.patch({
   key: "patch:step1",
   kind: "patch",
-  attributes: { id: "step1", target: "state:session" },
+  attributes: { id: "step1", target: "state:session", if_revision: "1" },
   value: '{"count":1,"status":"ready","nested":{"b":2}}',
 });
 assert.deepEqual(patched, { count: 1, status: "ready", nested: { a: 1, b: 2 } });
@@ -40,7 +40,7 @@ assert.equal(store.revision("state:session"), 2);
 const cleaned = runners.patch({
   key: "patch:step2",
   kind: "patch",
-  attributes: { id: "step2", target: "state:session", format: "merge" },
+  attributes: { id: "step2", target: "state:session", format: "merge", if_revision: "2" },
   value: '{"nested":{"a":null},"extra":true}',
 });
 assert.deepEqual(cleaned, { count: 1, status: "ready", nested: { b: 2 }, extra: true });
@@ -51,6 +51,22 @@ assert.deepEqual(changes.map(({ type, revision }) => [type, revision]), [
   ["patch", 2],
   ["patch", 3],
 ]);
+
+const stale = {
+  key: "patch:stale",
+  kind: "patch",
+  attributes: { id: "stale", target: "state:session", if_revision: "2" },
+  value: '{"count":99}',
+};
+assert.throws(() => runners.patch(stale), (error) => {
+  assert.ok(error instanceof SemanticRevisionConflictError);
+  assert.equal(error.target, "state:session");
+  assert.equal(error.expected, 2);
+  assert.equal(error.actual, 3);
+  return true;
+});
+assert.equal(store.revision("state:session"), 3);
+assert.equal(store.get("state:session").count, 1);
 
 assert.throws(() => runners.state({
   key: "state:session",
@@ -86,8 +102,8 @@ function summaryOf(blocks) {
 
 const validSummary = summaryOf([
   { index: 0, kind: "state", attributes: { id: "s" }, value: '{"count":0}', closed: true },
-  { index: 1, kind: "patch", attributes: { id: "p1", target: "state:s", depends: "state:s" }, value: '{"count":1}', closed: true },
-  { index: 2, kind: "patch", attributes: { id: "p2", target: "state:s", depends: "patch:p1" }, value: '{"ready":true}', closed: true },
+  { index: 1, kind: "patch", attributes: { id: "p1", target: "state:s", depends: "state:s", if_revision: "1" }, value: '{"count":1}', closed: true },
+  { index: 2, kind: "patch", attributes: { id: "p2", target: "state:s", depends: "patch:p1", if_revision: "2" }, value: '{"ready":true}', closed: true },
 ]);
 const validGraph = buildSemanticGraph(validSummary);
 assert.deepEqual(validateSemanticStateProtocol(validSummary, validGraph), { ok: true, errors: [], warnings: [] });
@@ -110,7 +126,7 @@ assert.match(parallelValidation.warnings.join("\n"), /concurrent execution may r
 const invalidSummary = summaryOf([
   { index: 0, kind: "state", attributes: { id: "s" }, value: '{"__proto__":{"x":1}}', closed: true },
   { index: 1, kind: "patch", attributes: { id: "missing", target: "state:nope", depends: "state:s", format: "mystery" }, value: '{}', closed: true },
-  { index: 2, kind: "patch", attributes: { id: "unordered", target: "state:s" }, value: '{}', closed: true },
+  { index: 2, kind: "patch", attributes: { id: "unordered", target: "state:s", if_revision: "zero" }, value: '{}', closed: true },
 ]);
 const invalidValidation = validateSemanticStateProtocol(invalidSummary, buildSemanticGraph(invalidSummary));
 assert.equal(invalidValidation.ok, false);
@@ -118,5 +134,6 @@ assert.match(invalidValidation.errors.join("\n"), /forbidden JSON key/);
 assert.match(invalidValidation.errors.join("\n"), /no local state initializer/);
 assert.match(invalidValidation.errors.join("\n"), /unsupported patch format/);
 assert.match(invalidValidation.errors.join("\n"), /no dependency path reaches state:s/);
+assert.match(invalidValidation.errors.join("\n"), /if_revision must be a positive integer/);
 
 console.log("semantic state: ok");

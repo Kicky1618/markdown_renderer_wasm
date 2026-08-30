@@ -81,4 +81,28 @@ try {
   failingRuntime.dispose();
 }
 
+const conflictStore = new SemanticStateStore();
+const conflictRuntime = await SemanticRuntime.load(wasm, {
+  runners: createStateRunners(conflictStore),
+});
+try {
+  const conflict = [
+    ":::llm state id=s\n{\"count\":0}\n:::\n",
+    ":::llm patch id=first target=state:s depends=state:s if_revision=1\n{\"count\":1}\n:::\n",
+    ":::llm patch id=stale target=state:s depends=patch:first if_revision=1\n{\"count\":2}\n:::\n",
+    ":::llm patch id=after target=state:s depends=patch:stale if_revision=2\n{\"never\":true}\n:::\n",
+  ].join("");
+  const result = await conflictRuntime.consume(byteChunks(conflict, 4));
+  assert.equal(result.scheduler["state:s"].status, "completed");
+  assert.equal(result.scheduler["patch:first"].status, "completed");
+  assert.equal(result.scheduler["patch:stale"].status, "failed");
+  assert.equal(result.scheduler["patch:stale"].error.name, "SemanticRevisionConflictError");
+  assert.match(result.scheduler["patch:stale"].error.message, /expected 1, actual 2/);
+  assert.equal(result.scheduler["patch:after"].status, "blocked");
+  assert.deepEqual(conflictStore.get("state:s"), { count: 1 });
+  assert.equal(conflictStore.revision("state:s"), 2);
+} finally {
+  conflictRuntime.dispose();
+}
+
 console.log("semantic state WASM integration: ok");

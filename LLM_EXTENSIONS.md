@@ -85,6 +85,46 @@ JavaScriptでは `Streamdown#getCitations()` で `block`、`source`、`label` �
 cargo run --release --example llm_stream
 ```
 
+## Semantic dependency graph
+
+semantic fence に `id=` と `depends=kind:id,...` を付けると、JavaScript tools 層で依存DAGとして解釈できる。AST / MDA1 形式は変えない。
+
+```md
+:::llm tool id=search
+{"query":"streaming markdown"}
+:::
+
+:::llm artifact id=summary depends=tool:search
+{"title":"Streamdown"}
+:::
+
+:::llm ui id=result depends=artifact:summary
+{"type":"metric"}
+:::
+```
+
+`tools/semantic-graph.mjs` は未解決依存、重複ID、cycle を検出し、dependency-first `executionOrder` を返す。`SemanticRuntime` / `SemanticScheduler` は Markdown 受信を止めずに、依存先runnerの完了後だけ下流nodeを実行する。
+
+## Streaming state and merge patches
+
+`state` と `patch` は生成UIやtool workflowの共有JSON状態をストリーム内で更新するためのsemantic kindとして利用できる。
+
+```md
+:::llm state id=session
+{"count":0,"status":"warming"}
+:::
+
+:::llm patch id=ready target=state:session depends=state:session if_revision=1
+{"count":1,"status":"ready"}
+:::
+```
+
+`tools/semantic-state.mjs` の既定patchは RFC 7396 JSON Merge Patch。objectは再帰merge、`null`はキー削除、array/scalarは置換となる。`format=replace` ではstate全体を置換する。
+
+各stateは revision 1 から単調増加する。`if_revision=N` を指定したpatchは、適用直前のrevisionがNでなければ `SemanticRevisionConflictError` で失敗するため、並列分岐やstale updateをsilentに上書きしない。同じstateへ複数patchを当てる場合は `depends=patch:<previous>` で直列化するのが基本となる。
+
+JSON payload 内の `__proto__` / `prototype` / `constructor` は拒否し、runner結果とstate snapshotはcloneしてcanonical stateへの外部aliasを作らない。`streamdown-inspect.mjs --validate` はtarget、format、dependency path、revision指定、同一stateへの非直列patchを事前診断する。
+
 ## Performance model
 
 LLM 向け拡張は、専用の巨大 AST や JSON 中間表現を増やさず、既存の差分経路を再利用する。

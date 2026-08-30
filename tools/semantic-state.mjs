@@ -42,6 +42,27 @@ function normalizeTarget(target) {
   return target;
 }
 
+export class SemanticRevisionConflictError extends Error {
+  constructor(target, expected, actual) {
+    super(`${target}: revision conflict (expected ${expected}, actual ${actual})`);
+    this.name = "SemanticRevisionConflictError";
+    this.target = target;
+    this.expected = expected;
+    this.actual = actual;
+  }
+}
+
+function expectedRevision(attributes) {
+  const raw = attributes?.if_revision;
+  if (raw === undefined) return null;
+  if (!/^[1-9][0-9]*$/.test(raw)) {
+    throw new Error(`if_revision must be a positive integer, got ${JSON.stringify(raw)}`);
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value)) throw new Error(`if_revision is too large: ${JSON.stringify(raw)}`);
+  return value;
+}
+
 /** Apply RFC 7396 JSON Merge Patch without mutating either input. */
 export function applyJsonMergePatch(target, patch) {
   assertSafeJson(patch);
@@ -99,6 +120,11 @@ export class SemanticStateStore {
     const target = normalizeTarget(node.attributes?.target);
     if (!this.values.has(target)) {
       throw new Error(`${node.key}: target ${target} is not initialized; declare an execution dependency on it`);
+    }
+    const expected = expectedRevision(node.attributes);
+    const actual = this.revision(target);
+    if (expected !== null && expected !== actual) {
+      throw new SemanticRevisionConflictError(target, expected, actual);
     }
 
     const patch = parseNodeJson(node);
@@ -195,6 +221,13 @@ export function validateSemanticStateProtocol(summary, graph) {
     }
     const format = block.attributes.format ?? block.attributes.op ?? "merge";
     if (!PATCH_FORMATS.has(format)) errors.push(`${where}: unsupported patch format ${JSON.stringify(format)}`);
+    if (block.attributes.if_revision !== undefined) {
+      try {
+        expectedRevision(block.attributes);
+      } catch (error) {
+        errors.push(`${where}: ${error.message}`);
+      }
+    }
     validateJsonBlock(block, errors);
 
     if (target) {
