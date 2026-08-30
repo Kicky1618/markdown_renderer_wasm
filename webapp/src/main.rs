@@ -211,6 +211,7 @@ struct App {
     search_active: usize,
     search_dirty: bool,
     search_indexed_at: f64,
+    pending_search_scroll: Option<TextPos>,
     device_lost: Arc<AtomicBool>,
     surface_failures: SurfaceFailureTracker,
 }
@@ -820,6 +821,7 @@ impl App {
             search_active: 0,
             search_dirty: false,
             search_indexed_at: 0.0,
+            pending_search_scroll: None,
             device_lost,
             surface_failures: SurfaceFailureTracker::default(),
         })
@@ -960,6 +962,7 @@ impl App {
         if changed {
             self.search_query = query;
             self.search_active = 0;
+            self.pending_search_scroll = None;
         }
         if self.search_query.trim().is_empty() {
             if !self.search_matches.is_empty() || changed {
@@ -1023,31 +1026,55 @@ impl App {
             (self.search_active + 1) % self.search_matches.len()
         };
         let position = self.search_matches[self.search_active].0;
-        let block = position.block as usize;
-        if let Some(layout) = self.layouts.get(block) {
-            let max_scroll = (self.content_height - self.logical_height as f64 + 48.0).max(0.0);
-            let mut target_y = layout.y;
-            if let Some(Block::CodeBlock { text, .. }) = self.parser.blocks().get(block) {
-                let mut offset = 0_u32;
-                let mut lines = 0_u32;
-                for character in text.chars() {
-                    if character == '\n' {
-                        lines += 1;
-                    } else {
-                        if offset >= position.offset {
-                            break;
-                        }
-                        offset += 1;
-                    }
-                }
-                target_y += (22.0 + lines as f32 * 18.0) as f64 * self.font_scale as f64;
-            }
-            self.scroll_target = (target_y - 92.0).clamp(0.0, max_scroll);
-            self.auto_scroll = false;
-        }
+        self.pending_search_scroll = Some(position);
+        self.retarget_search_scroll(position);
+        self.auto_scroll = false;
         self.sync_control_state();
         self.sync_search_state();
         self.dirty_scene = true;
+    }
+
+    fn retarget_search_scroll(&mut self, position: TextPos) {
+        let exact_baseline = self.search_cell_baseline(position);
+        let estimated_baseline = self.estimate_search_baseline(position);
+        let Some(target_baseline) = exact_baseline.or(estimated_baseline) else {
+            return;
+        };
+        let max_scroll = (self.content_height - self.logical_height as f64 + 48.0).max(0.0);
+        self.scroll_target = (target_baseline - 104.0).clamp(0.0, max_scroll);
+        if exact_baseline.is_some() {
+            self.pending_search_scroll = None;
+        }
+    }
+
+    fn search_cell_baseline(&self, position: TextPos) -> Option<f64> {
+        self.text_cells
+            .iter()
+            .find(|cell| cell.pos == position)
+            .map(|cell| self.scene_scroll_anchor + cell.y as f64 + cell.height as f64)
+    }
+
+    fn estimate_search_baseline(&self, position: TextPos) -> Option<f64> {
+        let layout = self.layouts.get(position.block as usize)?;
+        let mut baseline = layout.y;
+        if let Some(Block::CodeBlock { text, .. }) =
+            self.parser.blocks().get(position.block as usize)
+        {
+            let mut offset = 0_u32;
+            let mut lines = 0_u32;
+            for character in text.chars() {
+                if character == '\n' {
+                    lines += 1;
+                } else {
+                    if offset >= position.offset {
+                        break;
+                    }
+                    offset += 1;
+                }
+            }
+            baseline += (28.0 + lines as f32 * 22.0) as f64 * self.font_scale as f64;
+        }
+        Some(baseline)
     }
 
     fn sync_search_state(&self) {
@@ -1512,6 +1539,11 @@ impl App {
         );
         self.math_content_width = scene.math_width;
         self.text_cells = std::mem::take(&mut scene.text_cells);
+        if let Some(position) = self.pending_search_scroll
+            && self.search_cell_baseline(position).is_some()
+        {
+            self.retarget_search_scroll(position);
+        }
         self.instance_count = scene.instances.len() as u32;
         if scene.instances.len() > self.instance_capacity {
             self.instance_capacity = scene.instances.len().next_power_of_two();
@@ -2296,6 +2328,8 @@ impl Scene {
                     0.0,
                 );
                 if let Some(lang) = language {
+                    let tracked_block = self.text_block.take();
+                    let tracked_offset = self.text_offset;
                     self.document_text(
                         lang,
                         x + 14.0,
@@ -2305,6 +2339,8 @@ impl Scene {
                         GREEN,
                         0.0,
                     );
+                    self.text_block = tracked_block;
+                    self.text_offset = tracked_offset;
                 }
                 self.code_text(
                     text,
