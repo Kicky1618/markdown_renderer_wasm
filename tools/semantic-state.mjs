@@ -107,6 +107,10 @@ export class SemanticStateStore {
     return Object.fromEntries([...this.values].map(([key, value]) => [key, cloneJson(value)]));
   }
 
+  revisionSnapshot() {
+    return Object.fromEntries(this.revisions);
+  }
+
   initialize(node) {
     if (node?.kind !== "state") throw new Error(`state runner received ${node?.kind ?? "unknown"} node`);
     if (typeof node.key !== "string" || !node.key.startsWith("state:")) throw new Error("state node requires an id");

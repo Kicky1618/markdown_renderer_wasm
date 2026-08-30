@@ -207,3 +207,32 @@ node tools/semantic-state.test.mjs
 node tools/semantic-state.integration.mjs
 node tools/streamdown-inspect.mjs examples/llm_state.md --chunk=5 --verify --validate --graph
 ```
+
+
+## `stateful-semantic-runtime.mjs`
+
+`StatefulSemanticRuntime` is a thin convenience wrapper around `SemanticRuntime`. It owns the built-in `state` and `patch` runner kinds, keeps the canonical `SemanticStateStore`, and adds state values plus revision numbers to every snapshot. Other semantic runners continue to use the normal scheduler and can consume completed patch results through `dependencyResults`.
+
+```js
+import { StatefulSemanticRuntime } from "./tools/stateful-semantic-runtime.mjs";
+
+const runtime = await StatefulSemanticRuntime.load(wasm, {
+  onStateChange: ({ key, revision, value }) => updateUi(key, revision, value),
+  runners: {
+    artifact: async (node, { dependencyResults }) => ({
+      config: JSON.parse(node.value),
+      state: dependencyResults["patch:ready"],
+    }),
+  },
+});
+
+const result = await runtime.consume(providerChunks);
+console.log(result.state.values["state:session"]);
+console.log(result.state.revisions["state:session"]);
+```
+
+The wrapper deliberately reserves the `state` and `patch` runner kinds so its snapshot always reflects the state actually applied by the scheduler. Use the base `SemanticRuntime` directly when custom state semantics are required.
+
+```sh
+node tools/stateful-semantic-runtime.integration.mjs
+```
