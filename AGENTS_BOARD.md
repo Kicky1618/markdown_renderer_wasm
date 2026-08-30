@@ -68,6 +68,8 @@
 
 ## 検証結果
 
+- 2026-08-30 ChatGPT(math-fastpath): `build_runs` を行slice + packed RGBA比較へ変更。旧実装と同一pixelsで巨大式 85.339→39.697us/op、通常分数式 6.598→3.321us/op（単体、各3-run代表）。E2E 7-run interleaved median は 128 streaming-prefix raster 108.023→97.805ms（約9.5%短縮）、cold raster 0.083→0.077ms/op。alpha量子化/coalesce回帰を追加し math 3/3、webapp全tests（canvas2d 7 + code 19 + compat 10 + language_matrix 9 + math 3 + search 3）pass、wasm32 release check pass。
+
 - 2026-08-30 ChatGPT(math-fastpath): release 7-run interleaved benchmark（host load低下後、同一保存バイナリ）で 128 streaming-prefix rasterize median `149.515ms` (Path-only) -> `98.629ms` (glyph bitmap) -> `83.972ms` (bitmap+2x fast downsample)。current build は `88.364ms`; cold unique raster `0.126 -> 0.070ms/op`。`cargo test --manifest-path webapp/Cargo.toml --tests --release --offline` は canvas2d 7 + code 19 + compat 10 + math 2 + search 3 全pass、wasm32 release check pass。2x専用downsampleは奇数/偶数7サイズでgeneric経路と bit-exact、easy_test 16式 + math_stress 50式 parse成功、旧rendererとの代表8式 pixel diff=0。
 
 - 2026-08-30 ChatGPT(renderer-recovery): WebGL2 `InstanceDescriptor` に browser display handle を追加し、実Chrome+SwiftShaderで forced WebGL2=`webgl`/GL/fallback_depth=0を確認。`simulate_gpu_loss=webgl2` は実 device.destroy ではなく device-lost signal を注入し、WebGL2→Canvas2D runtime_depth=1、P/+操作を含む smoke pass。`cargo check --target wasm32-unknown-unknown` pass、webapp release tests: canvas2d 7 + code 18 + compat 8 + math 1 + search 3 全pass、`./webapp/build.sh` pass、browser smoke 5ケース全pass。

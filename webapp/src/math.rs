@@ -275,46 +275,49 @@ fn downsample_premultiplied_rgba_2x(source: PremultipliedRgbaImage, baseline: u3
     }
 }
 
+#[inline]
+fn quantized_rgba(pixel: &[u8]) -> u32 {
+    let alpha = (((pixel[3] as u16 + 8) / 16) * 16).min(255) as u8;
+    u32::from_le_bytes([pixel[0], pixel[1], pixel[2], alpha])
+}
+
 fn build_runs(width: u32, height: u32, pixels: &[u8]) -> Vec<MathRun> {
-    let mut runs = Vec::new();
-    for y in 0..height {
-        let mut x = 0;
-        while x < width {
-            let index = ((y * width + x) * 4) as usize;
-            let mut rgba = [
-                pixels[index],
-                pixels[index + 1],
-                pixels[index + 2],
-                pixels[index + 3],
-            ];
-            // A small coverage palette dramatically reduces rectangle count on
-            // WebGL while retaining the supersampled edge shape.
-            rgba[3] = (((rgba[3] as u16 + 8) / 16) * 16).min(255) as u8;
-            if rgba[3] == 0 {
+    if width == 0 || height == 0 {
+        return Vec::new();
+    }
+
+    let row_bytes = width as usize * 4;
+    // Typical supersampled math produces roughly one run per 6 output pixels.
+    // Reserve enough for common formulas while capping pathological over-allocation.
+    let estimate = (width as usize)
+        .saturating_mul(height as usize)
+        .div_ceil(6)
+        .min(16_384);
+    let mut runs = Vec::with_capacity(estimate);
+
+    for (y, row) in pixels
+        .chunks_exact(row_bytes)
+        .take(height as usize)
+        .enumerate()
+    {
+        let mut x = 0usize;
+        while x < width as usize {
+            let rgba = quantized_rgba(&row[x * 4..x * 4 + 4]);
+            if rgba >> 24 == 0 {
                 x += 1;
                 continue;
             }
+
             let start = x;
             x += 1;
-            while x < width {
-                let next = ((y * width + x) * 4) as usize;
-                let mut next_rgba = [
-                    pixels[next],
-                    pixels[next + 1],
-                    pixels[next + 2],
-                    pixels[next + 3],
-                ];
-                next_rgba[3] = (((next_rgba[3] as u16 + 8) / 16) * 16).min(255) as u8;
-                if next_rgba != rgba {
-                    break;
-                }
+            while x < width as usize && quantized_rgba(&row[x * 4..x * 4 + 4]) == rgba {
                 x += 1;
             }
             runs.push(MathRun {
-                x: start,
-                y,
-                width: x - start,
-                rgba,
+                x: start as u32,
+                y: y as u32,
+                width: (x - start) as u32,
+                rgba: rgba.to_le_bytes(),
             });
         }
     }
@@ -346,6 +349,22 @@ mod tests {
             height,
             pixels,
         }
+    }
+
+    #[test]
+    fn build_runs_quantizes_alpha_and_coalesces_equal_pixels() {
+        let pixels = [
+            9, 9, 9, 0,
+            9, 9, 9, 7,
+            1, 2, 3, 8,
+            1, 2, 3, 15,
+            1, 2, 3, 24,
+        ];
+        let runs = build_runs(5, 1, &pixels);
+        assert_eq!(runs.len(), 2);
+        assert_eq!((runs[0].x, runs[0].y, runs[0].width, runs[0].rgba), (2, 0, 2, [1, 2, 3, 16]));
+        assert_eq!((runs[1].x, runs[1].y, runs[1].width, runs[1].rgba), (4, 0, 1, [1, 2, 3, 32]));
+        assert!(build_runs(0, 1, &[]).is_empty());
     }
 
     #[test]
