@@ -14,8 +14,11 @@ const MAX_CACHE_ENTRIES: usize = 256;
 pub struct MathImage {
     pub width: u32,
     pub height: u32,
-    /// Baseline measured from the top edge of the decoded RaTeX image.
+    /// Baseline measured from the top edge of the rasterized RaTeX image.
     pub baseline: u32,
+    /// Retain full RGBA pixels only in tests. Runtime renderers consume `runs`,
+    /// so cached images avoid keeping a second, much larger representation.
+    #[cfg(test)]
     pub pixels: Vec<u8>,
     /// Horizontal runs of identical RGBA pixels, prepared once at rasterize time.
     pub runs: Vec<MathRun>,
@@ -169,6 +172,7 @@ fn downsample_premultiplied_rgba_generic(
         width,
         height,
         baseline: baseline.min(height),
+        #[cfg(test)]
         pixels,
         runs,
     }
@@ -287,6 +291,7 @@ fn downsample_premultiplied_rgba_2x(source: PremultipliedRgbaImage, baseline: u3
         width,
         height,
         baseline: baseline.min(height),
+        #[cfg(test)]
         pixels,
         runs,
     }
