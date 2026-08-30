@@ -1,2 +1,7 @@
 /target/
 /webapp/target/
+/webapp/pkg/
+/.verify-*/
+/.commit-*/
+/.bench-head/
+/.agent_*.py

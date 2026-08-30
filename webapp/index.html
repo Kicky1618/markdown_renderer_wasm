@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Streamdown · canvas renderer</title>
+  <style>
+    @font-face {
+      font-family: "Streamdown Noto Sans";
+      src: url("./assets/NotoSansCJKjp-Streamdown.ttf") format("truetype");
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Streamdown Noto Sans Mono";
+      src: url("./assets/NotoSansMono-Regular.ttf") format("truetype");
+      font-display: swap;
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #090c12; color: #d1dbe8; font-family: "Streamdown Noto Sans", sans-serif; }
+    body { min-width: 240px; }
+    canvas { display: block; width: 100%; height: 100vh; height: 100dvh; touch-action: none; cursor: default; outline: none; }
+    canvas:focus-visible { box-shadow: inset 0 0 0 3px #73e09e; }
+    canvas[data-cursor="default"] { cursor: default; }
+    canvas[data-cursor="pointer"] { cursor: pointer; }
+    canvas[data-cursor="grab"] { cursor: grab; }
+    canvas[data-cursor="grabbing"] { cursor: grabbing; }
+    canvas[data-cursor="text"] { cursor: text; }
+    .skip-link {
+      position: fixed; z-index: 20; top: 8px; left: 8px; padding: 10px 14px;
+      border-radius: 6px; color: #091016; background: #73e09e;
+      transform: translateY(-150%);
+    }
+    .skip-link:focus { transform: none; }
+    .screen-reader-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
+    .transcript { position: fixed; z-index: 10; top: 14px; right: max(14px, env(safe-area-inset-right)); }
+    .transcript summary, .control-dock button {
+      min-width: 44px; min-height: 44px; border: 1px solid #467681; border-radius: 8px;
+      color: #d1dbe8; background: #0e1a25; font: inherit; cursor: pointer;
+    }
+    .transcript summary { display: flex; align-items: center; padding: 0 12px; list-style: none; }
+    .transcript summary::-webkit-details-marker { display: none; }
+    .transcript summary:focus-visible, .control-dock button:focus-visible { outline: 3px solid #73e09e; outline-offset: 2px; }
+    .transcript article {
+      position: fixed; inset: 68px 12px 12px; overflow: auto; padding: clamp(16px, 4vw, 36px);
+      border: 1px solid #467681; border-radius: 10px; background: #090c12;
+      box-shadow: 0 12px 40px #000a;
+    }
+    .transcript pre { max-width: 80ch; margin: 0 auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.65; }
+    .control-dock {
+      display: flex; flex-direction: column; position: fixed; z-index: 8;
+      right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom));
+      gap: 7px; padding: 7px; border: 1px solid #29444d; border-radius: 12px;
+      background: #09121bd9; box-shadow: 0 10px 32px #0008; backdrop-filter: blur(12px);
+    }
+    .control-dock button { position: relative; width: 46px; padding: 0; font-size: 18px; line-height: 1; }
+    .control-dock button:hover { border-color: #73e09e; background: #132734; }
+    .control-dock button[aria-pressed="true"] { color: #091016; border-color: #73e09e; background: #73e09e; }
+    .control-dock .divider { width: 28px; height: 1px; margin: 1px auto; background: #29444d; }
+    .ui-status {
+      position: fixed; z-index: 7; left: max(14px, env(safe-area-inset-left));
+      bottom: max(14px, env(safe-area-inset-bottom)); margin: 0; padding: 8px 12px;
+      border: 1px solid #29444d; border-radius: 999px; color: #91a2b8;
+      background: #09121bd9; font: 12px/1.2 "Streamdown Noto Sans Mono", monospace;
+      backdrop-filter: blur(12px); pointer-events: none;
+    }
+    .search-panel {
+      display: flex; position: fixed; z-index: 9; top: 10px; left: 50%;
+      width: min(520px, calc(100% - 150px)); min-height: 48px; padding: 5px;
+      border: 1px solid #467681; border-radius: 10px; background: #09121bf2;
+      box-shadow: 0 10px 32px #0009; backdrop-filter: blur(12px);
+      transform: translate(-50%, -140%); opacity: 0; pointer-events: none;
+      transition: transform 140ms ease, opacity 140ms ease;
+    }
+    .search-panel[data-open="true"] { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; }
+    .search-panel input {
+      min-width: 0; flex: 1; border: 0; outline: 0; padding: 0 10px;
+      color: #edf4fb; background: transparent; font: 16px "Streamdown Noto Sans", sans-serif;
+    }
+    .search-panel output { min-width: 62px; align-self: center; color: #91a2b8; text-align: center; font-size: 12px; }
+    .search-panel button {
+      width: 38px; min-height: 36px; border: 0; border-radius: 6px;
+      color: #d1dbe8; background: transparent; font-size: 17px; cursor: pointer;
+    }
+    .search-panel button:hover { background: #18303d; }
+    .search-panel button:focus-visible, .search-panel input:focus-visible { outline: 3px solid #73e09e; outline-offset: 1px; }
+    @media (max-width: 640px) {
+      .transcript { top: 10px; right: max(10px, env(safe-area-inset-right)); }
+      .transcript summary { width: 44px; padding: 0; justify-content: center; font-size: 0; }
+      .transcript summary::after { content: "Aa"; font-size: 15px; font-weight: 700; }
+      .transcript article { inset: 64px 8px 8px; }
+      .control-dock {
+        right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); left: 8px;
+        flex-direction: row; justify-content: center; overflow-x: auto; padding: 6px;
+      }
+      .control-dock .divider { width: 1px; height: 28px; margin: auto 1px; flex: 0 0 auto; }
+      .control-dock button { flex: 0 0 44px; }
+      .ui-status { bottom: calc(max(8px, env(safe-area-inset-bottom)) + 64px); }
+      .search-panel { top: 62px; width: calc(100% - 16px); }
+    }
+    @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#accessible-content">Skip to text version</a>
+  <canvas id="app" tabindex="0" role="region" aria-label="Rendered streaming Markdown document" aria-describedby="canvas-help">Your browser does not support canvas. Use the text version on this page.</canvas>
+  <p id="canvas-help" class="screen-reader-only">Use the arrow keys, Page Up, Page Down, Home, End, or Space to scroll. Open the text version to read the document with assistive technology.</p>
+  <details class="transcript" id="text-version">
+    <summary aria-label="Open accessible text version">Text</summary>
+    <article aria-label="Markdown document text version"><pre id="accessible-content" tabindex="0">Loading document…</pre></article>
+  </details>
+  <form class="search-panel" role="search" data-open="false">
+    <input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" aria-label="Search document" placeholder="Search document…">
+    <output aria-live="polite">0 / 0</output>
+    <button type="button" data-search-nav="previous" aria-label="Previous result" title="Previous result (Shift+Enter)">↑</button>
+    <button type="button" data-search-nav="next" aria-label="Next result" title="Next result (Enter)">↓</button>
+    <button type="button" data-search-close aria-label="Close search" title="Close search (Escape)">×</button>
+  </form>
+  <nav class="control-dock" aria-label="Viewer controls">
+    <button type="button" data-command="p" aria-label="Pause streaming" aria-keyshortcuts="P" aria-pressed="false" title="Pause streaming (P)">Ⅱ</button>
+    <button type="button" data-command="a" aria-label="Toggle automatic following" aria-keyshortcuts="A" aria-pressed="true" title="Toggle auto-follow (A)">◎</button>
+    <span class="divider" aria-hidden="true"></span>
+    <button type="button" data-command="PageUp" aria-label="Scroll up one page" title="Page up">↑</button>
+    <button type="button" data-command="End" aria-label="Jump to latest content" aria-keyshortcuts="End" title="Jump to latest (End)">↓</button>
+    <span class="divider" aria-hidden="true"></span>
+    <button type="button" data-command="-" aria-label="Decrease text size" aria-keyshortcuts="-" title="Decrease text size (-)">A−</button>
+    <button type="button" data-command="+" aria-label="Increase text size" aria-keyshortcuts="+" title="Increase text size (+)">A+</button>
+    <button type="button" data-action="copy" aria-label="Copy full document" title="Copy full document">⧉</button>
+    <button type="button" data-action="search" aria-label="Search document" aria-keyshortcuts="Control+F Meta+F" title="Search document (Ctrl/⌘+F)">⌕</button>
+    <button type="button" data-action="fullscreen" aria-label="Toggle fullscreen" title="Toggle fullscreen">⛶</button>
+  </nav>
+  <p class="ui-status" aria-hidden="true">Starting renderer…</p>
+  <p id="ui-announcer" class="screen-reader-only" aria-live="polite"></p>
+  <script type="module">
+    import init from "./pkg/streamdown_web.js";
+    const transcript = document.querySelector("#text-version");
+    const transcriptToggle = transcript?.querySelector("summary");
+    document.querySelector(".skip-link")?.addEventListener("click", () => { transcript.open = true; });
+    transcript?.addEventListener("toggle", () => {
+      transcriptToggle?.setAttribute("aria-label", `${transcript.open ? "Close" : "Open"} accessible text version`);
+    });
+    const announce = message => {
+      document.querySelector("#ui-announcer").textContent = "";
+      requestAnimationFrame(() => { document.querySelector("#ui-announcer").textContent = message; });
+    };
+    const getCanvas = () => document.querySelector("#app");
+    const searchPanel = document.querySelector(".search-panel");
+    const searchInput = searchPanel.querySelector("input");
+    const openSearch = () => {
+      searchPanel.dataset.open = "true";
+      searchInput.focus();
+      searchInput.select();
+    };
+    const closeSearch = () => {
+      searchPanel.dataset.open = "false";
+      searchInput.value = "";
+      const canvas = getCanvas();
+      if (canvas) canvas.dataset.searchQuery = "";
+      canvas?.focus();
+    };
+    const sendCommand = key => {
+      const canvas = getCanvas();
+      canvas?.focus();
+      canvas?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    };
+    const updateControls = () => {
+      const canvas = getCanvas();
+      if (!canvas) return;
+      const paused = canvas.dataset.paused === "true";
+      const auto = canvas.dataset.autoScroll !== "false";
+      const size = canvas.dataset.fontSize ?? "16";
+      const renderer = (canvas.dataset.renderer ?? "starting").toUpperCase();
+      const requestedRenderer = (canvas.dataset.rendererRequested ?? "auto").toUpperCase();
+      const fallbackDepth = Number(canvas.dataset.rendererFallbackDepth ?? 0);
+      const rendererStatus = fallbackDepth > 0
+        ? `${renderer} ← ${requestedRenderer} (${fallbackDepth})`
+        : renderer;
+      const searchCount = Number(canvas.dataset.searchCount ?? 0);
+      const searchActive = Number(canvas.dataset.searchActive ?? 0);
+      const pause = document.querySelector('[data-command="p"]');
+      const follow = document.querySelector('[data-command="a"]');
+      pause.setAttribute("aria-pressed", String(paused));
+      pause.setAttribute("aria-label", paused ? "Resume streaming" : "Pause streaming");
+      pause.textContent = paused ? "▶" : "Ⅱ";
+      follow.setAttribute("aria-pressed", String(auto));
+      searchPanel.querySelector("output").value = searchCount ? `${searchActive} / ${searchCount}` : "0 / 0";
+      document.querySelector(".ui-status").textContent = `${paused ? "Paused" : "Streaming"} · ${auto ? "Following" : "Free scroll"} · ${size}px · ${rendererStatus}`;
+    };
+    document.querySelectorAll("[data-command]").forEach(button => {
+      button.addEventListener("click", () => {
+        sendCommand(button.dataset.command);
+        requestAnimationFrame(updateControls);
+      });
+    });
+    document.querySelector('[data-action="copy"]').addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(document.querySelector("#accessible-content").textContent);
+        announce("Full document copied");
+      } catch (error) {
+        announce("Could not copy the document");
+        console.error(error);
+      }
+    });
+    document.querySelector('[data-action="search"]').addEventListener("click", openSearch);
+    searchInput.addEventListener("input", () => {
+      const canvas = getCanvas();
+      if (canvas) canvas.dataset.searchQuery = searchInput.value;
+    });
+    searchPanel.addEventListener("submit", event => {
+      event.preventDefault();
+      sendCommand(event.submitter?.dataset.searchNav === "previous" ? "F3Previous" : "F3");
+    });
+    searchPanel.querySelectorAll("[data-search-nav]").forEach(button => {
+      button.addEventListener("click", () => sendCommand(button.dataset.searchNav === "previous" ? "F3Previous" : "F3"));
+    });
+    searchPanel.querySelector("[data-search-close]").addEventListener("click", closeSearch);
+    searchInput.addEventListener("keydown", event => {
+      if (event.key === "Escape") { event.preventDefault(); closeSearch(); }
+      else if (event.key === "Enter") {
+        event.preventDefault();
+        sendCommand(event.shiftKey ? "F3Previous" : "F3");
+        searchInput.focus();
+      }
+    });
+    window.addEventListener("keydown", event => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        openSearch();
+      }
+    });
+    document.querySelector('[data-action="fullscreen"]').addEventListener("click", async () => {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+      announce(document.fullscreenElement ? "Entered fullscreen" : "Exited fullscreen");
+    });
+    const runSmokeProbe = () => {
+      if (new URLSearchParams(location.search).get("smoke") !== "1") return;
+      const root = document.documentElement;
+      root.dataset.smoke = "waiting";
+      let frames = 0;
+      const probe = () => {
+        const canvas = getCanvas();
+        if (!canvas?.dataset.renderer) {
+          if (frames++ >= 1000) {
+            root.dataset.smoke = "timeout";
+            return;
+          }
+          setTimeout(probe, 16);
+          return;
+        }
+        const fontBefore = Number(canvas.dataset.fontSize ?? 16);
+        canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "p", bubbles: true }));
+        canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "+", bubbles: true }));
+        const active = getCanvas();
+        const paused = active?.dataset.paused === "true";
+        const fontAfter = Number(active?.dataset.fontSize ?? fontBefore);
+        root.dataset.smokeRenderer = active?.dataset.renderer ?? "missing";
+        root.dataset.smokeFallbackDepth = active?.dataset.rendererFallbackDepth ?? "missing";
+        root.dataset.smoke = paused && fontAfter > fontBefore ? "pass" : "fail";
+      };
+      setTimeout(probe, 0);
+    };
+    new MutationObserver(updateControls).observe(document.body, {
+      subtree: true, attributes: true,
+      attributeFilter: ["data-paused", "data-auto-scroll", "data-font-size", "data-renderer", "data-renderer-requested", "data-renderer-fallback-depth", "data-search-count", "data-search-active"],
+    });
+    init().then(() => {
+      updateControls();
+      runSmokeProbe();
+    }).catch(error => {
+      document.querySelector(".ui-status").textContent = "Renderer unavailable";
+      console.error("WebGPU startup failed", error);
+    });
+  </script>
+</body>
+</html>

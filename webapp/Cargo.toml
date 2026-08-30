@@ -1,0 +1,54 @@
+[package]
+name = "streamdown-web"
+version = "0.1.0"
+edition = "2024"
+autobins = false
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/main.rs"
+
+[dependencies]
+streamdown = { path = ".." }
+bytemuck = { version = "1.25", features = ["derive"] }
+ab_glyph = "0.2"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+futures-util = "0.3"
+js-sys = "0.3"
+wgpu = { version = "29", default-features = false, features = ["std", "wgsl", "webgpu", "webgl"] }
+png = "0.17"
+ratex-layout = "0.1.14"
+ratex-parser = "0.1.14"
+ratex-render = { version = "0.1.14", features = ["embed-fonts"] }
+ratex-types = "0.1.14"
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "console",
+  "Document",
+  "DomRect",
+  "Element",
+  "Event",
+  "EventTarget",
+  "HtmlCanvasElement",
+  "KeyboardEvent",
+  "Location",
+  "MediaQueryList",
+  "MouseEvent",
+  "Navigator",
+  "Clipboard",
+  "CanvasRenderingContext2d",
+  "Performance",
+  "TextMetrics",
+  "WheelEvent",
+  "Window",
+]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
