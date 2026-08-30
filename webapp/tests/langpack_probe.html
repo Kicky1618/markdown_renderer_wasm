@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>langpack probe</title></head>
+<body>
+<canvas id="app" width="320" height="180"></canvas>
+<script type="module">
+  import init from "../pkg/streamdown_web.js";
+  import { loadLanguagePack } from "../language-loader.js";
+
+  const root = document.documentElement;
+  root.dataset.langpackProbe = "running";
+  try {
+    await init();
+    const first = await loadLanguagePack("typescript");
+    const duplicate = await loadLanguagePack("ts");
+    const unsafe = await loadLanguagePack("../rust");
+    root.dataset.langpackProbe = first && !duplicate && !unsafe ? "pass" : "fail";
+    root.dataset.langpackFirst = String(first);
+    root.dataset.langpackDuplicate = String(duplicate);
+    root.dataset.langpackUnsafe = String(unsafe);
+  } catch (error) {
+    root.dataset.langpackProbe = "error";
+    root.dataset.langpackError = String(error);
+    console.error(error);
+  }
+</script>
+</body>
+</html>

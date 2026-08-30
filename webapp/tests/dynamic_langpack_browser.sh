@@ -32,6 +32,7 @@ PY
 fi
 
 TMP_BASE=${TMPDIR:-/tmp}
+mkdir -p "$TMP_BASE"
 WORK=$(mktemp -d "$TMP_BASE/streamdown-langpack-browser.XXXXXX")
 SERVER_PID=
 cleanup() {
@@ -68,21 +69,28 @@ ERR="$WORK/chrome.err"
   --disable-dev-shm-usage \
   --virtual-time-budget=30000 \
   --dump-dom \
-  "http://127.0.0.1:$PORT/?renderer=canvas2d&doc=code&tps=10000000&repeat=1&fade=0" \
+  "http://127.0.0.1:$PORT/tests/langpack_probe.html?renderer=canvas2d&doc=easy&tps=1000000&repeat=1&fade=0" \
   >"$HTML" 2>"$ERR" || true
 
-grep -q 'data-renderer="canvas2d"' "$HTML" || {
-  echo "dynamic langpack browser: Canvas2D renderer did not start"
+grep -q 'data-langpack-probe="pass"' "$HTML" || {
+  echo "dynamic langpack browser: probe did not complete successfully"
+  grep -o '<html[^>]*>' "$HTML" | head -1 || true
   tail -30 "$ERR" || true
+  cat "$WORK/http.log"
   exit 1
 }
-for pack in rust javascript python shell cpp json go; do
-  count=$(grep -c "GET /langpacks/$pack.langpack HTTP/1.1.* 200" "$WORK/http.log" || true)
-  if [ "$count" -ne 1 ]; then
-    echo "dynamic langpack browser: $pack fetched $count times (expected once)"
-    cat "$WORK/http.log"
-    exit 1
-  fi
-done
 
-echo "dynamic langpack browser: 7 language packs fetched exactly once"
+js_count=$(grep -c 'GET /langpacks/javascript.langpack HTTP/1.1.* 200' "$WORK/http.log" || true)
+if [ "$js_count" -ne 1 ]; then
+  echo "dynamic langpack browser: javascript fetched $js_count times (expected once for TypeScript + ts aliases)"
+  cat "$WORK/http.log"
+  exit 1
+fi
+
+if grep -q 'GET /langpacks/.*rust' "$WORK/http.log"; then
+  echo "dynamic langpack browser: unsafe ../rust probe reached the HTTP server"
+  cat "$WORK/http.log"
+  exit 1
+fi
+
+echo "dynamic langpack browser: alias dedupe + binary registration + path sanitization pass"

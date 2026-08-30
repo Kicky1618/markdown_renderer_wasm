@@ -143,6 +143,13 @@
   <p id="ui-announcer" class="screen-reader-only" aria-live="polite"></p>
   <script type="module">
     import init from "./pkg/streamdown_web.js";
+    let languageLoader;
+    const languagePackProbe = new URLSearchParams(location.search).get("langpack_probe");
+    window.addEventListener("streamdown-language-request", event => {
+      if (typeof event.detail !== "string") return;
+      languageLoader ??= import("./language-loader.js");
+      languageLoader.then(module => module.loadLanguagePack(event.detail));
+    });
     const transcript = document.querySelector("#text-version");
     const transcriptToggle = transcript?.querySelector("summary");
     document.querySelector(".skip-link")?.addEventListener("click", () => { transcript.open = true; });
@@ -281,6 +288,11 @@
       attributeFilter: ["data-paused", "data-auto-scroll", "data-font-size", "data-renderer", "data-renderer-requested", "data-renderer-fallback-depth", "data-renderer-runtime-origin", "data-renderer-runtime-depth", "data-search-count", "data-search-active"],
     });
     init().then(() => {
+      if (languagePackProbe) {
+        for (const name of languagePackProbe.split(",")) {
+          window.dispatchEvent(new CustomEvent("streamdown-language-request", { detail: name }));
+        }
+      }
       updateControls();
       runSmokeProbe();
     }).catch(error => {

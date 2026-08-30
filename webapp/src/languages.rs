@@ -8,13 +8,18 @@
 use std::cell::RefCell;
 
 #[cfg(target_arch = "wasm32")]
-use std::collections::HashSet;
+use wasm_bindgen::prelude::*;
+
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::JsCast;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen_futures::{JsFuture, spawn_local};
-#[cfg(target_arch = "wasm32")]
-use web_sys::{HtmlCanvasElement, Response};
+#[wasm_bindgen(inline_js = r#"
+export function requestLanguagePack(name) {
+    window.dispatchEvent(new CustomEvent("streamdown-language-request", { detail: name }));
+}
+"#)]
+extern "C" {
+    #[wasm_bindgen(js_name = requestLanguagePack)]
+    fn request_language_pack(name: &str);
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DeclarationKind {
@@ -95,11 +100,9 @@ macro_rules! empty_profile {
 }
 
 const PLAIN: LanguageProfile = empty_profile!(&[]);
-#[cfg(target_arch = "wasm32")]
-const MAX_REQUESTED_PACKS: usize = 128;
-
-// Aliases are intentionally tiny and stay in the initial wasm. The expensive
-// keyword/type/macro dictionaries live only in the external langpacks.
+// Native tests use this tiny manifest to synchronously load the same packs.
+// Browser alias resolution lives in language-loader.js, outside the wasm.
+#[cfg(not(target_arch = "wasm32"))]
 const PACK_ALIASES: &[(&str, &str)] = &[
     ("rs", "rust"),
     ("rust", "rust"),
@@ -145,8 +148,6 @@ const PACK_ALIASES: &[(&str, &str)] = &[
 
 thread_local! {
     static LOADED: RefCell<Vec<&'static LanguageProfile>> = const { RefCell::new(Vec::new()) };
-    #[cfg(target_arch = "wasm32")]
-    static REQUESTED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -161,10 +162,12 @@ impl Language {
         if let Some(profile) = find_loaded(name) {
             return Self(profile);
         }
-        let Some(pack) = pack_name_for(name) else {
-            return Self(&PLAIN);
-        };
-        ensure_pack(&pack);
+        #[cfg(target_arch = "wasm32")]
+        request_language_pack(name);
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(pack) = pack_name_for(name) {
+            ensure_pack(&pack);
+        }
         find_loaded(name).map_or(Self(&PLAIN), Self)
     }
 
@@ -279,6 +282,7 @@ fn find_loaded(name: &str) -> Option<&'static LanguageProfile> {
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn pack_name_for(name: &str) -> Option<String> {
     if let Some((_, pack)) = PACK_ALIASES
         .iter()
@@ -308,83 +312,128 @@ fn ensure_pack(pack: &str) {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn ensure_pack(pack: &str) {
-    let pack = pack.to_owned();
-    let should_request = REQUESTED.with(|requested| {
-        let mut requested = requested.borrow_mut();
-        if requested.contains(&pack) {
-            return false;
-        }
-        if requested.len() >= MAX_REQUESTED_PACKS {
-            return false;
-        }
-        requested.insert(pack.clone());
-        true
-    });
-    if !should_request {
-        return;
+const BINARY_MAGIC: &[u8; 4] = b"SLP1";
+#[cfg(target_arch = "wasm32")]
+const MAX_BINARY_WORDS: usize = 4096;
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn register_language_pack_binary(bytes: &[u8]) -> bool {
+    let Some(profile) = decode_binary_profile(bytes) else {
+        return false;
+    };
+    register_profile(profile)
+}
+
+fn register_profile(profile: LanguageProfile) -> bool {
+    if profile.aliases.is_empty() {
+        return false;
     }
-    spawn_local(async move {
-        let result = fetch_and_register(&pack).await;
-        if let Err(error) = result {
-            web_sys::console::warn_1(
-                &format!("language pack {pack:?} unavailable: {error}").into(),
-            );
-        }
-    });
-}
-
-#[cfg(target_arch = "wasm32")]
-async fn fetch_and_register(pack: &str) -> Result<(), String> {
-    let window = web_sys::window().ok_or_else(|| "window unavailable".to_owned())?;
-    let url = format!("./langpacks/{pack}.langpack");
-    let value = JsFuture::from(window.fetch_with_str(&url))
-        .await
-        .map_err(js_error)?;
-    let response: Response = value
-        .dyn_into()
-        .map_err(|_| "fetch did not return a Response".to_owned())?;
-    if !response.ok() {
-        return Err(format!("HTTP {}", response.status()));
+    if profile
+        .aliases
+        .iter()
+        .all(|alias| find_loaded(alias).is_some())
+    {
+        return false;
     }
-    let text = JsFuture::from(response.text().map_err(js_error)?)
-        .await
-        .map_err(js_error)?
-        .as_string()
-        .ok_or_else(|| "langpack response was not text".to_owned())?;
-    register_pack_source(&text)?;
-    invalidate_renderer(pack);
-    Ok(())
+    if profile
+        .aliases
+        .iter()
+        .any(|alias| find_loaded(alias).is_some())
+    {
+        return false;
+    }
+    let profile = Box::leak(Box::new(profile));
+    LOADED.with(|loaded| loaded.borrow_mut().push(profile));
+    true
 }
 
 #[cfg(target_arch = "wasm32")]
-fn js_error(value: wasm_bindgen::JsValue) -> String {
-    value.as_string().unwrap_or_else(|| format!("{value:?}"))
+struct BinaryCursor<'a> {
+    bytes: &'a [u8],
+    at: usize,
 }
 
 #[cfg(target_arch = "wasm32")]
-fn invalidate_renderer(_pack: &str) {
-    // Both renderer backends already detect backing-canvas size changes every
-    // animation frame. Perturbing the width by one pixel requests a full reflow
-    // without coupling the language registry to either backend implementation.
-    let Some(window) = web_sys::window() else {
-        return;
-    };
-    let Some(document) = window.document() else {
-        return;
-    };
-    let Some(element) = document.get_element_by_id("app") else {
-        return;
-    };
-    let Ok(canvas) = element.dyn_into::<HtmlCanvasElement>() else {
-        return;
-    };
-    // Both backends detect a backing-store mismatch on the next animation
-    // frame and rebuild their scene. The normal resize path immediately
-    // restores the correct backing size, so CSS layout never changes.
-    canvas.set_width(canvas.width().saturating_add(1));
+impl<'a> BinaryCursor<'a> {
+    fn take(&mut self, len: usize) -> Option<&'a [u8]> {
+        let end = self.at.checked_add(len)?;
+        let slice = self.bytes.get(self.at..end)?;
+        self.at = end;
+        Some(slice)
+    }
+
+    fn u16(&mut self) -> Option<usize> {
+        let bytes = self.take(2)?;
+        Some(u16::from_le_bytes([bytes[0], bytes[1]]) as usize)
+    }
+
+    fn u32(&mut self) -> Option<u32> {
+        let bytes = self.take(4)?;
+        Some(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    }
+
+    fn words(&mut self) -> Option<&'static [&'static str]> {
+        let count = self.u16()?;
+        if count > MAX_BINARY_WORDS {
+            return None;
+        }
+        let mut words = Vec::with_capacity(count);
+        for _ in 0..count {
+            let len = self.u16()?;
+            let word = std::str::from_utf8(self.take(len)?).ok()?;
+            let word: &'static str = Box::leak(word.to_owned().into_boxed_str());
+            words.push(word);
+        }
+        Some(Box::leak(words.into_boxed_slice()))
+    }
 }
 
+#[cfg(target_arch = "wasm32")]
+fn decode_binary_profile(bytes: &[u8]) -> Option<LanguageProfile> {
+    let mut cursor = BinaryCursor { bytes, at: 0 };
+    if cursor.take(4)? != BINARY_MAGIC {
+        return None;
+    }
+    let flags = cursor.u32()?;
+    let mut profile = empty_profile!(&[]);
+    profile.aliases = cursor.words()?;
+    profile.keywords = cursor.words()?;
+    profile.builtin_types = cursor.words()?;
+    profile.function_declarations = cursor.words()?;
+    profile.type_declarations = cursor.words()?;
+    profile.macro_declarations = cursor.words()?;
+    profile.preprocessor_macro_operands = cursor.words()?;
+    profile.preprocessor_headers = cursor.words()?;
+    profile.bang_macro_declarations = cursor.words()?;
+    profile.macro_identifiers = cursor.words()?;
+    profile.macro_operand_identifiers = cursor.words()?;
+    profile.header_macro_identifiers = cursor.words()?;
+    profile.expression_prefixes = cursor.words()?;
+    if profile.aliases.is_empty() || cursor.at != bytes.len() {
+        return None;
+    }
+    profile.case_insensitive_keywords = flags & (1 << 0) != 0;
+    profile.slash_comments = flags & (1 << 1) != 0;
+    profile.dash_comments = flags & (1 << 2) != 0;
+    profile.hash_comments = flags & (1 << 3) != 0;
+    profile.block_comments = flags & (1 << 4) != 0;
+    profile.nested_block_comments = flags & (1 << 5) != 0;
+    profile.preprocessor = flags & (1 << 6) != 0;
+    profile.decorators = flags & (1 << 7) != 0;
+    profile.dollar_identifiers = flags & (1 << 8) != 0;
+    profile.javascript_lexing = flags & (1 << 9) != 0;
+    profile.python_strings = flags & (1 << 10) != 0;
+    profile.rust_syntax = flags & (1 << 11) != 0;
+    profile.multiline_strings = flags & (1 << 12) != 0;
+    profile.rust_attributes = flags & (1 << 13) != 0;
+    profile.bang_macros = flags & (1 << 14) != 0;
+    profile.uppercase_macros = flags & (1 << 15) != 0;
+    profile.macro_metavariables = flags & (1 << 16) != 0;
+    Some(profile)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn register_pack_source(source: &str) -> Result<bool, String> {
     let profile = parse_pack(source)?;
     let aliases = profile.aliases;
@@ -395,11 +444,10 @@ fn register_pack_source(source: &str) -> Result<bool, String> {
     if let Some(alias) = aliases.iter().find(|alias| find_loaded(alias).is_some()) {
         return Err(format!("language alias already registered: {alias}"));
     }
-    let profile = Box::leak(Box::new(profile));
-    LOADED.with(|loaded| loaded.borrow_mut().push(profile));
-    Ok(true)
+    Ok(register_profile(profile))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn parse_pack(source: &str) -> Result<LanguageProfile, String> {
     let mut lines = source.lines();
     if lines.next() != Some("STREAMDOWN_LANGPACK\t1") {
@@ -455,6 +503,7 @@ fn parse_pack(source: &str) -> Result<LanguageProfile, String> {
     Ok(profile)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn leak_words(values: Vec<&str>) -> &'static [&'static str] {
     let words = values
         .into_iter()
@@ -463,6 +512,7 @@ fn leak_words(values: Vec<&str>) -> &'static [&'static str] {
     Box::leak(words.into_boxed_slice())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn set_flag(profile: &mut LanguageProfile, flag: &str) -> Result<(), String> {
     match flag {
         "case_insensitive_keywords" => profile.case_insensitive_keywords = true,
