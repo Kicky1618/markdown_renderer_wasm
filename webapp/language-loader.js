@@ -47,7 +47,14 @@ function rememberFailure(alias) {
 
 function invalidateRenderer() {
   const canvas = document.getElementById("app");
-  if (canvas instanceof HTMLCanvasElement) canvas.width = Math.min(0xffffffff, canvas.width + 1);
+  if (!(canvas instanceof HTMLCanvasElement)) return;
+  // Renderer keyboard handlers already mark their scene dirty on a pause toggle.
+  // Two synchronous toggles are an involution: no token can advance between them,
+  // user-visible pause state is unchanged, and both GPU and Canvas2D redraw without
+  // perturbing the backing-store size or resetting Canvas2D context state.
+  for (let i = 0; i < 2; i += 1) {
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "p", bubbles: true }));
+  }
 }
 
 export function loadLanguagePack(name) {

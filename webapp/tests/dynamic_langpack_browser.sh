@@ -101,3 +101,8 @@ if grep -q 'GET /langpacks/.*rust' "$WORK/http.log"; then
 fi
 
 echo "dynamic langpack browser: alias dedupe + binary registration + path sanitization pass"
+
+if [ "${SKIP_REDRAW_PROBE:-0}" != "1" ]; then
+  REDRAW_TMP=${LANGPACK_REDRAW_TMPDIR:-/tmp}
+  TMPDIR="$REDRAW_TMP" SKIP_BUILD=1 "$ROOT/tests/langpack_redraw_browser.sh"
+fi

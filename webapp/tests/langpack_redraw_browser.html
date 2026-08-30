@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>langpack redraw probe</title></head>
+<body>
+<iframe id="viewer" src="../?renderer=webgl2&amp;doc=easy&amp;tps=1000000&amp;repeat=1&amp;fade=0"></iframe>
+<script type="module">
+  const root = document.documentElement;
+  const frame = document.getElementById("viewer");
+  root.dataset.langpackRedrawProbe = "running";
+
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+  async function waitFor(predicate, timeoutMs = 12000) {
+    const deadline = performance.now() + timeoutMs;
+    while (performance.now() < deadline) {
+      const value = predicate();
+      if (value) return value;
+      await sleep(20);
+    }
+    throw new Error("probe timeout");
+  }
+
+  try {
+    await new Promise((resolve, reject) => {
+      frame.addEventListener("load", resolve, { once: true });
+      setTimeout(() => reject(new Error("iframe load timeout")), 12000);
+    });
+    const win = frame.contentWindow;
+    const doc = frame.contentDocument;
+    const canvas = await waitFor(() => {
+      const candidate = doc.getElementById("app");
+      return candidate?.dataset.renderer === "webgl" ? candidate : null;
+    });
+    const pausedBefore = canvas.dataset.paused ?? "false";
+    let pausedMutations = 0;
+    const observer = new MutationObserver(records => {
+      pausedMutations += records.filter(record => record.attributeName === "data-paused").length;
+    });
+    observer.observe(canvas, { attributes: true, attributeFilter: ["data-paused"] });
+
+    win.dispatchEvent(new win.CustomEvent("streamdown-language-request", { detail: "kotlin" }));
+    await waitFor(() => (doc.documentElement.dataset.languagePacks ?? "").split(",").includes("kotlin"));
+    await sleep(100);
+    observer.disconnect();
+
+    const pausedAfter = canvas.dataset.paused ?? "false";
+    root.dataset.langpackRedrawRenderer = canvas.dataset.renderer ?? "missing";
+    root.dataset.langpackRedrawMutations = String(pausedMutations);
+    root.dataset.langpackRedrawPausedBefore = pausedBefore;
+    root.dataset.langpackRedrawPausedAfter = pausedAfter;
+    root.dataset.langpackRedrawProbe = pausedMutations >= 2 && pausedAfter === pausedBefore ? "pass" : "fail";
+  } catch (error) {
+    root.dataset.langpackRedrawProbe = "error";
+    root.dataset.langpackRedrawError = String(error);
+    console.error(error);
+  }
+</script>
+</body>
+</html>
