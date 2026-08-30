@@ -158,15 +158,21 @@ enum PendingLineBreak {
 enum LinkTailPending {
     Label {
         opener: usize,
+        opener_node: usize,
+        opener_text_prefix: usize,
     },
     Closed {
         opener: usize,
         label_close: usize,
+        opener_node: usize,
+        opener_text_prefix: usize,
     },
     Destination {
         opener: usize,
         label_close: usize,
         destination_open: usize,
+        opener_node: usize,
+        opener_text_prefix: usize,
     },
 }
 
@@ -1559,19 +1565,64 @@ impl Parser {
                 opener,
                 label_close,
                 destination_open,
+                opener_node,
+                opener_text_prefix,
             }) = self.live_link_tail_pending
         {
             let label = &self.line[opener + 1..label_close];
             let destination = &self.line[destination_open + 1..];
-            if label.bytes().all(is_plain_stream_byte)
-                && destination.bytes().all(is_plain_stream_byte)
+            if destination.bytes().all(is_plain_stream_byte)
+                && opener_node < nodes.len()
+                && matches!(nodes.get(opener_node), Some(Inline::Text(text)) if text.len() >= opener_text_prefix)
             {
-                let truncate_bytes = self.line.len() - opener;
-                let append = vec![Inline::Link {
-                    label: vec![Inline::Text(label.to_owned())],
+                let link = Inline::Link {
+                    label: parse_inlines(label),
                     destination: destination.to_owned(),
-                }];
-                splice_inline_tail(nodes, truncate_bytes, 0, &append);
+                };
+
+                // Formatted labels can turn the raw label into several AST nodes
+                // while the opening `[` stays inside an older Text node. Remove
+                // everything after that opener node first, then trim only the
+                // opener-owned Text suffix and append the completed Link. This
+                // keeps the already-rendered paragraph prefix out of the delta.
+                let nodes_after_opener = nodes.len() - opener_node - 1;
+                if nodes_after_opener != 0 {
+                    let Some(Inline::Text(tail)) = nodes.last() else {
+                        return false;
+                    };
+                    let tail_truncate = tail.len();
+                    if tail_truncate == 0 {
+                        return false;
+                    }
+                    let remove_nodes = nodes_after_opener - 1;
+                    splice_inline_tail(nodes, tail_truncate, remove_nodes, &[]);
+                    delta.ops.push(Op::SpliceInlineTail {
+                        block: block_index as u32,
+                        remove_nodes: remove_nodes as u32,
+                        truncate_bytes: tail_truncate as u32,
+                        append: Vec::new(),
+                    });
+                }
+
+                let Some(Inline::Text(opener_text)) = nodes.last() else {
+                    return false;
+                };
+                if nodes.len() != opener_node + 1 || opener_text.len() < opener_text_prefix {
+                    return false;
+                }
+                let opener_truncate = opener_text.len() - opener_text_prefix;
+                if opener_truncate == 0 {
+                    return false;
+                }
+                let append = vec![link];
+                splice_inline_tail(nodes, opener_truncate, 0, &append);
+                delta.ops.push(Op::SpliceInlineTail {
+                    block: block_index as u32,
+                    remove_nodes: 0,
+                    truncate_bytes: opener_truncate as u32,
+                    append,
+                });
+
                 self.line.push(')');
                 self.live_link_tail_pending = None;
                 self.live_has_link_label_open = false;
@@ -1580,12 +1631,6 @@ impl Parser {
                 self.live_tail_pending = None;
                 self.reset_delimiter_runs();
                 self.trailing_backslash_odd = false;
-                delta.ops.push(Op::SpliceInlineTail {
-                    block: block_index as u32,
-                    remove_nodes: 0,
-                    truncate_bytes: truncate_bytes as u32,
-                    append,
-                });
                 return true;
             }
         }
@@ -1612,12 +1657,16 @@ impl Parser {
         if inert_closer {
             if input == "]" {
                 self.live_link_tail_pending = match self.live_link_tail_pending {
-                    Some(LinkTailPending::Label { opener }) if !self.live_link_fast_ambiguous => {
-                        Some(LinkTailPending::Closed {
-                            opener,
-                            label_close: self.line.len(),
-                        })
-                    }
+                    Some(LinkTailPending::Label {
+                        opener,
+                        opener_node,
+                        opener_text_prefix,
+                    }) if !self.live_link_fast_ambiguous => Some(LinkTailPending::Closed {
+                        opener,
+                        label_close: self.line.len(),
+                        opener_node,
+                        opener_text_prefix,
+                    }),
                     Some(_) => {
                         self.live_link_fast_ambiguous = true;
                         None
@@ -1764,8 +1813,14 @@ impl Parser {
                 && !self.live_link_fast_ambiguous
                 && self.live_special_bracket == SpecialBracketKind::None
             {
+                let (opener_node, opener_text_prefix) = match nodes.last() {
+                    Some(Inline::Text(text)) => (nodes.len() - 1, text.len()),
+                    _ => (nodes.len(), 0),
+                };
                 self.live_link_tail_pending = Some(LinkTailPending::Label {
                     opener: self.line.len(),
+                    opener_node,
+                    opener_text_prefix,
                 });
             } else {
                 self.live_link_tail_pending = None;
@@ -1776,11 +1831,15 @@ impl Parser {
                 Some(LinkTailPending::Closed {
                     opener,
                     label_close,
+                    opener_node,
+                    opener_text_prefix,
                 }) if self.live_link_label_just_closed && !self.live_link_fast_ambiguous => {
                     Some(LinkTailPending::Destination {
                         opener,
                         label_close,
                         destination_open: self.line.len(),
+                        opener_node,
+                        opener_text_prefix,
                     })
                 }
                 Some(_) => None,
@@ -2082,7 +2141,7 @@ impl Parser {
         self.live_has_link_label_open = link_label_open;
         self.live_link_label_just_closed = link_label_just_closed;
         self.live_has_link_destination_start = closing_paren_sensitive(&source);
-        self.live_link_tail_pending = simple_link_label_tail_from_source(&source);
+        self.live_link_tail_pending = simple_link_label_tail_from_source(&block, &source);
         let tracked_tail_openers = usize::from(matches!(
             self.live_link_tail_pending,
             Some(LinkTailPending::Label { .. })
@@ -2595,7 +2654,7 @@ fn paragraph_literal_link_opener_count(block: &Block) -> usize {
     }
 }
 
-fn simple_link_label_tail_from_source(source: &str) -> Option<LinkTailPending> {
+fn simple_link_label_tail_from_source(block: &Block, source: &str) -> Option<LinkTailPending> {
     let opener = source.len().checked_sub(1)?;
     if source.as_bytes().get(opener) != Some(&b'[') {
         return None;
@@ -2612,7 +2671,22 @@ fn simple_link_label_tail_from_source(source: &str) -> Option<LinkTailPending> {
     }
     let prefix = &source[..opener];
     let (open, just_closed) = link_label_state_from_source(prefix);
-    (!open && !just_closed).then_some(LinkTailPending::Label { opener })
+    if open || just_closed {
+        return None;
+    }
+    let Block::Paragraph(nodes) = block else {
+        return None;
+    };
+    let opener_node = nodes.len().checked_sub(1)?;
+    let Inline::Text(text) = &nodes[opener_node] else {
+        return None;
+    };
+    let opener_text_prefix = text.len().checked_sub(1)?;
+    text.ends_with('[').then_some(LinkTailPending::Label {
+        opener,
+        opener_node,
+        opener_text_prefix,
+    })
 }
 
 fn link_label_state_from_source(source: &str) -> (bool, bool) {
@@ -4015,6 +4089,53 @@ $$
         let mut whole = Parser::new();
         whole.append(markdown);
         assert_eq!(outer.blocks(), whole.blocks());
+    }
+
+    #[test]
+    fn formatted_link_labels_splice_from_recorded_ast_boundary() {
+        for markdown in [
+            "[*x*](u)",
+            "prefix [**x**](url) suffix",
+            "prefix [`x`](u)",
+            "prefix [a *x* b](url)",
+            "prefix [日 **本** 語](u)",
+        ] {
+            let mut parser = Parser::new();
+            let mut mirror = Vec::new();
+            let mut close = Delta::default();
+            for ch in markdown.chars() {
+                let mut buf = [0; 4];
+                let chunk = ch.encode_utf8(&mut buf);
+                let delta = parser.append(chunk);
+                apply(&mut mirror, &delta);
+                assert_eq!(mirror, parser.blocks(), "mirror diverged for {markdown:?}");
+                if chunk == ")" {
+                    close = delta;
+                }
+            }
+            let mut whole = Parser::new();
+            whole.append(markdown);
+            assert_eq!(parser.blocks(), whole.blocks(), "markdown={markdown:?}");
+            assert!(
+                close
+                    .ops
+                    .iter()
+                    .all(|op| matches!(op, Op::SpliceInlineTail { .. })),
+                "formatted link close republished paragraph: {markdown:?} {close:?}"
+            );
+        }
+
+        // A nested raw opener remains ambiguous and must keep the conservative
+        // fallback instead of applying the local rich-label splice.
+        let markdown = "[[*x*](u)](v)";
+        let mut streamed = Parser::new();
+        for ch in markdown.chars() {
+            let mut buf = [0; 4];
+            streamed.append(ch.encode_utf8(&mut buf));
+        }
+        let mut whole = Parser::new();
+        whole.append(markdown);
+        assert_eq!(streamed.blocks(), whole.blocks());
     }
 
     #[test]

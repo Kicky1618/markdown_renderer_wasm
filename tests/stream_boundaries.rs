@@ -169,6 +169,27 @@ fn simple_and_nested_links_are_chunk_boundary_independent() {
 }
 
 #[test]
+fn formatted_link_labels_are_chunk_boundary_independent() {
+    for markdown in [
+        "prefix [*x*](u) suffix",
+        "prefix [**x**](url) suffix",
+        "prefix [`x`](u) suffix",
+        "prefix [a *x* b](url) suffix",
+        "prefix [日 **本** 語](u) suffix",
+        "[[*x*](u)](v)",
+    ] {
+        assert_every_single_split(markdown);
+        let boundaries = utf8_boundaries(markdown);
+        let actual = parse_chunks(boundaries.windows(2).map(|w| &markdown[w[0]..w[1]]));
+        assert_eq!(
+            actual,
+            parse_whole(markdown),
+            "character stream changed {markdown:?}"
+        );
+    }
+}
+
+#[test]
 fn escaped_closers_are_chunk_boundary_independent() {
     assert_every_single_split(r"prefix \] \) @[source:id\] suffix");
 }
