@@ -1,6 +1,46 @@
 const utf8 = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 
+function u32le(bytes, p) {
+  return (bytes[p] | (bytes[p + 1] << 8) | (bytes[p + 2] << 16) | (bytes[p + 3] << 24)) >>> 0;
+}
+
+// Streaming normally emits exactly one tiny operation. Decode those directly
+// without building the generic recursive decoder state on every LLM token.
+function decodeHotDelta(bytes) {
+  if (bytes.length < 9
+      || bytes[0] !== 0x4d || bytes[1] !== 0x44 || bytes[2] !== 0x41 || bytes[3] !== 0x31
+      || bytes[4] !== 1 || bytes[5] !== 0 || bytes[6] !== 0 || bytes[7] !== 0) {
+    return null;
+  }
+
+  const tag = bytes[8];
+  if (tag === 5 || tag === 6) {
+    if (bytes.length < 17) return null;
+    const length = u32le(bytes, 13);
+    if (17 + length !== bytes.length) return null;
+    return [{
+      op: tag === 5 ? "appendText" : "appendInlineText",
+      block: u32le(bytes, 9),
+      append: utf8Decoder.decode(bytes.subarray(17)),
+    }];
+  }
+  if (tag === 3) {
+    if (bytes.length < 21) return null;
+    const length = u32le(bytes, 17);
+    if (21 + length !== bytes.length) return null;
+    return [{
+      op: "spliceCode",
+      block: u32le(bytes, 9),
+      truncateBytes: u32le(bytes, 13),
+      append: utf8Decoder.decode(bytes.subarray(21)),
+    }];
+  }
+  if (tag === 1 && bytes.length === 13) return [{ op: "truncate", from: u32le(bytes, 9) }];
+  if (tag === 4 && bytes.length === 13) return [{ op: "sealCode", block: u32le(bytes, 9) }];
+  return null;
+}
+
 /** Decode the MDA1 binary format into lightweight JavaScript objects. */
 export function decodeDelta(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -474,6 +514,6 @@ export class Streamdown {
     // Decode synchronously before the next parser call mutates the reusable
     // output buffer. No copy is needed because decodeDelta returns owned JS data.
     const bytes = new Uint8Array(this.exports.memory.buffer, outPtr, outLen);
-    return decodeDelta(bytes);
+    return decodeHotDelta(bytes) ?? decodeDelta(bytes);
   }
 }
