@@ -15,6 +15,10 @@ assert.deepEqual(decisions([":::", "\n"]), [false, true]);
 assert.deepEqual(decisions([":::", "   ", "\n"]), [false, false, true]);
 assert.deepEqual(decisions([":::llm tool id=x\r", "\n"]), [false, true]);
 assert.deepEqual(decisions(["plain\r", "\n"]), [false, false]);
+assert.deepEqual(
+  decisions([":::llm tool id=x\n", "@[artifact:hidden]\n", '{"x":1}\n', ":::\n", "tail @[artifact:y", "]"]),
+  [true, false, false, true, false, true],
+);
 
 const boundedWhitespace = new SemanticChangeDetector();
 for (let i = 0; i < 10000; i += 1) boundedWhitespace.shouldObserve(" ");
