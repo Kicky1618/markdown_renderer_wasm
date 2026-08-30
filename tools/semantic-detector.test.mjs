@@ -7,11 +7,14 @@ function decisions(chunks) {
 }
 
 assert.deepEqual(decisions(["token ", "token ", "token "]), [false, false, false]);
-assert.deepEqual(decisions([":::ll", "m tool id=x", " payload", "\n"]), [true, true, true, true]);
-assert.deepEqual(decisions(["::::", "ll", "m artifact id=a", " depends=tool:x", "\n"]), [true, true, true, true, true]);
-assert.deepEqual(decisions(["before ", "@[artifact:x", "] after"]), [false, true, true]);
-assert.deepEqual(decisions(["plain", "\n", "plain"]), [false, true, false]);
-assert.deepEqual(decisions([":::", "\n"]), [true, true]);
+assert.deepEqual(decisions([":::ll", "m tool id=x", " payload", "\n"]), [false, false, false, true]);
+assert.deepEqual(decisions(["::::", "ll", "m artifact id=a", " depends=tool:x", "\n"]), [false, false, false, false, true]);
+assert.deepEqual(decisions(["before ", "@[artifact:x", "] after"]), [false, false, true]);
+assert.deepEqual(decisions(["plain", "\n", "plain"]), [false, false, false]);
+assert.deepEqual(decisions([":::", "\n"]), [false, true]);
+assert.deepEqual(decisions([":::", "   ", "\n"]), [false, false, true]);
+assert.deepEqual(decisions([":::llm tool id=x\r", "\n"]), [false, true]);
+assert.deepEqual(decisions(["plain\r", "\n"]), [false, false]);
 
 const boundedWhitespace = new SemanticChangeDetector();
 for (let i = 0; i < 10000; i += 1) boundedWhitespace.shouldObserve(" ");
@@ -20,7 +23,8 @@ assert.equal(boundedWhitespace.linePrefix, "");
 const boundedColons = new SemanticChangeDetector();
 for (let i = 0; i < 10000; i += 1) boundedColons.shouldObserve(":");
 assert.equal(boundedColons.linePrefix, ":::");
-assert.equal(boundedColons.shouldObserve("llm tool id=x"), true);
+assert.equal(boundedColons.shouldObserve("llm tool id=x"), false);
+assert.equal(boundedColons.shouldObserve("\n"), true);
 
 const reset = new SemanticChangeDetector();
 reset.shouldObserve(":::ll");

@@ -6,32 +6,32 @@ function compactLinePrefix(line) {
 
   let colons = 0;
   while (colons < trimmed.length && trimmed.charCodeAt(colons) === 58) colons += 1;
-  if (colons >= 3 && colons === trimmed.length) return ":::";
-  if (colons > 3) return `:::${trimmed.slice(colons)}`;
+  const tail = trimmed.slice(colons);
+  if (colons >= 3 && tail.trim() === "") return ":::";
+  if (colons > 3) return `:::${tail}`;
   return trimmed;
 }
 
 function classifyLinePrefix(line) {
-  const trimmed = line;
-  if (trimmed === "") return { retain: true, forceNext: false, confirmed: false };
+  if (line === "") return { retain: true, confirmed: false };
 
   let colons = 0;
-  while (colons < trimmed.length && trimmed.charCodeAt(colons) === 58) colons += 1;
-  if (colons === 0) return { retain: false, forceNext: false, confirmed: false };
+  while (colons < line.length && line.charCodeAt(colons) === 58) colons += 1;
+  if (colons === 0) return { retain: false, confirmed: false };
   if (colons < 3) {
-    return colons === trimmed.length
-      ? { retain: true, forceNext: false, confirmed: false }
-      : { retain: false, forceNext: false, confirmed: false };
+    return colons === line.length
+      ? { retain: true, confirmed: false }
+      : { retain: false, confirmed: false };
   }
 
-  const tail = trimmed.slice(colons);
+  const tail = line.slice(colons);
   if (tail === "" || tail === "l" || tail === "ll") {
-    return { retain: true, forceNext: true, confirmed: false };
+    return { retain: true, confirmed: false };
   }
   if (tail === "llm" || /^llm\s/.test(tail)) {
-    return { retain: false, forceNext: true, confirmed: true };
+    return { retain: false, confirmed: true };
   }
-  return { retain: false, forceNext: false, confirmed: false };
+  return { retain: false, confirmed: false };
 }
 
 /**
@@ -39,41 +39,60 @@ function classifyLinePrefix(line) {
  * semantic layer. `inspect()` also returns exact UTF-8 byte length so the
  * runtime only scans ordinary ASCII token chunks once.
  *
- * Once a `:{3,}llm` header is confirmed, the detector keeps only one boolean
- * and forces semantic observation until newline. Arbitrarily long attributes
- * therefore do not grow detector memory or delay the header's events.
+ * Streamdown only opens/closes semantic fences when a line completes, so the
+ * detector tracks a bounded candidate prefix and does not rebuild the semantic
+ * graph for ordinary newlines. Inline `@[kind:id]` references can become live
+ * without a newline, so `]` remains an immediate observation trigger.
  */
 export class SemanticChangeDetector {
   constructor() {
     this.linePrefix = "";
-    this.headerCandidate = false;
     this.headerLine = false;
+    this.pendingCR = false;
   }
 
   inspect(chunk) {
     if (typeof chunk !== "string") throw new TypeError("semantic detector expects a string");
 
-    let triggered = false;
+    let observe = false;
     let ascii = true;
-    let lastNewline = -1;
-    for (let i = 0; i < chunk.length; i += 1) {
+    let segmentStart = 0;
+
+    // A CR at the end of the previous chunk is only ignorable when this chunk
+    // starts with LF. Otherwise it was ordinary line content and invalidates a
+    // semantic header/close candidate exactly as the Rust parser would.
+    if (this.pendingCR) {
+      if (chunk.charCodeAt(0) === 10) {
+        observe = this.#finishLine() || observe;
+        segmentStart = 1;
+      } else {
+        this.#advance("\r");
+      }
+      this.pendingCR = false;
+    }
+
+    for (let i = segmentStart; i < chunk.length; i += 1) {
       const code = chunk.charCodeAt(i);
       if (code > 0x7f) ascii = false;
-      if (code === 10 || code === 13) {
-        triggered = true;
-        lastNewline = i;
-      } else if (code === 58 || code === 64 || code === 93) {
-        triggered = true;
-      }
+      if (code === 93) observe = true; // `]` may complete @[kind:id].
+      if (code !== 10) continue;
+
+      let end = i;
+      if (end > segmentStart && chunk.charCodeAt(end - 1) === 13) end -= 1;
+      if (end > segmentStart) this.#advance(chunk.slice(segmentStart, end));
+      observe = this.#finishLine() || observe;
+      segmentStart = i + 1;
     }
 
-    const forcedByCarry = this.headerCandidate || this.headerLine;
-    if (forcedByCarry || triggered || this.linePrefix !== null) {
-      this.#advance(chunk, lastNewline);
+    let tailEnd = chunk.length;
+    if (tailEnd > segmentStart && chunk.charCodeAt(tailEnd - 1) === 13) {
+      tailEnd -= 1;
+      this.pendingCR = true;
     }
+    if (tailEnd > segmentStart) this.#advance(chunk.slice(segmentStart, tailEnd));
 
     return {
-      observe: forcedByCarry || triggered,
+      observe,
       utf8Bytes: ascii ? chunk.length : utf8Encoder.encode(chunk).length,
     };
   }
@@ -84,28 +103,29 @@ export class SemanticChangeDetector {
 
   reset() {
     this.linePrefix = "";
-    this.headerCandidate = false;
     this.headerLine = false;
+    this.pendingCR = false;
   }
 
-  #advance(chunk, lastNewline) {
-    if (lastNewline >= 0) {
-      this.headerLine = false;
-      this.linePrefix = chunk.slice(lastNewline + 1);
-    } else if (this.headerLine) {
-      this.headerCandidate = false;
-      return;
-    } else if (this.linePrefix !== null) {
-      this.linePrefix += chunk;
-    } else {
-      this.headerCandidate = false;
-      return;
-    }
-
-    this.linePrefix = compactLinePrefix(this.linePrefix);
+  #advance(segment) {
+    if (segment === "" || this.headerLine || this.linePrefix === null) return;
+    this.linePrefix = compactLinePrefix(this.linePrefix + segment);
     const classification = classifyLinePrefix(this.linePrefix);
-    this.headerCandidate = classification.forceNext;
-    this.headerLine = classification.confirmed;
-    if (!classification.retain) this.linePrefix = null;
+    if (classification.confirmed) {
+      this.headerLine = true;
+      this.linePrefix = null;
+    } else if (!classification.retain) {
+      this.linePrefix = null;
+    }
+  }
+
+  #finishLine() {
+    // A confirmed :::llm header changes the semantic graph. A colon-only line
+    // may close an active semantic fence; observing it outside a fence is a
+    // harmless conservative false positive.
+    const observe = this.headerLine || this.linePrefix === ":::";
+    this.linePrefix = "";
+    this.headerLine = false;
+    return observe;
   }
 }
