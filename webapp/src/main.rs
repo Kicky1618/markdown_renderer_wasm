@@ -45,6 +45,9 @@ const DEFAULT_FONT_SIZE: f32 = 16.0;
 const DEFAULT_FADE_MS: f64 = 180.0;
 const MAX_TOKENS_PER_FRAME: usize = 250_000;
 const GPU_INIT_TIMEOUT_MS: i32 = 5_000;
+// ab_glyph PxScale renders the embedded Noto font smaller than CSS font-size.
+// Calibrated against the same H1 in Canvas2D and GPU screenshots.
+const GPU_DOCUMENT_FONT_SCALE: f32 = 1.436;
 const fn rgb(r: u8, g: u8, b: u8) -> [f32; 4] {
     [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0]
 }
@@ -1829,22 +1832,79 @@ impl Scene {
     }
 
     #[allow(clippy::too_many_arguments)]
+    fn document_text(
+        &mut self,
+        text: &str,
+        mut x: f32,
+        mut baseline: f32,
+        scale: f32,
+        line_height: f32,
+        color: [f32; 4],
+        fixed: f32,
+    ) -> f32 {
+        let origin = x;
+        let raster_scale = scale * GPU_DOCUMENT_FONT_SCALE;
+        self.snap_text = true;
+        for c in text.chars() {
+            if c == '\n' {
+                x = origin;
+                baseline += line_height;
+                continue;
+            }
+            let glyph = font::glyph(c, raster_scale);
+            let advance = glyph.advance;
+            self.document_glyph(
+                c,
+                glyph,
+                x,
+                baseline,
+                raster_scale,
+                line_height,
+                color,
+                fixed,
+            );
+            x += advance;
+        }
+        self.snap_text = false;
+        baseline + line_height
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn document_rich_text(
+        &mut self,
+        text: &str,
+        x: f32,
+        baseline: f32,
+        scale: f32,
+        line_height: f32,
+        color: [f32; 4],
+        fixed: f32,
+    ) -> f32 {
+        if !text.as_bytes().contains(&b'$') {
+            return self.document_text(text, x, baseline, scale, line_height, color, fixed);
+        }
+        let top = baseline - font::baseline(scale);
+        let end = self.rich_text(text, x, top, scale, color, fixed);
+        end + font::baseline(scale)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn code_text(
         &mut self,
         source: &str,
         language: Option<&str>,
         mut x: f32,
-        mut y: f32,
+        mut baseline: f32,
         scale: f32,
+        line_height: f32,
         fixed: f32,
     ) -> f32 {
         let origin = x;
-        let line = 18.0 * scale;
-        let limit = self.width - 30.0;
         let clip_top = self.clip_top;
         let clip_bottom = self.clip_bottom;
         let mut past_view = false;
-        let mut advances = MonoAdvances::new(scale);
+        let raster_scale = scale * GPU_DOCUMENT_FONT_SCALE;
+        let mut advances = MonoAdvances::new(raster_scale);
         self.snap_text = true;
         code::highlight(source, language, |span, kind| {
             if past_view {
@@ -1862,20 +1922,27 @@ impl Scene {
                 code::TokenKind::Operator => rgb(0xad, 0xbc, 0xcc),
             };
             for c in span.chars() {
-                if y > clip_bottom {
+                if baseline - line_height > clip_bottom {
                     past_view = true;
                     break;
                 }
-                let advance = advances.get(c);
-                if c == '\n' || (x + advance > limit && x > origin) {
+                if c == '\n' {
                     x = origin;
-                    y += line;
-                    if c == '\n' {
-                        continue;
-                    }
+                    baseline += line_height;
+                    continue;
                 }
-                if y + line >= clip_top {
-                    self.glyph(c, font::mono_glyph(c, scale), x, y, scale, color, fixed);
+                let advance = advances.get(c);
+                if baseline + line_height >= clip_top {
+                    self.document_glyph(
+                        c,
+                        font::mono_glyph(c, raster_scale),
+                        x,
+                        baseline,
+                        raster_scale,
+                        line_height,
+                        color,
+                        fixed,
+                    );
                 } else {
                     self.text_offset = self.text_offset.saturating_add(1);
                 }
@@ -1884,7 +1951,7 @@ impl Scene {
             !past_view
         });
         self.snap_text = false;
-        y + 7.0 * scale
+        baseline + line_height
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1900,6 +1967,28 @@ impl Scene {
     ) {
         self.record_text_cell(c, x, y, glyph.advance, 18.0 * scale);
         self.draw_glyph(glyph, x, y, color, fixed);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn document_glyph(
+        &mut self,
+        c: char,
+        glyph: std::rc::Rc<font::GlyphBitmap>,
+        x: f32,
+        baseline: f32,
+        scale: f32,
+        line_height: f32,
+        color: [f32; 4],
+        fixed: f32,
+    ) {
+        self.record_text_cell(
+            c,
+            x,
+            baseline - line_height * 0.8,
+            glyph.advance,
+            line_height,
+        );
+        self.draw_glyph(glyph, x, baseline - font::baseline(scale), color, fixed);
     }
 
     fn draw_glyph(
@@ -2132,12 +2221,7 @@ impl Scene {
         let flags = u32::from(self.math_mode) << 1;
         for run in &image.runs {
             self.instances.push(RectInstance {
-                geometry: [
-                    x + run.x as f32,
-                    y + run.y as f32,
-                    run.width as f32,
-                    1.0,
-                ],
+                geometry: [x + run.x as f32, y + run.y as f32, run.width as f32, 1.0],
                 color: run.packed_color(self.opacity),
                 flags,
             });
@@ -2150,84 +2234,119 @@ impl Scene {
         image.width as f32 + 4.0
     }
 
-    fn block(&mut self, block: &Block, font_scale: f32, block_height: f32) {
+    fn block(&mut self, block: &Block, font_scale: f32, _block_height: f32) {
         let x = content_gutter(self.width);
         match block {
             Block::Heading { level, content } => {
-                let scale = match level {
-                    1 => 2.0,
-                    2 => 2.0,
-                    _ => 1.0,
-                } * font_scale;
-                self.y = self.rich_text(&plain(content), x, self.y, scale, CYAN, 0.0)
-                    + 22.0 * font_scale;
+                let (scale, line_height) = match level {
+                    1 => (30.0 / 16.0, 44.0),
+                    2 => (24.0 / 16.0, 36.0),
+                    _ => (18.0 / 16.0, 30.0),
+                };
+                self.document_rich_text(
+                    &plain(content),
+                    x,
+                    self.y,
+                    scale * font_scale,
+                    line_height * font_scale,
+                    CYAN,
+                    0.0,
+                );
             }
             Block::Paragraph(content) => {
-                self.y = self.rich_text(&plain(content), x, self.y, font_scale, FG, 0.0)
-                    + 20.0 * font_scale
+                self.document_rich_text(
+                    &plain(content),
+                    x,
+                    self.y,
+                    font_scale,
+                    25.0 * font_scale,
+                    FG,
+                    0.0,
+                );
             }
             Block::BlockQuote(content) => {
-                let top = self.y - 6.0;
-                self.rect(x, top, 4.0, 42.0, CYAN, 0.0);
-                self.y = self.rich_text(&plain(content), x + 18.0, self.y, font_scale, MUTED, 0.0)
-                    + 22.0 * font_scale;
+                self.rect(x, self.y - 16.0, 4.0, 36.0, CYAN, 0.0);
+                self.document_rich_text(
+                    &plain(content),
+                    x + 18.0,
+                    self.y,
+                    font_scale,
+                    25.0 * font_scale,
+                    MUTED,
+                    0.0,
+                );
             }
             Block::CodeBlock { language, text, .. } => {
+                let code_scale = 15.0 / 16.0 * font_scale;
+                let line_height = 22.0 * font_scale;
+                let lines = text.bytes().filter(|byte| *byte == b'\n').count() + 1;
+                let total_height = 38.0 * font_scale + lines as f32 * line_height;
                 self.rect(
                     x,
-                    self.y - 12.0,
+                    self.y - 14.0,
                     self.width - 2.0 * x,
-                    block_height + 7.0 * font_scale,
+                    total_height,
                     PANEL,
                     0.0,
                 );
                 if let Some(lang) = language {
-                    self.text(lang, x + 14.0, self.y, font_scale, GREEN, 0.0);
+                    self.document_text(
+                        lang,
+                        x + 14.0,
+                        self.y + 4.0 * font_scale,
+                        code_scale,
+                        line_height,
+                        GREEN,
+                        0.0,
+                    );
                 }
                 self.code_text(
                     text,
                     language.as_deref(),
                     x + 14.0,
-                    self.y + 22.0 * font_scale,
-                    font_scale,
+                    self.y + 28.0 * font_scale,
+                    code_scale,
+                    line_height,
                     0.0,
                 );
-                self.y += block_height;
             }
             Block::UnorderedList(items) => {
+                let mut baseline = self.y;
                 for item in items {
-                    self.y = self.text(
-                        &format!("* {}", plain(item)),
+                    baseline = self.document_rich_text(
+                        &format!("• {}", plain(item)),
                         x + 10.0,
-                        self.y,
+                        baseline,
                         font_scale,
+                        25.0 * font_scale,
                         FG,
                         0.0,
-                    ) + 10.0 * font_scale;
+                    );
                 }
             }
             Block::OrderedList { start, items } => {
+                let mut baseline = self.y;
                 for (i, item) in items.iter().enumerate() {
-                    self.y = self.text(
+                    baseline = self.document_rich_text(
                         &format!("{}. {}", *start as usize + i, plain(item)),
                         x + 10.0,
-                        self.y,
+                        baseline,
                         font_scale,
+                        25.0 * font_scale,
                         FG,
                         0.0,
-                    ) + 10.0 * font_scale;
+                    );
                 }
             }
             Block::ThematicBreak => {
                 self.rect(
                     x,
-                    self.y + 4.0,
+                    self.y,
                     self.width - 2.0 * x,
                     1.0,
                     rgb(0x4c, 0x58, 0x68),
                     0.0,
                 );
-                self.y += 28.0;
             }
             Block::Table { headers, rows } => {
                 self.table(headers, rows, x, font_scale);
@@ -2425,91 +2544,57 @@ fn index_block(trie: &mut SearchTrie<TextPos>, block: u32, node: &Block) {
 }
 
 fn measure_block(block: &Block, width: f32, font_scale: f32) -> f32 {
-    let x = content_gutter(width);
+    let _x = content_gutter(width);
     match block {
         Block::Heading { level, content } => {
-            let scale = match level {
-                1 => 2.0,
-                2 => 2.0,
-                _ => 1.0,
+            let line_height = match level {
+                1 => 44.0,
+                2 => 36.0,
+                _ => 30.0,
             } * font_scale;
-            measure_rich_text(&plain(content), x, 0.0, scale, width) + 22.0 * font_scale
+            explicit_line_count(&plain(content)) as f32 * line_height + 8.0 * font_scale
         }
         Block::Paragraph(content) => {
-            measure_rich_text(&plain(content), x, 0.0, font_scale, width) + 20.0 * font_scale
+            if let [
+                Inline::Math {
+                    source,
+                    display: true,
+                },
+            ] = content.as_slice()
+            {
+                return math::rasterize(source, true, font_scale)
+                    .map_or(44.0 * font_scale, |image| image.height as f32 + 24.0);
+            }
+            explicit_line_count(&plain(content)) as f32 * (25.0 * font_scale) + 8.0 * font_scale
         }
         Block::BlockQuote(content) => {
-            measure_rich_text(&plain(content), x + 18.0, 0.0, font_scale, width) + 22.0 * font_scale
+            explicit_line_count(&plain(content)) as f32 * (25.0 * font_scale) + 8.0 * font_scale
         }
         Block::CodeBlock { text, .. } => {
-            measure_code_text(text, x + 14.0, 22.0 * font_scale, font_scale, width)
-                + 24.0 * font_scale
+            let lines = text.bytes().filter(|byte| *byte == b'\n').count() + 1;
+            48.0 * font_scale + lines as f32 * (22.0 * font_scale)
         }
-        Block::UnorderedList(items) => items
-            .iter()
-            .map(|item| {
-                measure_text(
-                    &format!("* {}", plain(item)),
-                    x + 10.0,
-                    0.0,
-                    font_scale,
-                    width,
-                ) + 10.0 * font_scale
-            })
-            .sum(),
-        Block::OrderedList { start, items } => items
-            .iter()
-            .enumerate()
-            .map(|(i, item)| {
-                measure_text(
-                    &format!("{}. {}", *start as usize + i, plain(item)),
-                    x + 10.0,
-                    0.0,
-                    font_scale,
-                    width,
-                ) + 10.0 * font_scale
-            })
-            .sum(),
-        Block::ThematicBreak => 28.0,
+        Block::UnorderedList(items) => {
+            let lines: usize = items
+                .iter()
+                .map(|item| explicit_line_count(&plain(item)))
+                .sum();
+            lines as f32 * (25.0 * font_scale) + 8.0 * font_scale
+        }
+        Block::OrderedList { items, .. } => {
+            let lines: usize = items
+                .iter()
+                .map(|item| explicit_line_count(&plain(item)))
+                .sum();
+            lines as f32 * (25.0 * font_scale) + 8.0 * font_scale
+        }
+        Block::ThematicBreak => 28.0 * font_scale,
         Block::Table { rows, .. } => ((rows.len() + 1) as f32 * (24.0 + 8.0) + 16.0) * font_scale,
     }
 }
 
-fn measure_text(text: &str, origin: f32, mut y: f32, scale: f32, width: f32) -> f32 {
-    let mut x = origin;
-    let line = 18.0 * scale;
-    let limit = width - 30.0;
-    for c in text.chars() {
-        let advance = font::advance(c, scale);
-        if c == '\n' || (x + advance > limit && x > origin) {
-            x = origin;
-            y += line;
-            if c == '\n' {
-                continue;
-            }
-        }
-        x += advance;
-    }
-    y + 7.0 * scale
-}
-
-fn measure_code_text(text: &str, origin: f32, mut y: f32, scale: f32, width: f32) -> f32 {
-    let mut x = origin;
-    let line = 18.0 * scale;
-    let limit = width - 30.0;
-    let mut advances = MonoAdvances::new(scale);
-    for c in text.chars() {
-        let advance = advances.get(c);
-        if c == '\n' || (x + advance > limit && x > origin) {
-            x = origin;
-            y += line;
-            if c == '\n' {
-                continue;
-            }
-        }
-        x += advance;
-    }
-    y + 7.0 * scale
+fn explicit_line_count(text: &str) -> usize {
+    text.bytes().filter(|byte| *byte == b'\n').count() + 1
 }
 
 struct MonoAdvances {
@@ -2538,115 +2623,6 @@ impl MonoAdvances {
         } else {
             font::mono_advance(c, self.scale)
         }
-    }
-}
-
-fn measure_rich_text(text: &str, origin: f32, y: f32, scale: f32, width: f32) -> f32 {
-    if !text.as_bytes().contains(&b'$') {
-        return measure_text(text, origin, y, scale, width);
-    }
-    let mut cursor_x = origin;
-    let mut cursor_y = y;
-    let mut line_extra = 0.0;
-    let mut rest = text;
-
-    while let Some(open) = rest.find('$') {
-        measure_text_run(
-            &rest[..open],
-            origin,
-            &mut cursor_x,
-            &mut cursor_y,
-            &mut line_extra,
-            scale,
-            width,
-        );
-        let double = rest[open..].starts_with("$$");
-        let delimiter_len = if double { 2 } else { 1 };
-        let expression_start = open + delimiter_len;
-        let delimiter = if double { "$$" } else { "$" };
-        let Some(close_rel) = rest[expression_start..].find(delimiter) else {
-            measure_text_run(
-                &rest[open..],
-                origin,
-                &mut cursor_x,
-                &mut cursor_y,
-                &mut line_extra,
-                scale,
-                width,
-            );
-            rest = "";
-            break;
-        };
-        let close = expression_start + close_rel;
-        let expression = &rest[expression_start..close];
-        match math::rasterize(expression, double, scale) {
-            Ok(image) if double => {
-                if cursor_x > origin {
-                    cursor_y += 18.0 * scale + line_extra;
-                }
-                line_extra = 0.0;
-                cursor_x = origin;
-                cursor_y += image.height as f32 + 6.0;
-            }
-            Ok(image) => {
-                if cursor_x + image.width as f32 > width - 30.0 && cursor_x > origin {
-                    cursor_x = origin;
-                    cursor_y += 18.0 * scale + line_extra;
-                    line_extra = 0.0;
-                }
-                let text_baseline = cursor_y + font::baseline(scale);
-                let image_y = text_baseline - image.baseline as f32;
-                let image_bottom = image_y + image.height as f32;
-                line_extra = line_extra.max(image_bottom - cursor_y - 18.0 * scale);
-                cursor_x += image.width as f32 + 2.0 * scale;
-            }
-            Err(_) => measure_text_run(
-                expression,
-                origin,
-                &mut cursor_x,
-                &mut cursor_y,
-                &mut line_extra,
-                scale,
-                width,
-            ),
-        }
-        rest = &rest[close + delimiter_len..];
-    }
-
-    measure_text_run(
-        rest,
-        origin,
-        &mut cursor_x,
-        &mut cursor_y,
-        &mut line_extra,
-        scale,
-        width,
-    );
-    cursor_y + 7.0 * scale + line_extra
-}
-
-fn measure_text_run(
-    text: &str,
-    origin: f32,
-    cursor_x: &mut f32,
-    cursor_y: &mut f32,
-    line_extra: &mut f32,
-    scale: f32,
-    width: f32,
-) {
-    let line = 18.0 * scale;
-    let limit = width - 30.0;
-    for c in text.chars() {
-        let advance = font::advance(c, scale);
-        if c == '\n' || (*cursor_x + advance > limit && *cursor_x > origin) {
-            *cursor_x = origin;
-            *cursor_y += line + *line_extra;
-            *line_extra = 0.0;
-            if c == '\n' {
-                continue;
-            }
-        }
-        *cursor_x += advance;
     }
 }
 
