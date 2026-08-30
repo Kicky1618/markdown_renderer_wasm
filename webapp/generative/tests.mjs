@@ -11,7 +11,7 @@ import { consumeHttpResponse, decodeNdjsonLine, decodeSseEvent, extractDeltaText
 import { buildInteractionPrompt, buildLlmRequest, GENERATIVE_UI_SYSTEM_PROMPT, snapshotUiComponents, snapshotUiState } from "./llm_request.js";
 import { statePatch, statePatchSignature } from "./state_patch.js";
 import { componentPatch, componentPatchSignature, mergeComponentPatches } from "./component_patch.js";
-import { summarizeModelCommit } from "./commit_summary.js";
+import { summarizeModelCommit, summarizeStagedEffects } from "./commit_summary.js";
 import { auditUiConfig, parseSafeAction, summarizePolicy } from "./policy.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
@@ -237,6 +237,27 @@ assert.equal(commitSummary.newUiBlocks, 1);
 assert.equal(commitSummary.format, "SSE");
 assert.equal(commitSummary.chunks, 5);
 assert.equal(commitSummary.firstUiMs, 9.75);
+
+const stagedSummary = summarizeStagedEffects(`:::llm ui type=state
+temperature=58
+mode=exact
+api_token=secret
+:::
+
+:::llm ui type=patch target=throughput
+label=Updated
+:::
+
+:::llm ui type=metric id=new-card
+value=58
+:::
+`);
+assert.deepEqual(stagedSummary.stateKeys, ["temperature", "mode"]);
+assert.equal(stagedSummary.stateCount, 2);
+assert.deepEqual(stagedSummary.patchTargets, ["throughput"]);
+assert.equal(stagedSummary.patchCount, 1);
+assert.equal(stagedSummary.newUiBlocks, 1);
+assert.equal(stagedSummary.semanticBlocks, 3);
 
 
 const securityHtml = await fs.readFile(new URL("./index.html", import.meta.url), "utf8");

@@ -73,3 +73,32 @@ export function summarizeModelCommit({
     firstUiMs: Number.isFinite(Number(firstUiMs)) ? Number(firstUiMs) : null,
   };
 }
+
+
+export function summarizeStagedEffects(responseText = "") {
+  const source = String(responseText || "").slice(0, 4 * 1024 * 1024);
+  const headers = descriptorHeaders(source);
+  const semanticTypes = headers.map(item => item.type).filter(Boolean);
+  const patchTargets = cleanList(headers.filter(item => item.type === "patch").map(item => item.target));
+  const stateKeys = [];
+  const stateFence = /^:::llm\s+ui\b([^\r\n]*\btype=(?:"state"|'state'|state)[^\r\n]*)\r?\n([\s\S]*?)^:::\s*$/gmi;
+  for (const match of source.matchAll(stateFence)) {
+    for (const line of String(match[2] || "").split(/\r?\n/)) {
+      const equals = line.indexOf("=");
+      if (equals < 1) continue;
+      const key = line.slice(0, equals).trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/.test(key) || SENSITIVE_KEY.test(key)) continue;
+      stateKeys.push(key);
+      if (stateKeys.length >= 32) break;
+    }
+  }
+  const cleanState = cleanList(stateKeys);
+  return {
+    stateKeys: cleanState,
+    stateCount: cleanState.length,
+    patchTargets,
+    patchCount: semanticTypes.filter(type => type === "patch").length,
+    newUiBlocks: semanticTypes.filter(type => !["state", "patch", "derive"].includes(type)).length,
+    semanticBlocks: semanticTypes.length,
+  };
+}

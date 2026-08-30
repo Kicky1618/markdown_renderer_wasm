@@ -97,6 +97,10 @@ button.primary:hover { background: #84ebdc; }
 .semantic-review strong { color: #f0d8aa; font-size: 12px; }
 .semantic-review-actions { display: flex; gap: 8px; flex: 0 0 auto; }
 .semantic-review-actions button { min-height: 34px; padding: 0 11px; }
+.semantic-review-copy { min-width: 0; }
+.review-metrics { display: flex; flex-wrap: wrap; gap: 7px 12px; margin-top: 7px; color: #a99167; font-size: 10px; }
+.review-metrics b { color: #f0d8aa; }
+.review-details { margin: 5px 0 0; color: #b6a17d; font: 10px/1.45 ui-monospace, monospace; overflow-wrap: anywhere; }
 
 .history-controls { display: flex; align-items: center; gap: 7px; }
 .history-controls button {
@@ -407,19 +411,11 @@ footer {
   .generated-tabs-header { align-items: stretch; flex-direction: column; }
   .generated-tab-panel, .generated-form-fields { grid-template-columns: 1fr; }
   .preview-head { align-items: flex-start; }
-  
-.review-toggle { display: inline-flex; align-items: center; gap: 6px; color: #93a7bc; font-size: 10px; white-space: nowrap; }
-.review-toggle input { accent-color: #73e09e; }
-.semantic-review {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  margin: 0; padding: 11px 18px; border-bottom: 1px solid #6c5731; background: #2a2113;
-}
-.semantic-review[hidden] { display: none; }
-.semantic-review strong { color: #f0d8aa; font-size: 12px; }
-.semantic-review-actions { display: flex; gap: 8px; flex: 0 0 auto; }
-.semantic-review-actions button { min-height: 34px; padding: 0 11px; }
 
-.history-controls { flex-wrap: wrap; justify-content: flex-end; }
+  .semantic-review { align-items: stretch; flex-direction: column; }
+  .semantic-review-actions { justify-content: flex-end; flex-wrap: wrap; }
+  .review-metrics { justify-content: flex-start; }
+  .history-controls { flex-wrap: wrap; justify-content: flex-end; }
   .model-commit { grid-template-columns: 1fr; }
   .commit-metrics { justify-content: flex-start; }
   .commit-details { grid-column: 1; }

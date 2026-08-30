@@ -116,9 +116,15 @@ edge llm ui stream
         </div>
       </div>
       <aside id="semantic-review" class="semantic-review" hidden aria-live="polite">
-        <div>
+        <div class="semantic-review-copy">
           <p class="eyebrow">SIDE EFFECTS STAGED</p>
           <strong>Review model changes before applying state or component patches.</strong>
+          <div class="review-metrics" aria-label="Staged semantic effects">
+            <span><b id="review-state">0</b> state</span>
+            <span><b id="review-patches">0</b> patches</span>
+            <span><b id="review-ui">0</b> new UI</span>
+          </div>
+          <p id="review-details" class="review-details"></p>
         </div>
         <div class="semantic-review-actions">
           <button id="reject-review" type="button">Reject response</button>

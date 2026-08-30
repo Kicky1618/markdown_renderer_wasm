@@ -10,7 +10,7 @@ import { layoutGraph, parseGraph } from "./graph.js";
 import { statePatch, statePatchSignature } from "./state_patch.js";
 import { componentPatch, componentPatchSignature, mergeComponentPatches } from "./component_patch.js";
 import { parseSafeAction, summarizePolicy } from "./policy.js";
-import { summarizeModelCommit } from "./commit_summary.js";
+import { summarizeModelCommit, summarizeStagedEffects } from "./commit_summary.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
 
@@ -172,6 +172,10 @@ const reviewMode = document.querySelector("#review-mode");
 const semanticReview = document.querySelector("#semantic-review");
 const applyReviewButton = document.querySelector("#apply-review");
 const rejectReviewButton = document.querySelector("#reject-review");
+const reviewStateCount = document.querySelector("#review-state");
+const reviewPatchCount = document.querySelector("#review-patches");
+const reviewUiCount = document.querySelector("#review-ui");
+const reviewDetails = document.querySelector("#review-details");
 const modelCommit = document.querySelector("#model-commit");
 const commitTitle = document.querySelector("#commit-title");
 const commitSource = document.querySelector("#commit-source");
@@ -267,12 +271,32 @@ function renderCommitSummary(summary, status = "applied") {
   commitDetails.textContent = details.join(" · ");
 }
 
+function renderPendingReviewSummary() {
+  if (!pendingModelReview || !semanticReviewPending) {
+    reviewStateCount.textContent = "0";
+    reviewPatchCount.textContent = "0";
+    reviewUiCount.textContent = "0";
+    reviewDetails.textContent = "";
+    return;
+  }
+  const summary = summarizeStagedEffects(pendingModelReview.meta?.responseText || "");
+  reviewStateCount.textContent = String(summary.stateCount);
+  reviewPatchCount.textContent = String(summary.patchCount);
+  reviewUiCount.textContent = String(summary.newUiBlocks);
+  const details = [];
+  if (summary.stateKeys.length) details.push(`state: ${summary.stateKeys.join(", ")}`);
+  if (summary.patchTargets.length) details.push(`patched: ${summary.patchTargets.join(", ")}`);
+  details.push(`${summary.semanticBlocks} semantic block${summary.semanticBlocks === 1 ? "" : "s"}`);
+  reviewDetails.textContent = details.join(" · ");
+}
+
 function updateReviewControls() {
   const pending = Boolean(pendingModelReview) && semanticReviewPending;
   semanticReview.hidden = !pending;
   applyReviewButton.disabled = !pending;
   rejectReviewButton.disabled = !pending;
   reviewMode.disabled = Boolean(remoteController) || pending;
+  renderPendingReviewSummary();
   updateHistoryControls();
 }
 
@@ -1871,6 +1895,12 @@ async function runReviewSmoke() {
     const result = preview.querySelector('[data-ui-id="interaction-result"]');
     return root.dataset.semanticCommit === "review"
       && semanticReview.hidden === false
+      && reviewStateCount.textContent === "2"
+      && reviewPatchCount.textContent === "1"
+      && reviewUiCount.textContent === "1"
+      && reviewDetails.textContent.includes("state: temperature, mode")
+      && reviewDetails.textContent.includes("patched: throughput")
+      && !reviewDetails.textContent.toLowerCase().includes("api_token")
       && slider?.value === "42"
       && throughput?.querySelector("h3")?.textContent?.trim() === "Current throughput"
       && throughput?.querySelector(".metric-value")?.textContent?.trim() === "2.4M"
