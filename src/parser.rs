@@ -793,11 +793,23 @@ fn ordered_item(line: &str) -> Option<(u32, &str)> {
 }
 
 fn is_thematic(line: &str) -> bool {
-    let t: Vec<u8> = line.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
-    t.len() >= 3
-        && (t.iter().all(|&b| b == b'-')
-            || t.iter().all(|&b| b == b'*')
-            || t.iter().all(|&b| b == b'_'))
+    let mut marker = 0;
+    let mut count = 0;
+    for byte in line.bytes() {
+        if byte.is_ascii_whitespace() {
+            continue;
+        }
+        if !matches!(byte, b'-' | b'*' | b'_') {
+            return false;
+        }
+        if marker == 0 {
+            marker = byte;
+        } else if byte != marker {
+            return false;
+        }
+        count += 1;
+    }
+    count >= 3
 }
 
 #[cfg(test)]
