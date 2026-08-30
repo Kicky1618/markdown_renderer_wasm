@@ -312,6 +312,9 @@ impl Parser {
         if self.try_append_plain(input, delta) {
             return;
         }
+        if self.try_append_complete_semantic_chunk(input, delta) {
+            return;
+        }
         if self.try_append_inline_text(input, delta) {
             return;
         }
@@ -385,6 +388,60 @@ impl Parser {
         delta.ops.push(Op::AppendText {
             block: block_index as u32,
             append: input.to_owned(),
+        });
+        true
+    }
+
+    fn try_append_complete_semantic_chunk(&mut self, input: &str, delta: &mut Delta) -> bool {
+        if input.is_empty()
+            || !matches!(self.mode, Mode::Normal)
+            || !self.has_live
+            || !(self.live_plain || self.live_inline_appendable)
+            || self.live_tail_pending.is_some()
+            || self.trailing_backslash_odd
+            || self.live_special_bracket != SpecialBracketKind::None
+            || self.live_has_link_label_open
+            || self.live_link_label_just_closed
+            || self.live_has_link_destination_start
+            || !self.trailing_backtick_fast
+            || !self.trailing_dollar_fast
+            || !self.trailing_star_fast
+            || !self.trailing_underscore_fast
+            || self.trailing_backtick_mod2 != 0
+            || self.trailing_dollar_mod4 != 0
+            || self.trailing_star_mod4 != 0
+            || self.trailing_underscore_mod4 != 0
+        {
+            return false;
+        }
+
+        let Some(append) = complete_semantic_chunk_inlines(input) else {
+            return false;
+        };
+        let Some(block_index) = self.blocks.len().checked_sub(1) else {
+            return false;
+        };
+        let Some(Block::Paragraph(nodes)) = self.blocks.get_mut(block_index) else {
+            return false;
+        };
+
+        splice_inline_tail(nodes, 0, 0, &append);
+        self.line.push_str(input);
+        self.live_plain = false;
+        self.live_inline_appendable = true;
+        self.live_special_bracket = SpecialBracketKind::None;
+        self.live_special_opener = 0;
+        self.live_has_link_label_open = false;
+        self.live_link_label_just_closed = false;
+        self.live_has_link_destination_start = false;
+        self.live_tail_pending = None;
+        self.trailing_backslash_odd = false;
+        self.reset_delimiter_runs();
+        delta.ops.push(Op::SpliceInlineTail {
+            block: block_index as u32,
+            remove_nodes: 0,
+            truncate_bytes: 0,
+            append,
         });
         true
     }
@@ -1456,6 +1513,81 @@ fn special_bracket_opener(line: &str, input: &str) -> Option<(SpecialBracketKind
         })
 }
 
+fn complete_semantic_chunk_inlines(input: &str) -> Option<Vec<Inline>> {
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    let mut found_semantic = false;
+
+    while i < bytes.len() {
+        if is_plain_stream_byte(bytes[i]) {
+            i += 1;
+            continue;
+        }
+        if input[i..].starts_with("@[") {
+            i = complete_llm_reference_end(input, i)?;
+            found_semantic = true;
+            continue;
+        }
+        if input[i..].starts_with("[[cite:") {
+            i = complete_llm_citation_end(input, i)?;
+            found_semantic = true;
+            continue;
+        }
+        return None;
+    }
+
+    found_semantic.then(|| parse_inlines(input))
+}
+
+fn complete_llm_reference_end(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut i = start + 2;
+    let kind_start = i;
+    while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || matches!(bytes[i], b'_' | b'-')) {
+        i += 1;
+    }
+    if i == kind_start || bytes.get(i) != Some(&b':') {
+        return None;
+    }
+    i += 1;
+    let id_start = i;
+    while i < bytes.len() {
+        match bytes[i] {
+            b']' if i != id_start => return Some(i + 1),
+            b'[' | b'|' => return None,
+            byte if byte.is_ascii_control() || byte.is_ascii_whitespace() => return None,
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+fn complete_llm_citation_end(source: &str, start: usize) -> Option<usize> {
+    const PREFIX: &str = "[[cite:";
+    let bytes = source.as_bytes();
+    let mut i = start + PREFIX.len();
+    let source_start = i;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'[' => return None,
+            b']' if bytes.get(i + 1) == Some(&b']') => {
+                return citation_source_is_valid(source[source_start..i].trim()).then_some(i + 2);
+            }
+            b']' => return None,
+            b'|' => {
+                if !citation_source_is_valid(source[source_start..i].trim()) {
+                    return None;
+                }
+                let close = source[i + 1..].find("]]")? + i + 1;
+                return Some(close + 2);
+            }
+            byte if byte.is_ascii_control() => return None,
+            _ => i += 1,
+        }
+    }
+    None
+}
+
 fn link_label_state_from_source(source: &str) -> (bool, bool) {
     if source.ends_with(']') {
         let prefix = &source[..source.len() - 1];
@@ -2215,9 +2347,14 @@ $$
                 if matches!(nodes.as_slice(), [Inline::Text(_), Inline::Strong(_), Inline::Text(text)] if text == " context: token ")
         ));
 
-        // Syntax-sensitive input must still reparse the complete live source.
+        // A complete semantic token can stay local to the paragraph tail.
         let delta = parser.append("[[cite:doc-1]]");
-        assert!(matches!(delta.ops.first(), Some(Op::Truncate { from: 0 })));
+        assert!(matches!(
+            delta.ops.as_slice(),
+            [Op::SpliceInlineTail { truncate_bytes: 0, append, .. }]
+                if matches!(append.as_slice(), [Inline::Link { destination, .. }]
+                    if destination == "llm:cite:doc-1")
+        ));
         assert!(matches!(
             parser.blocks(),
             [Block::Paragraph(nodes)]
@@ -2508,6 +2645,62 @@ $$
             whole.append(&format!("prefix {d}{d}body{d}{d}"));
             assert_eq!(parser.blocks(), whole.blocks());
         }
+    }
+
+    #[test]
+    fn complete_semantic_chunks_splice_without_republishing_paragraph() {
+        let mut parser = Parser::new();
+        parser.append("prefix ");
+        let reference = parser.append("@[source:id] suffix ");
+        assert!(matches!(
+            reference.ops.as_slice(),
+            [Op::SpliceInlineTail {
+                remove_nodes: 0,
+                truncate_bytes: 0,
+                append,
+                ..
+            }] if matches!(append.as_slice(),
+                [Inline::Link { destination, .. }, Inline::Text(text)]
+                    if destination == "llm:source:id" && text == " suffix ")
+        ));
+
+        let citation = parser.append("[[cite:doc|Spec]] tail");
+        assert!(matches!(
+            citation.ops.as_slice(),
+            [Op::SpliceInlineTail {
+                remove_nodes: 0,
+                truncate_bytes: 0,
+                append,
+                ..
+            }] if matches!(append.as_slice(),
+                [Inline::Link { label, destination }, Inline::Text(text)]
+                    if destination == "llm:cite:doc"
+                        && label == &vec![Inline::Text("Spec".to_owned())]
+                        && text == " tail")
+        ));
+
+        let mut whole = Parser::new();
+        whole.append("prefix @[source:id] suffix [[cite:doc|Spec]] tail");
+        assert_eq!(parser.blocks(), whole.blocks());
+    }
+
+    #[test]
+    fn complete_semantic_chunk_fast_path_is_conservative() {
+        let mut unresolved = Parser::new();
+        unresolved.append("prefix [");
+        let delta = unresolved.append("@[source:id] suffix");
+        assert!(matches!(delta.ops.first(), Some(Op::Truncate { .. })));
+        let mut whole = Parser::new();
+        whole.append("prefix [@[source:id] suffix");
+        assert_eq!(unresolved.blocks(), whole.blocks());
+
+        let mut mixed = Parser::new();
+        mixed.append("prefix ");
+        let delta = mixed.append("@[source:id] **bold**");
+        assert!(matches!(delta.ops.first(), Some(Op::Truncate { .. })));
+        let mut whole = Parser::new();
+        whole.append("prefix @[source:id] **bold**");
+        assert_eq!(mixed.blocks(), whole.blocks());
     }
 
     #[test]
