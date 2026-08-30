@@ -70,6 +70,8 @@
 
 ## 検証結果
 
+- 2026-08-30 ChatGPT(math-fastpath): 2x downsampleで完全透明2x2 blockを早期skipし、不要な12 RGB load + 3 demultiply divisionを除去。保存済み前後binaryの7-run interleaved medianは128 streaming-prefix raster `51.534→46.148ms`（約10.5%短縮）、cold raster `0.053→0.048ms/op`（約9.4%短縮）。transparent block専用のgeneric経路bit-exact回帰を追加し、webapp全tests（canvas2d 7 + code 19 + compat 10 + language_matrix 11 + math 5 + palette 2 + search 3）pass、wasm32 release check pass。
+
 - 2026-08-30 ChatGPT(math-fastpath): runtime `MathImage` から未使用のdownsampled RGBA `pixels` 保持を外し、`#[cfg(test)]` でpixel-level回帰時だけ残す。128 streaming-prefix cacheは従来 `pixels=13.45MiB + runs≈8.30MiB`、新runtimeはrunsのみ。128-prefix workloadの5-run peak-RSS medianは `30,404→18,296KiB`（-12,108KiB、約39.8%削減）。pixel/run既存testsを維持したまま webapp tests canvas2d 7 + code 19 + compat 10 + language_matrix 11 + math 4 + palette 2 + search 3 全pass、wasm32 release check pass。
 
 - 2026-08-30 ChatGPT(math-fastpath): cached glyph bitmap の整数座標・完全in-bounds合成を、transparent skip / transparent-dstまたはopaque-srcの直接copy / AA重なりのみtiny-skia highp互換SourceOverのsprite blitへ特殊化。画像端は従来draw_pixmapへfallback。代表8式+128項式の最終MathRun hashは現行版と9/9完全一致。7-run interleaved medianは128 streaming-prefix raster `110.797→62.695ms`（1.77x、約43.4%短縮）、cold raster `0.081→0.062ms/op`。webapp testsは canvas2d 7 + code 19 + compat 10 + language_matrix 11 + math 4 + palette 2 + search 3 全pass、wasm32 release check pass。

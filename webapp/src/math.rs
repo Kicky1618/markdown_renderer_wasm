@@ -220,6 +220,11 @@ fn downsample_premultiplied_rgba_2x(source: PremultipliedRgbaImage, baseline: u3
                 + source.pixels[i1 + 3] as u32
                 + source.pixels[i2 + 3] as u32
                 + source.pixels[i3 + 3] as u32;
+            // Math rasters are mostly transparent. Avoid twelve RGB loads and
+            // three demultiply divisions for empty 2x2 source blocks.
+            if alpha_sum == 0 {
+                continue;
+            }
             let sums = [
                 source.pixels[i0] as u32
                     + source.pixels[i1] as u32
@@ -420,6 +425,34 @@ mod tests {
         assert_eq!((runs[0].x, runs[0].y, runs[0].width, runs[0].rgba), (2, 0, 2, [1, 2, 3, 16]));
         assert_eq!((runs[1].x, runs[1].y, runs[1].width, runs[1].rgba), (4, 0, 1, [1, 2, 3, 32]));
         assert!(build_runs(0, 1, &[]).is_empty());
+    }
+
+    #[test]
+    fn two_x_downsample_transparent_blocks_match_generic() {
+        let source = PremultipliedRgbaImage {
+            width: 4,
+            height: 2,
+            pixels: vec![
+                0, 0, 0, 0, 0, 0, 0, 0,
+                64, 32, 16, 128, 128, 64, 32, 255,
+                0, 0, 0, 0, 0, 0, 0, 0,
+                32, 16, 8, 64, 96, 48, 24, 192,
+            ],
+        };
+        let fast = downsample_premultiplied_rgba_2x(
+            PremultipliedRgbaImage {
+                width: source.width,
+                height: source.height,
+                pixels: source.pixels.clone(),
+            },
+            1,
+        );
+        let generic = downsample_premultiplied_rgba_generic(source, 2, 1);
+        assert_eq!(fast.pixels, generic.pixels);
+        assert_eq!(fast.runs.len(), generic.runs.len());
+        for (a, b) in fast.runs.iter().zip(&generic.runs) {
+            assert_eq!((a.x, a.y, a.width, a.rgba), (b.x, b.y, b.width, b.rgba));
+        }
     }
 
     #[test]
