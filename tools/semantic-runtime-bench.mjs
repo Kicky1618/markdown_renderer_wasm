@@ -6,6 +6,8 @@ import { SemanticRuntime } from "./semantic-runtime.mjs";
 const wasmPath = process.argv[2] ?? "target/wasm32-unknown-unknown/release/streamdown.wasm";
 const rounds = Number(process.env.N ?? 100000);
 const repeats = Number(process.env.REPEATS ?? 5);
+const warmup = Number(process.env.WARMUP ?? 5000);
+const chunk = process.env.CHUNK ?? "token ";
 const wasm = await readFile(wasmPath);
 
 function median(values) {
@@ -17,9 +19,9 @@ async function bench(name, create, append) {
   let scans = null;
   for (let r = 0; r < repeats; r += 1) {
     const subject = await create();
-    for (let i = 0; i < 5000; i += 1) append(subject, "token ");
+    for (let i = 0; i < warmup; i += 1) append(subject, chunk);
     const start = performance.now();
-    for (let i = 0; i < rounds; i += 1) append(subject, "token ");
+    for (let i = 0; i < rounds; i += 1) append(subject, chunk);
     const elapsed = performance.now() - start;
     samples.push(rounds * 1000 / elapsed);
     scans = subject.semanticScans ?? scans;
@@ -30,20 +32,21 @@ async function bench(name, create, append) {
   return rate;
 }
 
+console.log(`chunk=${JSON.stringify(chunk)} rounds=${rounds} repeats=${repeats} warmup=${warmup}`);
 const parserRate = await bench(
   "Streamdown.appendInPlace",
   () => Streamdown.load(wasm),
-  (parser, chunk) => parser.appendInPlace(chunk),
+  (parser, value) => parser.appendInPlace(value),
 );
 const alwaysRate = await bench(
   "SemanticRuntime(always)",
   () => SemanticRuntime.load(wasm, { semanticScan: "always" }),
-  (runtime, chunk) => runtime.append(chunk),
+  (runtime, value) => runtime.append(value),
 );
 const incrementalRate = await bench(
   "SemanticRuntime(incremental)",
   () => SemanticRuntime.load(wasm, { semanticScan: "incremental" }),
-  (runtime, chunk) => runtime.append(chunk),
+  (runtime, value) => runtime.append(value),
 );
 
 console.log(`incremental / always: ${(incrementalRate / alwaysRate).toFixed(2)}x`);

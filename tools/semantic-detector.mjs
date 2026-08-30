@@ -38,6 +38,18 @@ function asciiTrimWhitespace(code) {
   return code <= 0x20;
 }
 
+function referenceKindCode(code) {
+  return (code >= 48 && code <= 57)
+    || (code >= 65 && code <= 90)
+    || (code >= 97 && code <= 122)
+    || code === 95
+    || code === 45;
+}
+
+function invalidReferenceIdCode(code) {
+  return code === 91 || code === 124 || code <= 0x20 || code === 0x7f;
+}
+
 /**
  * Cheap conservative detector for chunks that can change Streamdown's
  * semantic layer. `scan()` packs the observation flag and exact UTF-8 byte
@@ -45,11 +57,11 @@ function asciiTrimWhitespace(code) {
  * SemanticRuntime hot path. Non-negative means no observation; a negative
  * value encodes `-(utf8Bytes + 1)` and means the semantic layer must observe.
  *
- * Outside a semantic fence we retain only a bounded `:{3,}llm` line prefix.
- * Once a semantic fence opens, its payload uses a constant-size closing-line
- * state machine instead of slicing/trimming every payload line. Inline
- * `@[kind:id]` references are ignored inside fenced payloads, matching the
- * Markdown parser, and are immediate observation triggers outside fences.
+ * Outside a semantic fence we retain only a bounded `:{3,}llm` line prefix
+ * plus a five-state `@[kind:id]` recognizer. Once a semantic fence opens, its
+ * payload uses a constant-size closing-line state machine instead of
+ * slicing/trimming every payload line. Inline semantic references are ignored
+ * inside fenced payloads, matching the Markdown parser.
  */
 export class SemanticChangeDetector {
   constructor() {
@@ -59,22 +71,28 @@ export class SemanticChangeDetector {
     this.insideSemanticFence = false;
     this.fenceLineState = 0;
     this.fenceColonCount = 0;
+    // 0=idle, 1='@', 2='@[', 3=kind, 4=after ':', 5=id.
+    this.referenceState = 0;
   }
 
   scan(chunk) {
     if (typeof chunk !== "string") throw new TypeError("semantic detector expects a string");
 
-    // Dominant LLM token path: once an ordinary line has been proven inert,
-    // only a newline/CR or closing `]` can make the semantic layer relevant.
-    // Scan once for those bytes and UTF-8 width, then return without touching
-    // any of the line/fence state below.
-    if (!this.insideSemanticFence && !this.pendingCR && !this.headerLine && this.linePrefix === null) {
+    // Dominant LLM token path: once an ordinary line has been proven inert and
+    // no semantic reference is in flight, only a line boundary or '@' can make
+    // the semantic layer relevant. Ordinary Markdown ']' is intentionally not
+    // a trigger; the reference FSM below observes only a completed @[kind:id].
+    if (!this.insideSemanticFence
+      && !this.pendingCR
+      && !this.headerLine
+      && this.linePrefix === null
+      && this.referenceState === 0) {
       let asciiFast = true;
       let complex = false;
       for (let i = 0; i < chunk.length; i += 1) {
         const code = chunk.charCodeAt(i);
         if (code > 0x7f) asciiFast = false;
-        if (code === 10 || code === 13 || code === 93) {
+        if (code === 10 || code === 13 || code === 64) {
           complex = true;
           break;
         }
@@ -94,6 +112,7 @@ export class SemanticChangeDetector {
         this.#advanceFenceCode(13);
       } else {
         this.#advanceNormal("\r");
+        this.#advanceReferenceCode(13);
       }
       this.pendingCR = false;
     }
@@ -115,7 +134,7 @@ export class SemanticChangeDetector {
         continue;
       }
 
-      if (code === 93) observe = true; // `]` may complete @[kind:id].
+      if (this.#advanceReferenceCode(code)) observe = true;
       if (code !== 10) continue;
 
       let end = i;
@@ -156,6 +175,7 @@ export class SemanticChangeDetector {
     this.insideSemanticFence = false;
     this.fenceLineState = 0;
     this.fenceColonCount = 0;
+    this.referenceState = 0;
   }
 
   #advanceNormal(segment) {
@@ -175,12 +195,51 @@ export class SemanticChangeDetector {
     const observe = openingFence || this.linePrefix === ":::";
     this.linePrefix = "";
     this.headerLine = false;
+    this.referenceState = 0;
     if (openingFence) {
       this.insideSemanticFence = true;
       this.fenceLineState = 0;
       this.fenceColonCount = 0;
     }
     return observe;
+  }
+
+  #advanceReferenceCode(code) {
+    switch (this.referenceState) {
+      case 0:
+        if (code === 64) this.referenceState = 1;
+        return false;
+      case 1:
+        if (code === 91) this.referenceState = 2;
+        else this.referenceState = code === 64 ? 1 : 0;
+        return false;
+      case 2:
+        if (referenceKindCode(code)) this.referenceState = 3;
+        else this.referenceState = code === 64 ? 1 : 0;
+        return false;
+      case 3:
+        if (referenceKindCode(code)) return false;
+        if (code === 58) this.referenceState = 4;
+        else this.referenceState = code === 64 ? 1 : 0;
+        return false;
+      case 4:
+        if (code === 93 || invalidReferenceIdCode(code)) {
+          this.referenceState = code === 64 ? 1 : 0;
+          return false;
+        }
+        this.referenceState = 5;
+        return false;
+      case 5:
+        if (code === 93) {
+          this.referenceState = 0;
+          return true;
+        }
+        if (invalidReferenceIdCode(code)) this.referenceState = code === 64 ? 1 : 0;
+        return false;
+      default:
+        this.referenceState = 0;
+        return false;
+    }
   }
 
   #advanceFenceCode(code) {
@@ -222,6 +281,7 @@ export class SemanticChangeDetector {
       this.insideSemanticFence = false;
       this.linePrefix = "";
       this.headerLine = false;
+      this.referenceState = 0;
     }
     return closes;
   }
