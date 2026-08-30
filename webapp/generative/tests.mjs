@@ -12,6 +12,7 @@ import { buildInteractionPrompt, buildLlmRequest, GENERATIVE_UI_SYSTEM_PROMPT, s
 import { statePatch, statePatchSignature } from "./state_patch.js";
 import { componentPatch, componentPatchSignature, mergeComponentPatches } from "./component_patch.js";
 import { summarizeModelCommit } from "./commit_summary.js";
+import { auditUiConfig, parseSafeAction, summarizePolicy } from "./policy.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
   id: "",
@@ -193,6 +194,20 @@ assert.deepEqual({ target: visualPatch.target, values: { ...visualPatch.values }
   },
 });
 assert.equal(componentPatch({ type: "patch", target: "bad target!", value: "x" }), null);
+assert.equal(parseSafeAction("increment:temperature:5").ok, true);
+assert.equal(parseSafeAction("llm:Refine safely").ok, true);
+assert.equal(parseSafeAction("fetch:https://example.com").ok, false);
+assert.equal(parseSafeAction("set:api_token:secret").ok, false);
+assert.deepEqual(
+  auditUiConfig({ type: "patch", target: "throughput", value: "3.1M", action: "llm:blocked", span: "2" }).map(value => value.code),
+  ["patch-field", "patch-field"],
+);
+assert.deepEqual(
+  auditUiConfig({ type: "state", temperature: "58", api_token: "secret" }).map(value => value.code),
+  ["state-sensitive"],
+);
+assert.equal(summarizePolicy([{ config: { type: "button", id: "x", action: "shell:rm" }, closed: true }]).length, 1);
+assert.equal(summarizePolicy([{ config: { type: "button", id: "x", action: "shell:rm" }, closed: false }]).length, 0);
 const mergedPatches = mergeComponentPatches([
   componentPatch({ target: "throughput", label: "First", value: "1" }),
   componentPatch({ target: "throughput", value: "2", trend: "latest" }),

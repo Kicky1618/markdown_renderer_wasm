@@ -152,3 +152,9 @@ The summary follows Undo/Redo: undo marks the corresponding commit as `undone`, 
 Generative UI は `index.html` の CSP でも実行面を制限します。`script-src` は同一originと WebAssembly compilation 用の `wasm-unsafe-eval` のみで、JavaScript の `unsafe-eval` は許可しません。`object-src`, `frame-src`, `worker-src`, `media-src`, `base-uri`, `form-action` は無効化し、対応ブラウザでは Trusted Types を script sink に要求します。
 
 Runtime は生成Markdownを `innerHTML` / `outerHTML` / `insertAdjacentHTML` / `document.write` / `new Function` / `eval` へ渡しません。UIはDOM APIとtext nodeから構築し、HTTP接続はユーザーが設定したHTTP(S) endpointだけを使います。
+
+## Runtime policy audit
+
+閉じたsemantic fenceは実行前と同じpolicy関数で監査されます。画面左の `Runtime policy` にはブロック件数と理由が表示されます。未知のaction verb、敏感stateキー、無効stateキー、`type=patch` の権限外フィールドなどは表示上もblockedになり、button/form実行側も同じ `parseSafeAction` 判定を使うため監査と実行が食い違いません。
+
+監査は未完のstreaming fenceには警告を出さず、fenceが閉じた時点で確定します。E2E fixtureでは意図的に `api_token` state更新を混ぜ、Runtime Policyが1件blockしつつ他のstate/patch/Undo/Redoが継続することを実Chromeで検証しています。

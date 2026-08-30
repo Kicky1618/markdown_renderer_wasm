@@ -9,6 +9,7 @@ import { buildInteractionPrompt, buildLlmRequest } from "./llm_request.js";
 import { layoutGraph, parseGraph } from "./graph.js";
 import { statePatch, statePatchSignature } from "./state_patch.js";
 import { componentPatch, componentPatchSignature, mergeComponentPatches } from "./component_patch.js";
+import { parseSafeAction, summarizePolicy } from "./policy.js";
 import { summarizeModelCommit } from "./commit_summary.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
@@ -162,6 +163,9 @@ const streamModel = document.querySelector("#stream-model");
 const streamPrompt = document.querySelector("#stream-prompt");
 const postOnly = document.querySelector("[data-post-only]");
 const connectStreamButton = document.querySelector("#connect-stream");
+const policyAudit = document.querySelector("#policy-audit");
+const policyStatus = document.querySelector("#policy-status");
+const policyIssues = document.querySelector("#policy-issues");
 const undoModelButton = document.querySelector("#undo-model");
 const redoModelButton = document.querySelector("#redo-model");
 const modelCommit = document.querySelector("#model-commit");
@@ -757,18 +761,15 @@ async function runLlmInteraction(instruction) {
 }
 
 async function executeAction(action) {
-  const parts = String(action || "").split(":");
-  const verb = parts.shift() || "";
-  if (verb === "llm") {
-    const instruction = parts.join(":").trim() || "Continue the current application using the latest state.";
-    return runLlmInteraction(instruction);
+  const parsed = parseSafeAction(action);
+  if (!parsed.ok) {
+    updatePolicyAudit();
+    throw new Error(parsed.issue.detail);
   }
-  const key = parts.shift();
-  const raw = parts.join(":");
-  if (!key) return;
-  if (verb === "increment") updateState(key, number(state.get(key), 0) + number(raw, 1));
-  else if (verb === "decrement") updateState(key, number(state.get(key), 0) - number(raw, 1));
-  else if (verb === "set") updateState(key, number(raw, raw ?? ""));
+  if (parsed.verb === "llm") return runLlmInteraction(parsed.instruction);
+  if (parsed.verb === "increment") updateState(parsed.key, number(state.get(parsed.key), 0) + number(parsed.raw, 1));
+  else if (parsed.verb === "decrement") updateState(parsed.key, number(state.get(parsed.key), 0) - number(parsed.raw, 1));
+  else if (parsed.verb === "set") updateState(parsed.key, number(parsed.raw, parsed.raw ?? ""));
 }
 
 async function runControlAction(control, action) {
@@ -795,7 +796,7 @@ function renderButton(block, config) {
   button.className = "generated-button";
   button.type = "button";
   button.textContent = config.label || "Run action";
-  button.disabled = !config.action;
+  button.disabled = !config.action || !parseSafeAction(config.action).ok;
   button.addEventListener("click", () => { void runControlAction(button, config.action); });
   card.append(title, button);
   return card;
@@ -1189,7 +1190,7 @@ function createFormRoot(block, spec) {
   submit.type = "submit";
   submit.className = "generated-button";
   submit.textContent = spec.submit;
-  submit.disabled = !spec.action;
+  submit.disabled = !spec.action || !parseSafeAction(spec.action).ok;
   footer.append(submit);
 
   form.addEventListener("submit", event => {
@@ -1414,8 +1415,31 @@ function endSemanticCommitBarrier() {
   return changed;
 }
 
+function updatePolicyAudit() {
+  const configs = (parser?.document || []).flatMap(block => {
+    const config = uiConfig(block);
+    return config ? [{ config, closed: Boolean(block.closed) }] : [];
+  });
+  const issues = summarizePolicy(configs);
+  policyAudit.dataset.blocked = String(issues.length);
+  policyStatus.textContent = issues.length ? `${issues.length} BLOCKED` : "OK";
+  policyIssues.replaceChildren();
+  if (!issues.length) {
+    const item = document.createElement("li");
+    item.textContent = "No blocked semantic operations.";
+    policyIssues.append(item);
+    return;
+  }
+  for (const value of issues.slice(0, 12)) {
+    const item = document.createElement("li");
+    item.textContent = value.id ? `${value.id}: ${value.detail}` : value.detail;
+    policyIssues.append(item);
+  }
+}
+
 function renderOperations(ops) {
   const start = performance.now();
+  const policyDirty = ops.some(op => op.op === "sealCode" || op.op === "truncate");
   let structuralLayoutChange = false;
   for (const op of ops) {
     if (op.op === "truncate") {
@@ -1441,6 +1465,7 @@ function renderOperations(ops) {
   renderMs.textContent = (performance.now() - start).toFixed(3);
   blockCount.textContent = String(parser.blockCount);
   deltaStatus.textContent = ops.length ? `${ops.map(op => op.op).join(" · ")}` : "No structural change";
+  if (policyDirty) updatePolicyAudit();
 }
 
 function generatedUiCount() {
@@ -1468,6 +1493,7 @@ function resetRuntime() {
   const ops = parser.reset();
   parseMs.textContent = (performance.now() - start).toFixed(3);
   renderOperations(ops);
+  updatePolicyAudit();
   preview.scrollTop = 0;
 }
 
@@ -1734,8 +1760,11 @@ async function runInteractionSmoke() {
         && commitUi.textContent === "1"
         && commitDetails.textContent.includes("throughput");
 
+      const policyPassed = policyAudit.dataset.blocked === "1"
+        && policyIssues.textContent.includes("blocked sensitive state key: api_token");
+      root.dataset.policySmoke = policyPassed ? "pass" : "fail";
       root.dataset.historySmoke = undoPassed && redoPassed ? "pass" : "fail";
-      root.dataset.interactionSmoke = responsePassed && undoPassed && redoPassed ? "pass" : "fail";
+      root.dataset.interactionSmoke = responsePassed && undoPassed && redoPassed && policyPassed ? "pass" : "fail";
       return;
     }
   }

@@ -157,6 +157,14 @@ button.primary:hover { background: #84ebdc; }
 .remote-stream-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .remote-stream-foot span { color: #60758d; font: 10px/1.35 ui-monospace, monospace; }
 .remote-stream-foot button { flex: 0 0 auto; }
+
+.policy-audit { border-top: 1px solid #182435; padding: 9px 16px; color: #8195ad; font-size: 11px; }
+.policy-audit summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+.policy-audit strong { color: #79e4b5; font: 800 10px ui-monospace, monospace; letter-spacing: .08em; }
+.policy-audit[data-blocked]:not([data-blocked="0"]) strong { color: #ffbd72; }
+.policy-audit ul { margin: 9px 0 2px; padding-left: 18px; line-height: 1.55; }
+.policy-audit li + li { margin-top: 3px; }
+
 .syntax-help { border-top: 1px solid #182435; padding: 10px 16px 16px; color: #8093aa; font-size: 12px; }
 .syntax-help summary { cursor: pointer; }
 .syntax-help pre {
