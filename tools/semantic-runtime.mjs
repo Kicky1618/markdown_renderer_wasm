@@ -55,9 +55,10 @@ export class SemanticRuntime {
     this.#assertActive();
     if (typeof chunk !== "string") throw new TypeError("append() expects a string");
     this.parser.appendInPlace(chunk);
-    const inspection = this.semanticDetector.inspect(chunk);
-    this.observedAtByte += inspection.utf8Bytes;
-    const shouldObserve = this.semanticScan === "always" || inspection.observe;
+    const semanticScan = this.semanticDetector.scan(chunk);
+    const detectorObserve = semanticScan < 0;
+    this.observedAtByte += detectorObserve ? -semanticScan - 1 : semanticScan;
+    const shouldObserve = this.semanticScan === "always" || detectorObserve;
     const events = shouldObserve ? this.#observe().events : EMPTY_EVENTS;
     this.chunkIndex += 1;
     return events;

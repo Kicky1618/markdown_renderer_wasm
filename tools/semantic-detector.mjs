@@ -36,8 +36,10 @@ function classifyLinePrefix(line) {
 
 /**
  * Cheap conservative detector for chunks that can change Streamdown's
- * semantic layer. `inspect()` also returns exact UTF-8 byte length so the
- * runtime only scans ordinary ASCII token chunks once.
+ * semantic layer. `scan()` packs the observation flag and exact UTF-8 byte
+ * length into one number, avoiding a per-token result allocation on the
+ * SemanticRuntime hot path. Non-negative means no observation; a negative
+ * value encodes `-(utf8Bytes + 1)` and means the semantic layer must observe.
  *
  * Streamdown only opens/closes semantic fences when a line completes, so the
  * detector tracks a bounded candidate prefix and does not rebuild the semantic
@@ -51,7 +53,7 @@ export class SemanticChangeDetector {
     this.pendingCR = false;
   }
 
-  inspect(chunk) {
+  scan(chunk) {
     if (typeof chunk !== "string") throw new TypeError("semantic detector expects a string");
 
     let observe = false;
@@ -91,14 +93,19 @@ export class SemanticChangeDetector {
     }
     if (tailEnd > segmentStart) this.#advance(chunk.slice(segmentStart, tailEnd));
 
-    return {
-      observe,
-      utf8Bytes: ascii ? chunk.length : utf8Encoder.encode(chunk).length,
-    };
+    const utf8Bytes = ascii ? chunk.length : utf8Encoder.encode(chunk).length;
+    return observe ? -(utf8Bytes + 1) : utf8Bytes;
+  }
+
+  inspect(chunk) {
+    const packed = this.scan(chunk);
+    return packed < 0
+      ? { observe: true, utf8Bytes: -packed - 1 }
+      : { observe: false, utf8Bytes: packed };
   }
 
   shouldObserve(chunk) {
-    return this.inspect(chunk).observe;
+    return this.scan(chunk) < 0;
   }
 
   reset() {
