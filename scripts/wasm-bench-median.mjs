@@ -61,6 +61,8 @@ const wasm = await readFile(resolve(wasmPath));
 const scenarios = [
   { name: "plain-token", chunk: "token " },
   { name: "markdown-boundary", chunk: " **fast**\n\n" },
+  { name: "semantic-reference", chunk: "@[source:bench] " },
+  { name: "semantic-citation", chunk: "[[cite:doc|Spec]] " },
   { name: "open-code", setup: "```text\n", chunk: "0123456789abcdef0123456789abcdef\n" },
   { name: "llm-semantic", setup: ":::llm tool name=bench id=q1\n", chunk: "{\"token\":\"0123456789abcdef\"}\n" },
 ];
