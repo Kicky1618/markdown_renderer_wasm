@@ -26,6 +26,10 @@ current unfinished code line and appends its replacement, so delta size stays
 proportional to the new chunk rather than total code-block size. `AppendText`
 is a fast path for a live paragraph whose AST is exactly one `Text` node; it
 avoids reparsing and retransmitting the already-generated paragraph prefix.
+`AppendInlineText` extends the same idea to a live paragraph that already contains
+formatted inline nodes: it appends to the final `Text` node, or creates one when
+the current inline tail is non-text. Syntax-sensitive delimiters always fall back
+to suffix reparsing.
 
 ## LLM extensions and wire compatibility
 

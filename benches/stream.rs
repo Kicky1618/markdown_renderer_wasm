@@ -57,6 +57,20 @@ fn main() {
         start.elapsed(),
     );
 
+    let multiline_tokens = 20_000;
+    let mut parser = Parser::new();
+    parser.append("Answer with **important** first line\ncontinuation ");
+    let start = Instant::now();
+    for _ in 0..multiline_tokens {
+        black_box(parser.append("token "));
+    }
+    throughput(
+        "multiline formatted paragraph",
+        multiline_tokens,
+        multiline_tokens * "token ".len(),
+        start.elapsed(),
+    );
+
     let mut parser = Parser::new();
     parser.append("```text\n");
     let line = "0123456789abcdef0123456789abcdef\n";

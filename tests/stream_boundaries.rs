@@ -64,6 +64,13 @@ fn long_llm_fence_with_short_colons_is_chunk_boundary_independent() {
 }
 
 #[test]
+fn multiline_inline_tail_fast_path_is_chunk_boundary_independent() {
+    assert_every_single_split(
+        "First **bold** line\ncontinuation token token [[cite:doc-1|source]] and more text.",
+    );
+}
+
+#[test]
 fn mixed_markdown_plain_fast_path_is_chunk_boundary_independent() {
     assert_every_single_split(
         "A long plain token stream keeps going until **bold**, then `code`, then [[cite:bench-1]].",

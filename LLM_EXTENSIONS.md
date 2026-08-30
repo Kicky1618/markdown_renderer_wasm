@@ -90,6 +90,7 @@ cargo run --release --example llm_stream
 LLM 向け拡張は、専用の巨大 AST や JSON 中間表現を増やさず、既存の差分経路を再利用する。
 
 - 素の未改行テキスト: `AppendText`
+- Markdownを含む未確定段落 + plain token: `AppendInlineText`（表候補など曖昧な末尾は再解析）
 - `:::llm`（3個以上の可変長コロン）/ fenced code body: `SpliceCode`
 - 通常 Markdown: 不安定な末尾 suffix のみ `Truncate + Push`
 - WASM 境界: JSON ではなく MDA1 バイナリ
@@ -100,6 +101,8 @@ LLM 向け拡張は、専用の巨大 AST や JSON 中間表現を増やさず�
 |---|---:|
 | paragraph stream | 10.46M appends/s, 62.8 MiB/s |
 | long live plain paragraph | 32.78M appends/s, 187.6 MiB/s |
+| formatted live paragraph after `**bold**` | 約 36.88M appends/s, 211 MiB/s |
+| multiline formatted paragraph | 約 33.03M appends/s, 189.7 MiB/s |
 | open fenced code | 23.58M appends/s, 742.0 MiB/s |
 | `:::llm` semantic fence | 682 MiB/s |
 

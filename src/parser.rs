@@ -275,11 +275,6 @@ impl Parser {
                     .as_bytes()
                     .first()
                     .is_some_and(|&byte| is_escapable_punctuation(byte)))
-            || (self.line.ends_with('\\')
-                && input
-                    .as_bytes()
-                    .first()
-                    .is_some_and(|byte| byte.is_ascii_punctuation()))
         {
             return None;
         }
@@ -422,15 +417,19 @@ impl Parser {
             return;
         }
         let kind = self.pending_kind.unwrap_or_else(|| classify(&self.line));
-        let stable_single_line_paragraph = kind == PendingKind::Paragraph
+        let block = block_from_complete(source.trim_end_matches('\n'), kind);
+        let is_paragraph = matches!(block, Block::Paragraph(_));
+        let stable_single_line_paragraph = is_paragraph
             && self.pending_kind.is_none()
             && first_line_paragraph_is_stable(&self.line);
+        let stable_multiline_paragraph = is_paragraph
+            && self.pending_kind == Some(PendingKind::Paragraph)
+            && !self.line.is_empty()
+            && multiline_paragraph_tail_is_stable(&self.pending, &self.line);
         self.live_plain = stable_single_line_paragraph && source.bytes().all(is_plain_stream_byte);
-        self.live_inline_appendable = stable_single_line_paragraph && !self.live_plain;
-        self.push(
-            block_from_complete(source.trim_end_matches('\n'), kind),
-            delta,
-        );
+        self.live_inline_appendable =
+            (stable_single_line_paragraph && !self.live_plain) || stable_multiline_paragraph;
+        self.push(block, delta);
         self.has_live = true;
     }
 
@@ -536,6 +535,29 @@ fn is_plain_stream_byte(b: u8) -> bool {
 
 fn is_escapable_punctuation(byte: u8) -> bool {
     matches!(byte, b'!'..=b'/' | b':'..=b'@' | b'['..=b'`' | b'{'..=b'~')
+}
+
+fn multiline_paragraph_tail_is_stable(pending: &str, line: &str) -> bool {
+    // A pipe table can only appear when the first two lines form the header and
+    // separator. Once two complete paragraph lines are pending, or the first
+    // line has no pipe, appending to a later/current line cannot turn the block
+    // into a table.
+    let complete_lines = pending.bytes().filter(|&byte| byte == b'\n').count();
+    if complete_lines >= 2 {
+        return true;
+    }
+    if complete_lines == 0 {
+        return false;
+    }
+    let first_line = pending.trim_end_matches('\n');
+    if !first_line.contains('|') {
+        return true;
+    }
+
+    // While editing the potential separator line, stay on the conservative
+    // reparse path until a character makes table-separator syntax impossible.
+    line.bytes()
+        .any(|byte| !matches!(byte, b' ' | b'\t' | b'|' | b':' | b'-'))
 }
 
 fn first_line_paragraph_is_stable(line: &str) -> bool {
@@ -1038,6 +1060,44 @@ $$
             parser.blocks(),
             [Block::Paragraph(nodes)]
                 if nodes.iter().any(|node| matches!(node, Inline::Link { destination, .. } if destination == "llm:cite:doc-1"))
+        ));
+    }
+
+    #[test]
+    fn multiline_formatted_paragraph_uses_inline_tail_delta() {
+        let mut parser = Parser::new();
+        parser.append("Answer with **important** first line\ncontinuation ");
+        let delta = parser.append("token ");
+        assert_eq!(
+            delta.ops,
+            vec![Op::AppendInlineText {
+                block: 0,
+                append: "token ".to_owned(),
+            }]
+        );
+        assert!(matches!(
+            parser.blocks(),
+            [Block::Paragraph(nodes)]
+                if nodes.iter().any(|node| matches!(node, Inline::SoftBreak))
+                    && matches!(nodes.last(), Some(Inline::Text(text)) if text.ends_with("continuation token "))
+        ));
+    }
+
+    #[test]
+    fn first_token_after_soft_break_reparses_then_enables_inline_tail() {
+        let mut parser = Parser::new();
+        parser.append("Answer with **important** first line\n");
+        let first = parser.append("continuation ");
+        assert!(matches!(first.ops.first(), Some(Op::Truncate { from: 0 })));
+        let second = parser.append("token ");
+        assert!(matches!(
+            second.ops.as_slice(),
+            [Op::AppendInlineText { block: 0, .. }]
+        ));
+        assert!(matches!(
+            parser.blocks(),
+            [Block::Paragraph(nodes)]
+                if nodes.iter().any(|node| matches!(node, Inline::SoftBreak))
         ));
     }
 
