@@ -835,8 +835,6 @@ dependencies = [
 [[package]]
 name = "ratex-parser"
 version = "0.1.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "079ec2e7ac6bc76137a6de093a173d1f901139a51318589ab9ce17139c21a6f0"
 dependencies = [
  "fancy-regex",
  "ratex-font",

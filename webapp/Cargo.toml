@@ -53,3 +53,6 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = true
+
+[patch.crates-io]
+ratex-parser = { path = "vendor/ratex-parser" }
