@@ -85,6 +85,13 @@ enum PendingKind {
     Ordered,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SpecialBracketKind {
+    None,
+    Reference,
+    Citation,
+}
+
 #[derive(Debug)]
 enum Mode {
     Normal,
@@ -117,7 +124,9 @@ pub struct Parser {
     trailing_star_fast: bool,
     trailing_underscore_mod4: u8,
     trailing_underscore_fast: bool,
-    live_has_open_bracket: bool,
+    live_special_bracket: SpecialBracketKind,
+    live_has_link_label_open: bool,
+    live_link_label_just_closed: bool,
     live_has_link_destination_start: bool,
 }
 
@@ -148,7 +157,9 @@ impl Parser {
             trailing_star_fast: true,
             trailing_underscore_mod4: 0,
             trailing_underscore_fast: true,
-            live_has_open_bracket: false,
+            live_special_bracket: SpecialBracketKind::None,
+            live_has_link_label_open: false,
+            live_link_label_just_closed: false,
             live_has_link_destination_start: false,
         }
     }
@@ -196,7 +207,9 @@ impl Parser {
                 self.live_inline_appendable = false;
                 self.trailing_backslash_odd = false;
                 self.reset_delimiter_runs();
-                self.live_has_open_bracket = false;
+                self.live_special_bracket = SpecialBracketKind::None;
+                self.live_has_link_label_open = false;
+                self.live_link_label_just_closed = false;
                 self.live_has_link_destination_start = false;
                 self.line.clear();
                 self.pending.clear();
@@ -230,7 +243,9 @@ impl Parser {
                     self.committed = self.blocks.len();
                     self.trailing_backslash_odd = false;
                     self.reset_delimiter_runs();
-                    self.live_has_open_bracket = false;
+                    self.live_special_bracket = SpecialBracketKind::None;
+                    self.live_has_link_label_open = false;
+                    self.live_link_label_just_closed = false;
                     self.live_has_link_destination_start = false;
                 }
             }
@@ -469,7 +484,13 @@ impl Parser {
         // streaming runs on the append-only path without weakening correctness
         // for real references/links.
         let inert_closer = if input.bytes().all(|byte| byte == b']') {
-            !self.live_has_open_bracket
+            match self.live_special_bracket {
+                SpecialBracketKind::None => true,
+                SpecialBracketKind::Reference => !llm_reference_suffix_can_close(&self.line),
+                SpecialBracketKind::Citation => {
+                    !llm_citation_suffix_can_close(&self.line, input.len())
+                }
+            }
         } else if input.bytes().all(|byte| byte == b')') {
             !self.live_has_link_destination_start
         } else {
@@ -482,6 +503,20 @@ impl Parser {
                 nodes.push(Inline::Text(input.to_owned()));
             }
             self.line.push_str(input);
+            if input.as_bytes().first() == Some(&b']') {
+                let closed_label = self.live_has_link_label_open && input.len() == 1;
+                self.live_has_link_label_open = false;
+                self.live_link_label_just_closed = closed_label;
+                self.live_special_bracket = match self.live_special_bracket {
+                    SpecialBracketKind::Reference => SpecialBracketKind::None,
+                    SpecialBracketKind::Citation
+                        if citation_suffix_waits_for_second_close(&self.line) =>
+                    {
+                        SpecialBracketKind::Citation
+                    }
+                    _ => SpecialBracketKind::None,
+                };
+            }
             self.trailing_backslash_odd = false;
             self.break_delimiter_runs();
             delta.ops.push(Op::AppendInlineText {
@@ -525,10 +560,13 @@ impl Parser {
         if !inline_tail_append_is_safe(&self.line, input) {
             return false;
         }
-        let cross_link_destination = self.line.ends_with(']') && input.starts_with('(');
-        self.live_has_open_bracket |= input.as_bytes().contains(&b'[');
-        self.live_has_link_destination_start |=
-            cross_link_destination || input.as_bytes().windows(2).any(|window| window == b"](");
+        let cross_link_destination = self.live_link_label_just_closed && input.starts_with('(');
+        if let Some(kind) = special_bracket_opener_kind(&self.line, input) {
+            self.live_special_bracket = kind;
+        }
+        self.live_has_link_label_open |= input.as_bytes().contains(&b'[');
+        self.live_link_label_just_closed = false;
+        self.live_has_link_destination_start |= cross_link_destination;
         if let Some(Inline::Text(text)) = nodes.last_mut() {
             text.push_str(input);
         } else {
@@ -602,7 +640,9 @@ impl Parser {
             self.live_inline_appendable = false;
             self.trailing_backslash_odd = false;
             self.reset_delimiter_runs();
-            self.live_has_open_bracket = false;
+            self.live_special_bracket = SpecialBracketKind::None;
+            self.live_has_link_label_open = false;
+            self.live_link_label_just_closed = false;
             self.live_has_link_destination_start = false;
         }
     }
@@ -707,7 +747,9 @@ impl Parser {
         if source.is_empty() {
             self.trailing_backslash_odd = false;
             self.reset_delimiter_runs();
-            self.live_has_open_bracket = false;
+            self.live_special_bracket = SpecialBracketKind::None;
+            self.live_has_link_label_open = false;
+            self.live_link_label_just_closed = false;
             self.live_has_link_destination_start = false;
             return;
         }
@@ -715,7 +757,9 @@ impl Parser {
             self.live_plain = false;
             self.trailing_backslash_odd = false;
             self.reset_delimiter_runs();
-            self.live_has_open_bracket = false;
+            self.live_special_bracket = SpecialBracketKind::None;
+            self.live_has_link_label_open = false;
+            self.live_link_label_just_closed = false;
             self.live_has_link_destination_start = false;
             self.live_inline_appendable = false;
             self.push(Block::ThematicBreak, delta);
@@ -756,7 +800,10 @@ impl Parser {
         let (underscore_mod, underscore_fast) = emphasis_run_state(&block, &source, b'_');
         self.trailing_underscore_mod4 = underscore_mod;
         self.trailing_underscore_fast = underscore_fast;
-        self.live_has_open_bracket = closing_bracket_sensitive(&source);
+        self.live_special_bracket = special_bracket_kind_from_source(&source);
+        let (link_label_open, link_label_just_closed) = link_label_state_from_source(&source);
+        self.live_has_link_label_open = link_label_open;
+        self.live_link_label_just_closed = link_label_just_closed;
         self.live_has_link_destination_start = closing_paren_sensitive(&source);
         self.push(block, delta);
         self.has_live = true;
@@ -1058,16 +1105,142 @@ fn delimiter_run_state(block: &Block, source: &str, delimiter: u8, modulus: usiz
     ((trailing % modulus) as u8, fast)
 }
 
-fn closing_bracket_sensitive(source: &str) -> bool {
-    if let Some(open) = source.rfind("@[")
-        && source.rfind(']').is_none_or(|close| open > close)
-    {
-        return true;
+fn crossing_marker_start(line: &[u8], input: &[u8], marker: &[u8]) -> Option<isize> {
+    let internal = input
+        .windows(marker.len())
+        .rposition(|window| window == marker)
+        .map(|index| index as isize);
+    let crossing = (1..marker.len())
+        .filter(|&split| line.ends_with(&marker[..split]) && input.starts_with(&marker[split..]))
+        .map(|split| -(split as isize))
+        .max();
+    internal.into_iter().chain(crossing).max()
+}
+
+fn special_bracket_opener_kind(line: &str, input: &str) -> Option<SpecialBracketKind> {
+    let line = line.as_bytes();
+    let input = input.as_bytes();
+    let reference = crossing_marker_start(line, input, b"@[")
+        .map(|position| (position, SpecialBracketKind::Reference));
+    let citation = crossing_marker_start(line, input, b"[[cite:")
+        .map(|position| (position, SpecialBracketKind::Citation));
+    reference
+        .into_iter()
+        .chain(citation)
+        .max_by_key(|(position, _)| *position)
+        .map(|(_, kind)| kind)
+}
+
+fn link_label_state_from_source(source: &str) -> (bool, bool) {
+    if source.ends_with(']') {
+        let prefix = &source[..source.len() - 1];
+        let open = prefix.rfind('[');
+        let prior_close = prefix.rfind(']');
+        return (
+            false,
+            open.is_some_and(|open| prior_close.is_none_or(|close| open > close)),
+        );
     }
-    if let Some(open) = source.rfind("[[cite:") {
-        return !source[open + "[[cite:".len()..].contains("]]");
+    let open = source.rfind('[');
+    let close = source.rfind(']');
+    (
+        open.is_some_and(|open| close.is_none_or(|close| open > close)),
+        false,
+    )
+}
+
+fn valid_reference_atom_streaming(value: &str) -> bool {
+    !value.is_empty()
+        && !value.bytes().any(|byte| {
+            byte.is_ascii_control()
+                || byte.is_ascii_whitespace()
+                || matches!(byte, b'[' | b']' | b'|')
+        })
+}
+
+fn llm_reference_suffix_can_close(source: &str) -> bool {
+    let Some(open) = source.rfind("@[") else {
+        return false;
+    };
+    let tail = &source[open + 2..];
+    if tail.contains(']') {
+        return false;
     }
-    false
+    let bytes = tail.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || matches!(bytes[i], b'_' | b'-')) {
+        i += 1;
+    }
+    if i == 0 || bytes.get(i) != Some(&b':') {
+        return false;
+    }
+    valid_reference_atom_streaming(&tail[i + 1..])
+}
+
+fn citation_source_is_valid(source: &str) -> bool {
+    let source = source.trim();
+    valid_reference_atom_streaming(source)
+        && !source
+            .bytes()
+            .any(|byte| byte == b'[' || byte == b']' || byte.is_ascii_control())
+}
+
+fn llm_citation_suffix_can_close(source: &str, close_count: usize) -> bool {
+    let Some(open) = source.rfind("[[cite:") else {
+        return false;
+    };
+    let tail = &source[open + "[[cite:".len()..];
+    if tail.contains("]]") {
+        return false;
+    }
+
+    if let Some(pipe) = tail.find('|') {
+        if !citation_source_is_valid(&tail[..pipe]) {
+            return false;
+        }
+        let label = &tail[pipe + 1..];
+        label.ends_with(']') || close_count >= 2
+    } else {
+        let pending_close = usize::from(tail.ends_with(']'));
+        let source_tail = if pending_close != 0 {
+            &tail[..tail.len() - 1]
+        } else {
+            tail
+        };
+        citation_source_is_valid(source_tail) && pending_close + close_count >= 2
+    }
+}
+
+fn citation_suffix_waits_for_second_close(source: &str) -> bool {
+    let Some(open) = source.rfind("[[cite:") else {
+        return false;
+    };
+    let tail = &source[open + "[[cite:".len()..];
+    if tail.contains("]]") || !tail.ends_with(']') {
+        return false;
+    }
+    if let Some(pipe) = tail.find('|') {
+        citation_source_is_valid(&tail[..pipe])
+    } else {
+        citation_source_is_valid(&tail[..tail.len() - 1])
+    }
+}
+
+fn special_bracket_kind_from_source(source: &str) -> SpecialBracketKind {
+    let last_close = source.rfind(']');
+    let reference = source
+        .rfind("@[")
+        .filter(|&open| last_close.is_none_or(|close| open > close))
+        .map(|open| (open, SpecialBracketKind::Reference));
+    let citation = source.rfind("[[cite:").and_then(|open| {
+        (!source[open + "[[cite:".len()..].contains("]]"))
+            .then_some((open, SpecialBracketKind::Citation))
+    });
+    reference
+        .into_iter()
+        .chain(citation)
+        .max_by_key(|(position, _)| *position)
+        .map_or(SpecialBracketKind::None, |(_, kind)| kind)
 }
 
 fn closing_paren_sensitive(source: &str) -> bool {
@@ -1853,6 +2026,61 @@ $$
     }
 
     #[test]
+    fn special_bracket_closer_only_reparses_valid_llm_tokens() {
+        let mut invalid_ref = Parser::new();
+        invalid_ref.append("@[x");
+        let close = invalid_ref.append("]");
+        assert!(matches!(
+            close.ops.as_slice(),
+            [Op::AppendInlineText { append, .. }] if append == "]"
+        ));
+        let mut whole = Parser::new();
+        whole.append("@[x]");
+        assert_eq!(invalid_ref.blocks(), whole.blocks());
+
+        let mut valid_ref = Parser::new();
+        valid_ref.append("@[source:id");
+        let close = valid_ref.append("]");
+        assert!(matches!(close.ops.first(), Some(Op::Truncate { from: 0 })));
+        assert!(matches!(
+            valid_ref.blocks(),
+            [Block::Paragraph(nodes)] if nodes.iter().any(|node| matches!(
+                node,
+                Inline::Link { destination, .. } if destination == "llm:source:id"
+            ))
+        ));
+
+        let mut citation = Parser::new();
+        citation.append("[[cite:doc");
+        let first = citation.append("]");
+        assert!(matches!(
+            first.ops.as_slice(),
+            [Op::AppendInlineText { append, .. }] if append == "]"
+        ));
+        let second = citation.append("]");
+        assert!(matches!(second.ops.first(), Some(Op::Truncate { from: 0 })));
+        assert!(matches!(
+            citation.blocks(),
+            [Block::Paragraph(nodes)] if nodes.iter().any(|node| matches!(
+                node,
+                Inline::Link { destination, .. } if destination == "llm:cite:doc"
+            ))
+        ));
+
+        let mut invalid_cite = Parser::new();
+        invalid_cite.append("[[cite:bad id");
+        invalid_cite.append("]");
+        let second = invalid_cite.append("]");
+        assert!(matches!(
+            second.ops.as_slice(),
+            [Op::AppendInlineText { append, .. }] if append == "]"
+        ));
+        let mut whole = Parser::new();
+        whole.append("[[cite:bad id]]");
+        assert_eq!(invalid_cite.blocks(), whole.blocks());
+    }
+
+    #[test]
     fn inert_closer_runs_append_until_a_real_opener_exists() {
         let mut parser = Parser::new();
         parser.append("]");
@@ -1866,10 +2094,28 @@ $$
         );
 
         parser.append("[");
-        let possible_close = parser.append("]");
+        let label_close = parser.append("]");
         assert!(matches!(
-            possible_close.ops.first(),
+            label_close.ops.as_slice(),
+            [Op::AppendInlineText { append, .. }] if append == "]"
+        ));
+        let destination_open = parser.append("(");
+        assert!(matches!(
+            destination_open.ops.as_slice(),
+            [Op::AppendInlineText { append, .. }] if append == "("
+        ));
+        parser.append("url");
+        let link_close = parser.append(")");
+        assert!(matches!(
+            link_close.ops.first(),
             Some(Op::Truncate { from: 0 })
+        ));
+        assert!(matches!(
+            parser.blocks(),
+            [Block::Paragraph(nodes)] if nodes.iter().any(|node| matches!(
+                node,
+                Inline::Link { destination, .. } if destination == "url"
+            ))
         ));
         let stale_bracket = parser.append("]");
         assert!(matches!(
