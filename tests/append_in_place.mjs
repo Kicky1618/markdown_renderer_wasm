@@ -42,7 +42,7 @@ inPlace.dispose();
 
 const regularDelimiters = await Streamdown.load(wasm);
 const inPlaceDelimiters = await Streamdown.load(wasm);
-for (const chunk of ["`", "`", "$", "$", "$", "$", "`", "`"]) {
+for (const chunk of ["`", "`", "$", "$", "$", "$", "*", "*", "*", "*", "_", "_", "_", "_"]) {
   regularDelimiters.append(chunk);
   inPlaceDelimiters.appendInPlace(chunk);
   assert.deepEqual(inPlaceDelimiters.document, regularDelimiters.document);

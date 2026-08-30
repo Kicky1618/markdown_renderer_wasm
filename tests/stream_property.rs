@@ -175,6 +175,7 @@ fn apply(document: &mut Vec<Block>, delta: &Delta) {
             }
             Op::SpliceInlineTail {
                 block,
+                remove_nodes,
                 truncate_bytes,
                 append,
             } => {
@@ -189,6 +190,9 @@ fn apply(document: &mut Vec<Block>, delta: &Delta) {
                     if text.is_empty() {
                         nodes.pop();
                     }
+                }
+                if *remove_nodes != 0 {
+                    nodes.truncate(nodes.len() - *remove_nodes as usize);
                 }
                 for incoming in append {
                     if let Inline::Text(value) = incoming

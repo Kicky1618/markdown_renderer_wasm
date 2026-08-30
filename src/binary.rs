@@ -51,11 +51,13 @@ pub fn encode_delta_into(delta: &Delta, output: &mut Vec<u8>) {
             }
             Op::SpliceInlineTail {
                 block,
+                remove_nodes,
                 truncate_bytes,
                 append,
             } => {
                 w.u8(7);
                 w.u32(*block);
+                w.u32(*remove_nodes);
                 w.u32(*truncate_bytes);
                 w.inlines(append);
             }

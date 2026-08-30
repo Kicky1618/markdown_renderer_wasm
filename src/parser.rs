@@ -66,6 +66,7 @@ pub enum Op {
     /// This keeps delimiter completion local to a live paragraph tail.
     SpliceInlineTail {
         block: u32,
+        remove_nodes: u32,
         truncate_bytes: u32,
         append: Vec<Inline>,
     },
@@ -112,6 +113,10 @@ pub struct Parser {
     trailing_backtick_fast: bool,
     trailing_dollar_mod4: u8,
     trailing_dollar_fast: bool,
+    trailing_star_mod4: u8,
+    trailing_star_fast: bool,
+    trailing_underscore_mod4: u8,
+    trailing_underscore_fast: bool,
     live_has_open_bracket: bool,
     live_has_link_destination_start: bool,
 }
@@ -139,6 +144,10 @@ impl Parser {
             trailing_backtick_fast: true,
             trailing_dollar_mod4: 0,
             trailing_dollar_fast: true,
+            trailing_star_mod4: 0,
+            trailing_star_fast: true,
+            trailing_underscore_mod4: 0,
+            trailing_underscore_fast: true,
             live_has_open_bracket: false,
             live_has_link_destination_start: false,
         }
@@ -320,7 +329,10 @@ impl Parser {
             return false;
         };
 
-        if input.bytes().all(|byte| byte == b'`') && self.trailing_backtick_fast {
+        if input.bytes().all(|byte| byte == b'`')
+            && self.trailing_backtick_fast
+            && !self.trailing_backslash_odd
+        {
             let old = self.trailing_backtick_mod2 as usize;
             let total = old + input.len();
             let pairs = total / 2;
@@ -330,6 +342,8 @@ impl Parser {
                 self.line.push_str(input);
                 self.trailing_backtick_mod2 = remainder as u8;
                 self.break_dollar_run();
+                self.break_star_run();
+                self.break_underscore_run();
                 self.trailing_backslash_odd = false;
                 delta.ops.push(Op::AppendInlineText {
                     block: block_index as u32,
@@ -341,13 +355,16 @@ impl Parser {
                 if remainder != 0 {
                     replacement.push(Inline::Text("`".to_owned()));
                 }
-                splice_inline_tail(nodes, old, &replacement);
+                splice_inline_tail(nodes, old, 0, &replacement);
                 self.line.push_str(input);
                 self.trailing_backtick_mod2 = remainder as u8;
                 self.break_dollar_run();
+                self.break_star_run();
+                self.break_underscore_run();
                 self.trailing_backslash_odd = false;
                 delta.ops.push(Op::SpliceInlineTail {
                     block: block_index as u32,
+                    remove_nodes: 0,
                     truncate_bytes: old as u32,
                     append: replacement,
                 });
@@ -355,7 +372,10 @@ impl Parser {
             return true;
         }
 
-        if input.bytes().all(|byte| byte == b'$') && self.trailing_dollar_fast {
+        if input.bytes().all(|byte| byte == b'$')
+            && self.trailing_dollar_fast
+            && !self.trailing_backslash_odd
+        {
             let old = self.trailing_dollar_mod4 as usize;
             let total = old + input.len();
             let groups = total / 4;
@@ -365,6 +385,8 @@ impl Parser {
                 self.line.push_str(input);
                 self.trailing_dollar_mod4 = remainder as u8;
                 self.break_backtick_run();
+                self.break_star_run();
+                self.break_underscore_run();
                 self.trailing_backslash_odd = false;
                 delta.ops.push(Op::AppendInlineText {
                     block: block_index as u32,
@@ -379,17 +401,66 @@ impl Parser {
                 if remainder != 0 {
                     replacement.push(Inline::Text("$".repeat(remainder)));
                 }
-                splice_inline_tail(nodes, old, &replacement);
+                splice_inline_tail(nodes, old, 0, &replacement);
                 self.line.push_str(input);
                 self.trailing_dollar_mod4 = remainder as u8;
                 self.break_backtick_run();
+                self.break_star_run();
+                self.break_underscore_run();
                 self.trailing_backslash_odd = false;
                 delta.ops.push(Op::SpliceInlineTail {
                     block: block_index as u32,
+                    remove_nodes: 0,
                     truncate_bytes: old as u32,
                     append: replacement,
                 });
             }
+            return true;
+        }
+
+        if input.bytes().all(|byte| byte == b'*')
+            && self.trailing_star_fast
+            && !self.trailing_backslash_odd
+        {
+            let old = self.trailing_star_mod4 as usize;
+            let (remove_nodes, truncate_bytes, replacement, remainder) =
+                emphasis_run_splice(old, input.len(), '*');
+            splice_inline_tail(nodes, truncate_bytes, remove_nodes, &replacement);
+            self.line.push_str(input);
+            self.trailing_star_mod4 = remainder as u8;
+            self.break_backtick_run();
+            self.break_dollar_run();
+            self.break_underscore_run();
+            self.trailing_backslash_odd = false;
+            delta.ops.push(Op::SpliceInlineTail {
+                block: block_index as u32,
+                remove_nodes: remove_nodes as u32,
+                truncate_bytes: truncate_bytes as u32,
+                append: replacement,
+            });
+            return true;
+        }
+
+        if input.bytes().all(|byte| byte == b'_')
+            && self.trailing_underscore_fast
+            && !self.trailing_backslash_odd
+        {
+            let old = self.trailing_underscore_mod4 as usize;
+            let (remove_nodes, truncate_bytes, replacement, remainder) =
+                emphasis_run_splice(old, input.len(), '_');
+            splice_inline_tail(nodes, truncate_bytes, remove_nodes, &replacement);
+            self.line.push_str(input);
+            self.trailing_underscore_mod4 = remainder as u8;
+            self.break_backtick_run();
+            self.break_dollar_run();
+            self.break_star_run();
+            self.trailing_backslash_odd = false;
+            delta.ops.push(Op::SpliceInlineTail {
+                block: block_index as u32,
+                remove_nodes: remove_nodes as u32,
+                truncate_bytes: truncate_bytes as u32,
+                append: replacement,
+            });
             return true;
         }
 
@@ -479,6 +550,10 @@ impl Parser {
         self.trailing_backtick_fast = true;
         self.trailing_dollar_mod4 = 0;
         self.trailing_dollar_fast = true;
+        self.trailing_star_mod4 = 0;
+        self.trailing_star_fast = true;
+        self.trailing_underscore_mod4 = 0;
+        self.trailing_underscore_fast = true;
     }
 
     fn break_backtick_run(&mut self) {
@@ -495,9 +570,25 @@ impl Parser {
         self.trailing_dollar_mod4 = 0;
     }
 
+    fn break_star_run(&mut self) {
+        if self.trailing_star_mod4 != 0 {
+            self.trailing_star_fast = false;
+        }
+        self.trailing_star_mod4 = 0;
+    }
+
+    fn break_underscore_run(&mut self) {
+        if self.trailing_underscore_mod4 != 0 {
+            self.trailing_underscore_fast = false;
+        }
+        self.trailing_underscore_mod4 = 0;
+    }
+
     fn break_delimiter_runs(&mut self) {
         self.break_backtick_run();
         self.break_dollar_run();
+        self.break_star_run();
+        self.break_underscore_run();
     }
 
     fn begin_normal_update(&mut self, delta: &mut Delta) {
@@ -659,6 +750,12 @@ impl Parser {
         let (dollar_mod, dollar_fast) = delimiter_run_state(&block, &source, b'$', 4);
         self.trailing_dollar_mod4 = dollar_mod;
         self.trailing_dollar_fast = dollar_fast;
+        let (star_mod, star_fast) = emphasis_run_state(&block, &source, b'*');
+        self.trailing_star_mod4 = star_mod;
+        self.trailing_star_fast = star_fast;
+        let (underscore_mod, underscore_fast) = emphasis_run_state(&block, &source, b'_');
+        self.trailing_underscore_mod4 = underscore_mod;
+        self.trailing_underscore_fast = underscore_fast;
         self.live_has_open_bracket = source.as_bytes().contains(&b'[');
         self.live_has_link_destination_start =
             source.as_bytes().windows(2).any(|window| window == b"](");
@@ -774,7 +871,12 @@ fn append_inline_text(nodes: &mut Vec<Inline>, append: &str) {
     }
 }
 
-fn splice_inline_tail(nodes: &mut Vec<Inline>, truncate_bytes: usize, append: &[Inline]) {
+fn splice_inline_tail(
+    nodes: &mut Vec<Inline>,
+    truncate_bytes: usize,
+    remove_nodes: usize,
+    append: &[Inline],
+) {
     if truncate_bytes != 0 {
         let Some(Inline::Text(text)) = nodes.last_mut() else {
             unreachable!("inline tail splice requires trailing text")
@@ -789,6 +891,13 @@ fn splice_inline_tail(nodes: &mut Vec<Inline>, truncate_bytes: usize, append: &[
             nodes.pop();
         }
     }
+    if remove_nodes != 0 {
+        let new_len = nodes
+            .len()
+            .checked_sub(remove_nodes)
+            .expect("inline tail splice removes too many nodes");
+        nodes.truncate(new_len);
+    }
     for node in append {
         if let Inline::Text(value) = node
             && let Some(Inline::Text(text)) = nodes.last_mut()
@@ -798,6 +907,101 @@ fn splice_inline_tail(nodes: &mut Vec<Inline>, truncate_bytes: usize, append: &[
             nodes.push(node.clone());
         }
     }
+}
+
+fn emphasis_run_splice(
+    old: usize,
+    added: usize,
+    delimiter: char,
+) -> (usize, usize, Vec<Inline>, usize) {
+    let (remove_nodes, truncate_bytes) = match old {
+        0 => (0, 0),
+        1 => (0, 1),
+        2 => (1, 0),
+        3 => (1, 1),
+        _ => unreachable!(),
+    };
+    let total = old + added;
+    let groups = total / 4;
+    let remainder = total % 4;
+    let mut replacement = Vec::with_capacity(groups + 2);
+    replacement.extend((0..groups).map(|_| Inline::Strong(Vec::new())));
+    match remainder {
+        0 => {}
+        1 => replacement.push(Inline::Text(delimiter.to_string())),
+        2 => replacement.push(Inline::Emphasis(Vec::new())),
+        3 => {
+            replacement.push(Inline::Emphasis(Vec::new()));
+            replacement.push(Inline::Text(delimiter.to_string()));
+        }
+        _ => unreachable!(),
+    }
+    (remove_nodes, truncate_bytes, replacement, remainder)
+}
+
+fn emphasis_run_state(block: &Block, source: &str, delimiter: u8) -> (u8, bool) {
+    let Block::Paragraph(nodes) = block else {
+        return (0, true);
+    };
+    let last = nodes.last();
+    let trailing_text = match last {
+        Some(Inline::Text(text)) => text
+            .as_bytes()
+            .iter()
+            .rev()
+            .take_while(|&&byte| byte == delimiter)
+            .count(),
+        _ => 0,
+    };
+    let mut remainder = if trailing_text == 1 {
+        let previous_empty_emphasis = nodes.len() >= 2
+            && matches!(&nodes[nodes.len() - 2], Inline::Emphasis(children) if children.is_empty());
+        if previous_empty_emphasis { 3 } else { 1 }
+    } else if trailing_text == 0
+        && matches!(last, Some(Inline::Emphasis(children)) if children.is_empty())
+    {
+        2
+    } else {
+        0
+    };
+
+    let mut fast = trailing_text <= 1;
+    for (index, node) in nodes.iter().enumerate() {
+        let Inline::Text(text) = node else { continue };
+        let allowed = if index + 1 == nodes.len() && matches!(remainder, 1 | 3) {
+            1
+        } else {
+            0
+        };
+        let prefix_len = text.len().saturating_sub(allowed);
+        if text.as_bytes()[..prefix_len].contains(&delimiter) {
+            fast = false;
+        }
+    }
+
+    if remainder != 0 {
+        let raw_trailing = source
+            .as_bytes()
+            .iter()
+            .rev()
+            .take_while(|&&byte| byte == delimiter)
+            .count();
+        if raw_trailing % 4 != remainder as usize {
+            fast = false;
+            remainder = 0;
+        } else {
+            let start = source.len() - raw_trailing;
+            let escaped = source.as_bytes()[..start]
+                .iter()
+                .rev()
+                .take_while(|&&byte| byte == b'\\')
+                .count()
+                % 2
+                != 0;
+            fast &= !escaped;
+        }
+    }
+    (remainder, fast)
 }
 
 fn delimiter_run_state(block: &Block, source: &str, delimiter: u8, modulus: usize) -> (u8, bool) {
@@ -1514,6 +1718,7 @@ $$
             close.ops,
             vec![Op::SpliceInlineTail {
                 block: 0,
+                remove_nodes: 0,
                 truncate_bytes: 1,
                 append: vec![Inline::Code(String::new())],
             }]
@@ -1538,6 +1743,7 @@ $$
             close.ops,
             vec![Op::SpliceInlineTail {
                 block: 0,
+                remove_nodes: 0,
                 truncate_bytes: 3,
                 append: vec![Inline::Math {
                     source: String::new(),
@@ -1581,6 +1787,51 @@ $$
         let mut whole = Parser::new();
         whole.append("\\``");
         assert_eq!(escaped.blocks(), whole.blocks());
+    }
+
+    #[test]
+    fn emphasis_delimiter_runs_splice_tail_nodes() {
+        for delimiter in ['*', '_'] {
+            let token = delimiter.to_string();
+            let mut parser = Parser::new();
+            parser.append("prefix ");
+            parser.append(&token);
+            let second = parser.append(&token);
+            assert!(matches!(
+                second.ops.as_slice(),
+                [Op::SpliceInlineTail {
+                    remove_nodes: 0,
+                    truncate_bytes: 1,
+                    append,
+                    ..
+                }] if append == &vec![Inline::Emphasis(Vec::new())]
+            ));
+            parser.append(&token);
+            let fourth = parser.append(&token);
+            assert!(matches!(
+                fourth.ops.as_slice(),
+                [Op::SpliceInlineTail {
+                    remove_nodes: 1,
+                    truncate_bytes: 1,
+                    append,
+                    ..
+                }] if append == &vec![Inline::Strong(Vec::new())]
+            ));
+
+            let mut whole = Parser::new();
+            whole.append(&format!("prefix {}", token.repeat(4)));
+            assert_eq!(parser.blocks(), whole.blocks());
+
+            let mut normal = Parser::new();
+            normal.append("prefix ");
+            normal.append(&token);
+            normal.append("body");
+            let close = normal.append(&token);
+            assert!(matches!(close.ops.first(), Some(Op::Truncate { from: 0 })));
+            let mut whole = Parser::new();
+            whole.append(&format!("prefix {delimiter}body{delimiter}"));
+            assert_eq!(normal.blocks(), whole.blocks());
+        }
     }
 
     #[test]
@@ -1651,7 +1902,6 @@ $$
             &[Block::Paragraph(vec![Inline::Text("\\\\".to_owned())])]
         );
 
-        parser.append("\\");
         let completed_escape = parser.append("*");
         assert!(matches!(
             completed_escape.ops.first(),
@@ -1659,7 +1909,7 @@ $$
         ));
 
         let mut whole = Parser::new();
-        whole.append("\\\\\\\\*");
+        whole.append(r"\\\*");
         assert_eq!(parser.blocks(), whole.blocks());
     }
 
@@ -1755,13 +2005,19 @@ $$
                 }
                 Op::SpliceInlineTail {
                     block,
+                    remove_nodes,
                     truncate_bytes,
                     append,
                 } => {
                     let Block::Paragraph(nodes) = &mut document[*block as usize] else {
                         panic!("not paragraph")
                     };
-                    splice_inline_tail(nodes, *truncate_bytes as usize, append);
+                    splice_inline_tail(
+                        nodes,
+                        *truncate_bytes as usize,
+                        *remove_nodes as usize,
+                        append,
+                    );
                 }
                 Op::SpliceCode {
                     block,

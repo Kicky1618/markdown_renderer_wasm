@@ -81,6 +81,7 @@ const inlineSplice = apiParser.append("`");
 assert.deepEqual(inlineSplice, [{
   op: "spliceInlineTail",
   block: 0,
+  removeNodes: 0,
   truncateBytes: 1,
   append: [{ type: "code", value: "" }],
 }]);
@@ -94,10 +95,42 @@ const mathSplice = apiParser.append("$");
 assert.deepEqual(mathSplice, [{
   op: "spliceInlineTail",
   block: 0,
+  removeNodes: 0,
   truncateBytes: 3,
   append: [{ type: "math", display: true, value: "" }],
 }]);
 assert.deepEqual(apiParser.document[0].children, [{ type: "math", display: true, value: "" }]);
+
+apiParser.reset();
+apiParser.append("prefix *");
+apiParser.append("*");
+apiParser.append("*");
+const strongSplice = apiParser.append("*");
+assert.deepEqual(strongSplice, [{
+  op: "spliceInlineTail",
+  block: 0,
+  removeNodes: 1,
+  truncateBytes: 1,
+  append: [{ type: "strong", children: [] }],
+}]);
+assert.deepEqual(apiParser.document[0].children, [
+  { type: "text", value: "prefix " },
+  { type: "strong", children: [] },
+]);
+
+apiParser.reset();
+apiParser.append("*");
+apiParser.append("*");
+apiParser.append("*");
+const emphasisSplice = apiParser.append("*");
+assert.deepEqual(emphasisSplice, [{
+  op: "spliceInlineTail",
+  block: 0,
+  removeNodes: 1,
+  truncateBytes: 1,
+  append: [{ type: "strong", children: [] }],
+}]);
+assert.deepEqual(apiParser.document[0].children, [{ type: "strong", children: [] }]);
 
 apiParser.reset();
 apiParser.append("Answer with **important** context: ");

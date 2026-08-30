@@ -138,7 +138,7 @@ export function decodeDelta(bytes) {
       case 4: return { op: "sealCode", block: u32() };
       case 5: return { op: "appendText", block: u32(), append: string() };
       case 6: return { op: "appendInlineText", block: u32(), append: string() };
-      case 7: return { op: "spliceInlineTail", block: u32(), truncateBytes: u32(), append: inlines() };
+      case 7: return { op: "spliceInlineTail", block: u32(), removeNodes: u32(), truncateBytes: u32(), append: inlines() };
       default: throw new Error("unknown delta operation");
     }
   });
@@ -174,6 +174,10 @@ export function applyDelta(document, ops) {
         if (tail?.type !== "text") throw new Error("spliceInlineTail target has no trailing text");
         tail.value = removeUtf8Tail(tail.value, change.truncateBytes);
         if (!tail.value) node.children.pop();
+      }
+      if (change.removeNodes) {
+        if (change.removeNodes > node.children.length) throw new Error("spliceInlineTail removes too many nodes");
+        node.children.length -= change.removeNodes;
       }
       for (const incoming of change.append) {
         const tail = node.children[node.children.length - 1];

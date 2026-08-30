@@ -86,7 +86,7 @@ fn inline_tail_fast_path_respects_escape_and_link_completion() {
 
 #[test]
 fn delimiter_run_periods_match_whole_parse_exhaustively() {
-    for delimiter in ['`', '$'] {
+    for delimiter in ['`', '$', '*', '_'] {
         for length in 1..=128 {
             let markdown = format!("prefix {}", delimiter.to_string().repeat(length));
             let expected = parse_whole(&markdown);
@@ -94,6 +94,11 @@ fn delimiter_run_periods_match_whole_parse_exhaustively() {
             assert_eq!(actual, expected, "delimiter={delimiter:?} length={length}");
         }
     }
+}
+
+#[test]
+fn delimiter_fast_paths_respect_cross_chunk_escapes() {
+    assert_every_single_split(r"prefix \* literal \_ literal \$ literal \` literal");
 }
 
 #[test]
@@ -175,6 +180,7 @@ fn apply(document: &mut Vec<Block>, delta: &Delta) {
             }
             Op::SpliceInlineTail {
                 block,
+                remove_nodes,
                 truncate_bytes,
                 append,
             } => {
@@ -189,6 +195,9 @@ fn apply(document: &mut Vec<Block>, delta: &Delta) {
                     if text.is_empty() {
                         nodes.pop();
                     }
+                }
+                if *remove_nodes != 0 {
+                    nodes.truncate(nodes.len() - *remove_nodes as usize);
                 }
                 for incoming in append {
                     if let Inline::Text(value) = incoming
