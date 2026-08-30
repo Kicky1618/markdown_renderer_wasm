@@ -13,7 +13,11 @@ fn parse_chunks<'a>(chunks: impl IntoIterator<Item = &'a str>) -> Vec<Block> {
     for chunk in chunks {
         let delta = parser.append(chunk);
         apply(&mut mirror, &delta);
-        assert_eq!(mirror, parser.blocks(), "delta mirror diverged after {chunk:?}");
+        assert_eq!(
+            mirror,
+            parser.blocks(),
+            "delta mirror diverged after {chunk:?}"
+        );
     }
     let delta = parser.finish();
     apply(&mut mirror, &delta);
