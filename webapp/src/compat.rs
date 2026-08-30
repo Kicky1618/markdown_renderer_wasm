@@ -48,6 +48,18 @@ pub struct RuntimeRecoveryTrace {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GpuCanvasMetrics {
+    pub logical_width: u32,
+    pub logical_height: u32,
+    pub backing_width: u32,
+    pub backing_height: u32,
+    pub backing_scale: f64,
+}
+
+pub const GPU_MAX_DPR: f64 = 2.0;
+pub const GPU_MAX_BACKING_PIXELS: u64 = 16 * 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RendererPolicy {
     /// Minimum delay between expensive scene rebuilds. Presentation can still
     /// happen every animation frame because scrolling is applied by a uniform.
@@ -258,4 +270,38 @@ pub fn runtime_recovery_search(search: &str, next: RendererPreference) -> String
     let rewritten = replace_renderer_search(search, next);
     let rewritten = replace_search_param(&rewritten, "renderer_runtime_origin", &origin);
     replace_search_param(&rewritten, "renderer_runtime_depth", &depth.to_string())
+}
+
+pub fn gpu_canvas_metrics(
+    logical_width: u32,
+    logical_height: u32,
+    device_pixel_ratio: f64,
+    max_dimension: u32,
+) -> GpuCanvasMetrics {
+    let logical_width = logical_width.max(1);
+    let logical_height = logical_height.max(1);
+    let max_dimension = max_dimension.max(1);
+    let requested_scale = if device_pixel_ratio.is_finite() && device_pixel_ratio > 0.0 {
+        device_pixel_ratio.clamp(1.0, GPU_MAX_DPR)
+    } else {
+        1.0
+    };
+    let dimension_scale = (max_dimension as f64 / logical_width as f64)
+        .min(max_dimension as f64 / logical_height as f64);
+    let logical_pixels = logical_width as f64 * logical_height as f64;
+    let area_scale = (GPU_MAX_BACKING_PIXELS as f64 / logical_pixels).sqrt();
+    let scale = requested_scale.min(dimension_scale).min(area_scale);
+    let backing_width =
+        ((logical_width as f64 * scale).round() as u64).clamp(1, max_dimension as u64) as u32;
+    let backing_height =
+        ((logical_height as f64 * scale).round() as u64).clamp(1, max_dimension as u64) as u32;
+    let backing_scale = (backing_width as f64 / logical_width as f64)
+        .min(backing_height as f64 / logical_height as f64);
+    GpuCanvasMetrics {
+        logical_width,
+        logical_height,
+        backing_width,
+        backing_height,
+        backing_scale,
+    }
 }

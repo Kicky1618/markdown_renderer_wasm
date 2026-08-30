@@ -171,6 +171,54 @@ run_swiftshader_exact() {
 
 run_swiftshader_exact webgl2-swiftshader \
   'renderer=webgl2' webgl2 webgl 0 0 '' 10000
+
+run_swiftshader_hidpi() {
+  html="$WORK/webgl2-hidpi.html"
+  err="$WORK/webgl2-hidpi.err"
+  attempt=1
+  while :; do
+    "$CHROME" \
+      --headless=new \
+      --no-sandbox \
+      --disable-dev-shm-usage \
+      --use-angle=swiftshader \
+      --enable-unsafe-swiftshader \
+      --force-device-scale-factor=2 \
+      --virtual-time-budget=10000 \
+      --dump-dom \
+      "http://127.0.0.1:$PORT/?renderer=webgl2&smoke=1&doc=easy&tps=1000&repeat=1" \
+      >"$html" 2>"$err" || true
+    if grep -q 'data-smoke="pass"' "$html"; then
+      break
+    fi
+    if [ "$attempt" -ge 3 ]; then
+      echo "browser smoke: webgl2-hidpi failed smoke probe"
+      grep -o '<html[^>]*>' "$html" | head -1 || true
+      grep -o '<canvas id="app"[^>]*>' "$html" | head -1 || true
+      tail -30 "$err" || true
+      exit 1
+    fi
+    attempt=$((attempt + 1))
+  done
+  renderer=$(grep -o 'data-smoke-renderer="[^"]*"' "$html" | head -1 | cut -d '"' -f2)
+  depth=$(grep -o 'data-smoke-fallback-depth="[^"]*"' "$html" | head -1 | cut -d '"' -f2)
+  scale=$(grep -o 'data-gpu-backing-scale="[^"]*"' "$html" | head -1 | cut -d '"' -f2)
+  logical_w=$(grep -o 'data-gpu-logical-width="[0-9]*"' "$html" | head -1 | cut -d '"' -f2)
+  logical_h=$(grep -o 'data-gpu-logical-height="[0-9]*"' "$html" | head -1 | cut -d '"' -f2)
+  backing_w=$(grep -o 'data-gpu-backing-width="[0-9]*"' "$html" | head -1 | cut -d '"' -f2)
+  backing_h=$(grep -o 'data-gpu-backing-height="[0-9]*"' "$html" | head -1 | cut -d '"' -f2)
+  [ "$renderer" = webgl ] && [ "$depth" = 0 ] && [ "$scale" = 2.000 ] || {
+    echo "browser smoke: webgl2-hidpi renderer=$renderer depth=$depth scale=$scale"
+    exit 1
+  }
+  [ "$backing_w" -eq $((logical_w * 2)) ] && [ "$backing_h" -eq $((logical_h * 2)) ] || {
+    echo "browser smoke: webgl2-hidpi logical=${logical_w}x${logical_h} backing=${backing_w}x${backing_h}"
+    exit 1
+  }
+  echo "browser smoke: webgl2-hidpi logical=${logical_w}x${logical_h} backing=${backing_w}x${backing_h} scale=$scale pass"
+}
+
+run_swiftshader_hidpi
 run_swiftshader_exact webgl2-runtime-recovery \
   'renderer=webgl2&simulate_gpu_loss=webgl2' canvas2d canvas2d 0 1 webgl2 60000
 grep -q 'WEBGL2 failed at runtime (device-lost); restarting with CANVAS2D' "$WORK/webgl2-runtime-recovery.err" || {

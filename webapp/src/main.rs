@@ -10,7 +10,7 @@ mod search;
 use bytemuck::{Pod, Zeroable};
 use compat::{
     RendererBackend, RendererPreference, SurfaceAction, SurfaceEvent, SurfaceFailureTracker,
-    runtime_recovery_search, runtime_recovery_trace,
+    gpu_canvas_metrics, runtime_recovery_search, runtime_recovery_trace,
 };
 use futures_util::{
     FutureExt,
@@ -150,6 +150,8 @@ struct App {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
+    logical_width: u32,
+    logical_height: u32,
     pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
     view_buffer: wgpu::Buffer,
@@ -292,7 +294,7 @@ async fn run() -> Result<(), JsValue> {
             app.auto_scroll = false;
         }
         app.scroll_target = (app.scroll_target + event.delta_y()).max(0.0);
-        let max_scroll = (app.content_height - app.config.height as f64 + 48.0).max(0.0);
+        let max_scroll = (app.content_height - app.logical_height as f64 + 48.0).max(0.0);
         if event.delta_y() > 0.0 && app.scroll_target >= max_scroll - 24.0 {
             app.auto_scroll = true;
         }
@@ -355,7 +357,7 @@ async fn run() -> Result<(), JsValue> {
             .is_some()
         {
             let mut app = key_app.borrow_mut();
-            let viewport = app.config.height as f64;
+            let viewport = app.logical_height as f64;
             let max_scroll = (app.content_height - viewport + 48.0).max(0.0);
             let key = event.key();
             if matches!(key.as_str(), "F3" | "F3Previous") {
@@ -508,7 +510,6 @@ fn should_simulate_gpu_loss(backend: RendererBackend) -> bool {
 
 impl App {
     async fn new(canvas: HtmlCanvasElement, backend: RendererBackend) -> Result<Self, JsValue> {
-        resize_canvas(&canvas);
         // The GLES/WebGL backend needs a display handle even though the canvas
         // surface itself only contributes a window handle. Without this,
         // `create_surface(Canvas)` deterministically fails on WebGL2.
@@ -558,6 +559,7 @@ impl App {
             web_sys::console::warn_1(&format!("GPU device lost ({reason:?}): {message}").into());
             lost_signal.store(true, Ordering::Release);
         });
+        let metrics = resize_gpu_canvas(&canvas, device.limits().max_texture_dimension_2d);
         let caps = surface.get_capabilities(&adapter);
         let format = caps
             .formats
@@ -574,8 +576,8 @@ impl App {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
-            width: canvas.width().max(1),
-            height: canvas.height().max(1),
+            width: metrics.backing_width,
+            height: metrics.backing_height,
             present_mode: wgpu::PresentMode::Fifo,
             desired_maximum_frame_latency: 2,
             alpha_mode,
@@ -589,8 +591,8 @@ impl App {
         let view_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("view uniform"),
             contents: bytemuck::bytes_of(&View {
-                width: config.width as f32,
-                height: config.height as f32,
+                width: metrics.logical_width as f32,
+                height: metrics.logical_height as f32,
                 scroll: 0.0,
                 math_scroll: 0.0,
             }),
@@ -681,6 +683,8 @@ impl App {
             device,
             queue,
             config,
+            logical_width: metrics.logical_width,
+            logical_height: metrics.logical_height,
             pipeline,
             bind_group,
             view_buffer,
@@ -756,18 +760,25 @@ impl App {
                 self.token_credit -= emitted as f64;
             }
         }
-        let resized = resize_canvas(&self.canvas);
-        if resized
-            || self.config.width != self.canvas.width()
-            || self.config.height != self.canvas.height()
-        {
-            self.config.width = self.canvas.width().max(1);
-            self.config.height = self.canvas.height().max(1);
+        let metrics =
+            resize_gpu_canvas(&self.canvas, self.device.limits().max_texture_dimension_2d);
+        let logical_resized = self.logical_width != metrics.logical_width
+            || self.logical_height != metrics.logical_height;
+        let backing_resized = self.config.width != metrics.backing_width
+            || self.config.height != metrics.backing_height;
+        if logical_resized || backing_resized {
+            self.logical_width = metrics.logical_width;
+            self.logical_height = metrics.logical_height;
+            self.config.width = metrics.backing_width;
+            self.config.height = metrics.backing_height;
             self.surface.configure(&self.device, &self.config);
-            self.reflow_from(0);
+            if logical_resized {
+                self.reflow_from(0);
+            }
             self.dirty_scene = true;
+            self.needs_present = true;
         }
-        let max_scroll = (self.content_height - self.config.height as f64 + 48.0).max(0.0);
+        let max_scroll = (self.content_height - self.logical_height as f64 + 48.0).max(0.0);
         if self.auto_scroll {
             self.scroll_target = max_scroll;
         } else {
@@ -783,7 +794,7 @@ impl App {
         if (self.scroll - self.scene_scroll_anchor).abs() > 112.0 {
             self.dirty_scene = true;
         }
-        let math_max = (self.math_content_width - self.config.width as f32 + 48.0).max(0.0);
+        let math_max = (self.math_content_width - self.logical_width as f32 + 48.0).max(0.0);
         self.math_scroll_target = self.math_scroll_target.clamp(0.0, math_max);
         let previous_math_scroll = self.math_scroll;
         self.math_scroll +=
@@ -807,12 +818,12 @@ impl App {
 
     fn scrollbar_geometry(&self) -> (f32, f32, f32, f64) {
         let track_top = 76.0;
-        let track_height = (self.config.height as f32 - 88.0).max(20.0);
-        let max_scroll = (self.content_height - self.config.height as f64 + 48.0).max(0.0);
+        let track_height = (self.logical_height as f32 - 88.0).max(20.0);
+        let max_scroll = (self.content_height - self.logical_height as f64 + 48.0).max(0.0);
         let thumb_height = if max_scroll <= 0.0 {
             track_height
         } else {
-            (track_height as f64 * self.config.height as f64 / self.content_height)
+            (track_height as f64 * self.logical_height as f64 / self.content_height)
                 .clamp(28.0, track_height as f64) as f32
         };
         (track_top, track_height, thumb_height, max_scroll)
@@ -927,7 +938,7 @@ impl App {
         let position = self.search_matches[self.search_active].0;
         let block = position.block as usize;
         if let Some(layout) = self.layouts.get(block) {
-            let max_scroll = (self.content_height - self.config.height as f64 + 48.0).max(0.0);
+            let max_scroll = (self.content_height - self.logical_height as f64 + 48.0).max(0.0);
             let mut target_y = layout.y;
             if let Some(Block::CodeBlock { text, .. }) = self.parser.blocks().get(block) {
                 let mut offset = 0_u32;
@@ -1015,7 +1026,7 @@ impl App {
 
     fn pointer_in_document(&self, event: &MouseEvent) -> bool {
         let (x, y) = self.pointer_canvas_position(event);
-        y >= 68.0 && y <= self.config.height as f32 && x >= 0.0 && x < self.content_width()
+        y >= 68.0 && y <= self.logical_height as f32 && x >= 0.0 && x < self.content_width()
     }
 
     /// Hit-tests like a browser text caret: choose a visual line from the
@@ -1186,8 +1197,8 @@ impl App {
         let viewport_y = event.client_y() as f32 - rect.top() as f32;
         if viewport_y < 92.0 {
             self.scroll_target = (self.scroll_target - 24.0).max(0.0);
-        } else if viewport_y > self.config.height as f32 - 54.0 {
-            let max_scroll = (self.content_height - self.config.height as f64 + 48.0).max(0.0);
+        } else if viewport_y > self.logical_height as f32 - 54.0 {
+            let max_scroll = (self.content_height - self.logical_height as f64 + 48.0).max(0.0);
             self.scroll_target = (self.scroll_target + 24.0).min(max_scroll);
         }
         if let Some((pos, index)) = self.nearest_text_hit(x, y) {
@@ -1279,7 +1290,8 @@ impl App {
                 Op::SpliceCode { block, .. }
                 | Op::SealCode { block }
                 | Op::AppendText { block, .. }
-                | Op::AppendInlineText { block, .. } => *block as usize,
+                | Op::AppendInlineText { block, .. }
+                | Op::SpliceInlineTail { block, .. } => *block as usize,
                 Op::Push(_) => self.layouts.len(),
             })
             .min()
@@ -1288,7 +1300,7 @@ impl App {
     }
 
     fn content_width(&self) -> f32 {
-        self.config.width as f32
+        self.logical_width as f32
     }
 
     fn reflow_from(&mut self, from: usize) {
@@ -1324,9 +1336,9 @@ impl App {
         let mut scene = Scene::reuse(content_width, instances, text_cells);
         scene.glyph_coverage_quantum = self.backend.policy().glyph_coverage_quantum;
         scene.clip_top = -160.0;
-        scene.clip_bottom = self.config.height as f32 + 160.0;
+        scene.clip_bottom = self.logical_height as f32 + 160.0;
         let visible_top = (self.scroll - 160.0).max(0.0);
-        let visible_bottom = self.scroll + self.config.height as f64 + 160.0;
+        let visible_bottom = self.scroll + self.logical_height as f64 + 160.0;
         let first = self
             .layouts
             .partition_point(|layout| layout.y + layout.height < visible_top);
@@ -1360,12 +1372,12 @@ impl App {
         scene.rect(
             0.0,
             0.0,
-            self.config.width as f32,
+            self.logical_width as f32,
             68.0,
             [0.055, 0.075, 0.105, 0.98],
             1.0,
         );
-        let renderer_title = if self.config.width < 480 {
+        let renderer_title = if self.logical_width < 480 {
             "STREAMDOWN".to_owned()
         } else {
             format!("STREAMDOWN / {}", self.backend_name)
@@ -1386,9 +1398,9 @@ impl App {
                 "FREE"
             },
         );
-        if self.config.width >= 720 {
+        if self.logical_width >= 720 {
             let status_width: f32 = status.chars().map(|c| font::advance(c, 1.0)).sum();
-            let sx = self.config.width as f32 - status_width - 24.0;
+            let sx = self.logical_width as f32 - status_width - 24.0;
             scene.text(&status, sx, 25.0, 1.0, MUTED, 1.0);
         }
         let (track_top, track_height, thumb_height, max_scroll) = self.scrollbar_geometry();
@@ -1438,8 +1450,8 @@ impl App {
             &self.view_buffer,
             0,
             bytemuck::bytes_of(&View {
-                width: self.config.width as f32,
-                height: self.config.height as f32,
+                width: self.logical_width as f32,
+                height: self.logical_height as f32,
                 scroll: (self.scroll - self.scene_scroll_anchor) as f32,
                 math_scroll: self.math_scroll,
             }),
@@ -2629,15 +2641,33 @@ fn replace_canvas(canvas: &HtmlCanvasElement) -> Result<HtmlCanvasElement, JsVal
         .map_err(Into::into)
 }
 
-fn resize_canvas(canvas: &HtmlCanvasElement) -> bool {
-    // Keep scene units equal to CSS pixels. This also caps fill rate on HiDPI screens.
-    let width = canvas.client_width().max(1) as u32;
-    let height = canvas.client_height().max(1) as u32;
-    if canvas.width() == width && canvas.height() == height {
-        false
-    } else {
-        canvas.set_width(width);
-        canvas.set_height(height);
-        true
+fn resize_gpu_canvas(canvas: &HtmlCanvasElement, max_dimension: u32) -> compat::GpuCanvasMetrics {
+    let dpr = web_sys::window().map_or(1.0, |window| window.device_pixel_ratio());
+    let metrics = gpu_canvas_metrics(
+        canvas.client_width().max(1) as u32,
+        canvas.client_height().max(1) as u32,
+        dpr,
+        max_dimension,
+    );
+    if canvas.width() != metrics.backing_width {
+        canvas.set_width(metrics.backing_width);
     }
+    if canvas.height() != metrics.backing_height {
+        canvas.set_height(metrics.backing_height);
+    }
+    let _ = canvas.set_attribute("data-gpu-logical-width", &metrics.logical_width.to_string());
+    let _ = canvas.set_attribute(
+        "data-gpu-logical-height",
+        &metrics.logical_height.to_string(),
+    );
+    let _ = canvas.set_attribute("data-gpu-backing-width", &metrics.backing_width.to_string());
+    let _ = canvas.set_attribute(
+        "data-gpu-backing-height",
+        &metrics.backing_height.to_string(),
+    );
+    let _ = canvas.set_attribute(
+        "data-gpu-backing-scale",
+        &format!("{:.3}", metrics.backing_scale),
+    );
+    metrics
 }

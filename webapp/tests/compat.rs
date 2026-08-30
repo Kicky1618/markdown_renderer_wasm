@@ -3,7 +3,8 @@ mod compat;
 
 use compat::{
     RendererBackend, RendererPreference, SurfaceAction, SurfaceEvent, SurfaceFailureTracker,
-    quantize_coverage, replace_renderer_search, runtime_recovery_search, runtime_recovery_trace,
+    gpu_canvas_metrics, quantize_coverage, replace_renderer_search, runtime_recovery_search,
+    runtime_recovery_trace,
 };
 
 #[test]
@@ -68,6 +69,43 @@ fn coverage_quantization_preserves_extremes() {
     assert_eq!(quantize_coverage(1, 1), 1);
     assert_eq!(quantize_coverage(64, 32), 64);
     assert_eq!(quantize_coverage(250, 32), 255);
+}
+
+#[test]
+fn gpu_hidpi_separates_logical_and_backing_dimensions() {
+    let retina = gpu_canvas_metrics(800, 600, 2.0, 8192);
+    assert_eq!((retina.logical_width, retina.logical_height), (800, 600));
+    assert_eq!((retina.backing_width, retina.backing_height), (1600, 1200));
+    assert!((retina.backing_scale - 2.0).abs() < 1e-9);
+
+    let capped_dpr = gpu_canvas_metrics(800, 600, 3.5, 8192);
+    assert_eq!(
+        (capped_dpr.backing_width, capped_dpr.backing_height),
+        (1600, 1200)
+    );
+
+    let dimension_limited = gpu_canvas_metrics(800, 600, 2.0, 1024);
+    assert_eq!(dimension_limited.backing_width, 1024);
+    assert_eq!(dimension_limited.backing_height, 768);
+
+    let area_limited = gpu_canvas_metrics(5000, 5000, 2.0, 8192);
+    assert_eq!(
+        (area_limited.backing_width, area_limited.backing_height),
+        (4096, 4096)
+    );
+    assert!(area_limited.backing_scale < 1.0);
+
+    let uneven_area_limited = gpu_canvas_metrics(5001, 4999, 2.0, 8192);
+    assert!(
+        uneven_area_limited.backing_width as u64 * uneven_area_limited.backing_height as u64
+            <= compat::GPU_MAX_BACKING_PIXELS
+    );
+
+    let invalid_dpr = gpu_canvas_metrics(640, 480, f64::NAN, 8192);
+    assert_eq!(
+        (invalid_dpr.backing_width, invalid_dpr.backing_height),
+        (640, 480)
+    );
 }
 
 #[test]
