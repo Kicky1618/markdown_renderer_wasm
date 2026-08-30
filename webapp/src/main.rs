@@ -2129,20 +2129,18 @@ impl Scene {
         let y = y.round();
         self.snap_text = false;
         self.math_mode = horizontally_scrollable;
+        let flags = u32::from(self.math_mode) << 1;
         for run in &image.runs {
-            self.rect(
-                x + run.x as f32,
-                y + run.y as f32,
-                run.width as f32,
-                1.0,
-                [
-                    run.rgba[0] as f32 / 255.0,
-                    run.rgba[1] as f32 / 255.0,
-                    run.rgba[2] as f32 / 255.0,
-                    run.rgba[3] as f32 / 255.0,
+            self.instances.push(RectInstance {
+                geometry: [
+                    x + run.x as f32,
+                    y + run.y as f32,
+                    run.width as f32,
+                    1.0,
                 ],
-                0.0,
-            );
+                color: run.packed_color(self.opacity),
+                flags,
+            });
         }
         self.math_mode = false;
         self.snap_text = false;

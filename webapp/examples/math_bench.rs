@@ -19,15 +19,6 @@ struct RectLike {
     flags: u32,
 }
 
-#[inline]
-fn pack_color(color: [f32; 4]) -> u32 {
-    color
-        .into_iter()
-        .enumerate()
-        .fold(0, |packed, (shift, channel)| {
-            packed | ((channel.clamp(0.0, 1.0) * 255.0).round() as u32) << (shift * 8)
-        })
-}
 
 fn main() {
     const PARSE_N: usize = 2_000;
@@ -114,15 +105,9 @@ fn main() {
         for _ in 0..run_expand_n {
             instances.clear();
             for run in &final_image.runs {
-                let color = [
-                    run.rgba[0] as f32 / 255.0,
-                    run.rgba[1] as f32 / 255.0,
-                    run.rgba[2] as f32 / 255.0,
-                    run.rgba[3] as f32 / 255.0,
-                ];
                 instances.push(RectLike {
                     geometry: [run.x as f32, run.y as f32, run.width as f32, 1.0],
-                    color: pack_color(color),
+                    color: run.packed_color(1.0),
                     flags: 2,
                 });
             }

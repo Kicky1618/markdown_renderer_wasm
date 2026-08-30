@@ -29,6 +29,23 @@ pub struct MathRun {
     pub rgba: [u8; 4],
 }
 
+impl MathRun {
+    /// Pack the already-quantized run color exactly as the GPU instance format
+    /// expects. Only alpha depends on scene opacity, so avoid converting RGB
+    /// bytes to floats and immediately packing them back every frame.
+    #[inline]
+    pub fn packed_color(&self, opacity: f32) -> u32 {
+        if opacity == 1.0 {
+            return u32::from_le_bytes(self.rgba);
+        }
+        let alpha = ((self.rgba[3] as f32 / 255.0 * opacity)
+            .clamp(0.0, 1.0)
+            * 255.0)
+            .round() as u8;
+        u32::from_le_bytes([self.rgba[0], self.rgba[1], self.rgba[2], alpha])
+    }
+}
+
 thread_local! {
     static CACHE: RefCell<HashMap<(String, bool, u16), Rc<MathImage>>> = RefCell::new(HashMap::new());
 }
@@ -348,6 +365,39 @@ mod tests {
             width,
             height,
             pixels,
+        }
+    }
+
+    #[test]
+    fn packed_run_color_matches_float_pack_semantics() {
+        fn reference(rgba: [u8; 4], opacity: f32) -> u32 {
+            let color = [
+                rgba[0] as f32 / 255.0,
+                rgba[1] as f32 / 255.0,
+                rgba[2] as f32 / 255.0,
+                rgba[3] as f32 / 255.0 * opacity,
+            ];
+            color
+                .into_iter()
+                .enumerate()
+                .fold(0, |packed, (shift, channel)| {
+                    packed
+                        | ((channel.clamp(0.0, 1.0) * 255.0).round() as u32)
+                            << (shift * 8)
+                })
+        }
+
+        for byte in 0..=255u8 {
+            let run = MathRun {
+                x: 0,
+                y: 0,
+                width: 1,
+                rgba: [byte, 255 - byte, byte / 2, byte],
+            };
+            for step in 0..=100 {
+                let opacity = step as f32 / 100.0;
+                assert_eq!(run.packed_color(opacity), reference(run.rgba, opacity));
+            }
         }
     }
 
