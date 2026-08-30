@@ -1,0 +1,8 @@
+{
+  "name": "streamdown-wasm",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/wasm.mjs"
+  }
+}

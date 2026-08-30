@@ -1,0 +1,24 @@
+[package]
+name = "streamdown"
+version = "0.1.0"
+edition = "2024"
+description = "Append-optimized Markdown parser with compact AST deltas for LLM streams"
+license = "MIT OR Apache-2.0"
+autobenches = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.bench]
+inherits = "release"
+
+[[bin]]
+name = "stream-bench"
+path = "benches/stream.rs"
