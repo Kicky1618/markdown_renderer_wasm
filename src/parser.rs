@@ -756,9 +756,8 @@ impl Parser {
         let (underscore_mod, underscore_fast) = emphasis_run_state(&block, &source, b'_');
         self.trailing_underscore_mod4 = underscore_mod;
         self.trailing_underscore_fast = underscore_fast;
-        self.live_has_open_bracket = source.as_bytes().contains(&b'[');
-        self.live_has_link_destination_start =
-            source.as_bytes().windows(2).any(|window| window == b"](");
+        self.live_has_open_bracket = closing_bracket_sensitive(&source);
+        self.live_has_link_destination_start = closing_paren_sensitive(&source);
         self.push(block, delta);
         self.has_live = true;
     }
@@ -1057,6 +1056,25 @@ fn delimiter_run_state(block: &Block, source: &str, delimiter: u8, modulus: usiz
     }
 
     ((trailing % modulus) as u8, fast)
+}
+
+fn closing_bracket_sensitive(source: &str) -> bool {
+    if let Some(open) = source.rfind("@[")
+        && source.rfind(']').is_none_or(|close| open > close)
+    {
+        return true;
+    }
+    if let Some(open) = source.rfind("[[cite:") {
+        return !source[open + "[[cite:".len()..].contains("]]");
+    }
+    false
+}
+
+fn closing_paren_sensitive(source: &str) -> bool {
+    let Some(open) = source.rfind("](") else {
+        return false;
+    };
+    !source[open + 2..].contains(')')
 }
 
 fn inline_tail_append_is_safe(line: &str, input: &str) -> bool {
@@ -1853,6 +1871,11 @@ $$
             possible_close.ops.first(),
             Some(Op::Truncate { from: 0 })
         ));
+        let stale_bracket = parser.append("]");
+        assert!(matches!(
+            stale_bracket.ops.as_slice(),
+            [Op::AppendInlineText { append, .. }] if append == "]"
+        ));
 
         let mut parens = Parser::new();
         parens.append(")");
@@ -1874,6 +1897,11 @@ $$
                 node,
                 Inline::Link { destination, .. } if destination == "url"
             ))
+        ));
+        let stale_paren = parens.append(")");
+        assert!(matches!(
+            stale_paren.ops.as_slice(),
+            [Op::AppendInlineText { append, .. }] if append == ")"
         ));
     }
 
