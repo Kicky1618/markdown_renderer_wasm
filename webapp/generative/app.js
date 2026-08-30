@@ -168,6 +168,10 @@ const policyStatus = document.querySelector("#policy-status");
 const policyIssues = document.querySelector("#policy-issues");
 const undoModelButton = document.querySelector("#undo-model");
 const redoModelButton = document.querySelector("#redo-model");
+const reviewMode = document.querySelector("#review-mode");
+const semanticReview = document.querySelector("#semantic-review");
+const applyReviewButton = document.querySelector("#apply-review");
+const rejectReviewButton = document.querySelector("#reject-review");
 const modelCommit = document.querySelector("#model-commit");
 const commitTitle = document.querySelector("#commit-title");
 const commitSource = document.querySelector("#commit-source");
@@ -192,6 +196,8 @@ const appliedStatePatches = new Map();
 let componentPatches = new Map();
 let componentPatchesSignature = "[]";
 let semanticCommitDepth = 0;
+let semanticReviewPending = false;
+let pendingModelReview = null;
 const modelHistoryPast = [];
 const modelHistoryFuture = [];
 const MODEL_HISTORY_LIMIT = 8;
@@ -231,7 +237,7 @@ function runtimeHistorySnapshot() {
 }
 
 function updateHistoryControls() {
-  const busy = Boolean(remoteController);
+  const busy = Boolean(remoteController) || semanticReviewPending;
   undoModelButton.disabled = busy || modelHistoryPast.length === 0;
   redoModelButton.disabled = busy || modelHistoryFuture.length === 0;
   undoModelButton.title = modelHistoryPast.length ? `Undo model response (${modelHistoryPast.length})` : "No model response to undo";
@@ -259,6 +265,15 @@ function renderCommitSummary(summary, status = "applied") {
   details.push(`${summary.semanticBlocks} semantic block${summary.semanticBlocks === 1 ? "" : "s"}`);
   if (summary.chunks) details.push(`${summary.chunks} stream chunks`);
   commitDetails.textContent = details.join(" · ");
+}
+
+function updateReviewControls() {
+  const pending = Boolean(pendingModelReview) && semanticReviewPending;
+  semanticReview.hidden = !pending;
+  applyReviewButton.disabled = !pending;
+  rejectReviewButton.disabled = !pending;
+  reviewMode.disabled = Boolean(remoteController) || pending;
+  updateHistoryControls();
 }
 
 function clearModelHistory() {
@@ -675,6 +690,7 @@ function currentUiContext() {
 }
 
 async function runLlmInteraction(instruction) {
+  if (semanticReviewPending) throw new Error("apply or reject the pending model review first");
   if (remoteController) throw new Error("another remote stream is already active");
   if (requestProtocol.value === "get") throw new Error("action=llm requires a POST proxy protocol");
 
@@ -736,18 +752,26 @@ async function runLlmInteraction(instruction) {
       },
     });
     renderOperations(parser.finish());
-    endSemanticCommitBarrier();
     source.value += prefix + received;
-    recordModelHistory(historyBefore, { responseText: received, format: result.format, chunks: result.chunks, firstUiMs: firstUiAt });
-    setRuntimeState("LIVE");
-    deltaStatus.textContent = `LLM ${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
+    const meta = { responseText: received, format: result.format, chunks: result.chunks, firstUiMs: firstUiAt };
+    if (reviewMode.checked) {
+      pendingModelReview = { before: historyBefore, meta };
+      endSemanticCommitBarrier({ review: true });
+      setRuntimeState("REVIEW");
+      deltaStatus.textContent = `LLM ${result.format.toUpperCase()} staged · review state/patch effects`;
+    } else {
+      endSemanticCommitBarrier();
+      recordModelHistory(historyBefore, meta);
+      setRuntimeState("LIVE");
+      deltaStatus.textContent = `LLM ${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
+    }
     return result;
   } catch (error) {
-    endSemanticCommitBarrier();
+    cancelSemanticCommitBarrier("discarded");
+    if (historyBefore) restoreRuntimeHistorySnapshot(historyBefore, "Discarded incomplete model response");
     if (controller.signal.aborted || error?.name === "AbortError") {
-      if (received) source.value += prefix + received;
       setRuntimeState("PAUSED");
-      deltaStatus.textContent = "LLM continuation stopped";
+      deltaStatus.textContent = "LLM continuation stopped; incomplete response discarded";
       return null;
     }
     setRuntimeState("ERROR");
@@ -756,7 +780,7 @@ async function runLlmInteraction(instruction) {
   } finally {
     if (remoteController === controller) remoteController = null;
     connectStreamButton.textContent = "Connect";
-    updateHistoryControls();
+    updateReviewControls();
   }
 }
 
@@ -1391,7 +1415,7 @@ function applyStatePatches({ sync = true } = {}) {
 }
 
 function applySemanticSideEffects({ force = false } = {}) {
-  if (semanticCommitDepth > 0 && !force) return false;
+  if ((semanticCommitDepth > 0 || semanticReviewPending) && !force) return false;
   const stateChanged = applyStatePatches({ sync: false });
   const componentsChanged = refreshComponentPatches({ sync: false });
   if (stateChanged || componentsChanged) {
@@ -1402,18 +1426,66 @@ function applySemanticSideEffects({ force = false } = {}) {
 }
 
 function beginSemanticCommitBarrier() {
+  if (semanticReviewPending) throw new Error("resolve the pending model review first");
   semanticCommitDepth += 1;
   document.documentElement.dataset.semanticCommit = "staging";
 }
 
-function endSemanticCommitBarrier() {
+function endSemanticCommitBarrier({ review = false } = {}) {
   if (semanticCommitDepth <= 0) return false;
   semanticCommitDepth -= 1;
   if (semanticCommitDepth > 0) return false;
+  if (review) {
+    semanticReviewPending = true;
+    document.documentElement.dataset.semanticCommit = "review";
+    updateReviewControls();
+    return false;
+  }
   const changed = applySemanticSideEffects({ force: true });
   document.documentElement.dataset.semanticCommit = changed ? "committed" : "clean";
+  updateReviewControls();
   return changed;
 }
+
+function cancelSemanticCommitBarrier(status = "discarded") {
+  semanticCommitDepth = 0;
+  semanticReviewPending = false;
+  document.documentElement.dataset.semanticCommit = status;
+  updateReviewControls();
+}
+
+function applyPendingModelReview() {
+  if (!pendingModelReview || !semanticReviewPending || remoteController) return false;
+  const pending = pendingModelReview;
+  pendingModelReview = null;
+  semanticReviewPending = false;
+  const changed = applySemanticSideEffects({ force: true });
+  document.documentElement.dataset.semanticCommit = changed ? "committed" : "clean";
+  recordModelHistory(pending.before, pending.meta);
+  setRuntimeState("LIVE");
+  deltaStatus.textContent = changed ? "Applied staged model effects" : "Accepted model response (no semantic effects)";
+  updatePolicyAudit();
+  updateReviewControls();
+  return true;
+}
+
+function rejectPendingModelReview() {
+  if (!pendingModelReview || !semanticReviewPending || remoteController) return false;
+  const before = pendingModelReview.before;
+  pendingModelReview = null;
+  semanticReviewPending = false;
+  semanticCommitDepth = 0;
+  if (before) restoreRuntimeHistorySnapshot(before, "Rejected model response");
+  document.documentElement.dataset.semanticCommit = "rejected";
+  setRuntimeState("LIVE");
+  updatePolicyAudit();
+  updateReviewControls();
+  return true;
+}
+
+applyReviewButton.addEventListener("click", applyPendingModelReview);
+rejectReviewButton.addEventListener("click", rejectPendingModelReview);
+updateReviewControls();
 
 function updatePolicyAudit() {
   const configs = (parser?.document || []).flatMap(block => {
@@ -1487,7 +1559,10 @@ function resetRuntime() {
   componentPatches = new Map();
   componentPatchesSignature = "[]";
   semanticCommitDepth = 0;
+  semanticReviewPending = false;
+  pendingModelReview = null;
   delete document.documentElement.dataset.semanticCommit;
+  updateReviewControls();
   beginInputSession(0);
   const start = performance.now();
   const ops = parser.reset();
@@ -1771,6 +1846,74 @@ async function runInteractionSmoke() {
   root.dataset.interactionSmoke = "fail";
 }
 
+async function runReviewSmoke() {
+  if (new URLSearchParams(location.search).get("review_smoke") !== "1") return;
+  const root = document.documentElement;
+  root.dataset.reviewSmoke = "waiting";
+  streamUrl.value = new URL("/v1/chat/completions", location.origin).href;
+  requestProtocol.value = "chat";
+  streamFormat.value = "sse";
+  streamModel.value = "fixture-model";
+  reviewMode.checked = true;
+  requestProtocol.dispatchEvent(new Event("change", { bubbles: true }));
+
+  const waitForReview = async () => {
+    for (let attempt = 0; attempt < 300; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      if (streamState.textContent === "ERROR") return false;
+      if (!remoteController && streamState.textContent === "REVIEW") return true;
+    }
+    return false;
+  };
+  const stagedIsClean = () => {
+    const slider = preview.querySelector('input[data-state-input="temperature"]');
+    const throughput = preview.querySelector('[data-ui-id="throughput"]');
+    const result = preview.querySelector('[data-ui-id="interaction-result"]');
+    return root.dataset.semanticCommit === "review"
+      && semanticReview.hidden === false
+      && slider?.value === "42"
+      && throughput?.querySelector("h3")?.textContent?.trim() === "Current throughput"
+      && throughput?.querySelector(".metric-value")?.textContent?.trim() === "2.4M"
+      && result?.querySelector(".metric-value")?.textContent?.trim() === "42"
+      && undoModelButton.disabled;
+  };
+
+  let button = preview.querySelector('[data-ui-id="ask-model"] button');
+  if (!button) { root.dataset.reviewSmoke = "fail"; return; }
+  button.click();
+  if (!await waitForReview() || !stagedIsClean()) { root.dataset.reviewSmoke = "fail"; return; }
+
+  applyReviewButton.click();
+  const appliedSlider = preview.querySelector('input[data-state-input="temperature"]');
+  const appliedThroughput = preview.querySelector('[data-ui-id="throughput"]');
+  const appliedResult = preview.querySelector('[data-ui-id="interaction-result"]');
+  const applied = root.dataset.semanticCommit === "committed"
+    && semanticReview.hidden === true
+    && appliedSlider?.value === "58"
+    && appliedThroughput?.querySelector("h3")?.textContent?.trim() === "Model-updated throughput"
+    && appliedThroughput?.querySelector(".metric-value")?.textContent?.trim() === "3.1M"
+    && appliedResult?.querySelector(".metric-value")?.textContent?.trim() === "58"
+    && !undoModelButton.disabled;
+  if (!applied || !undoModelResponse()) { root.dataset.reviewSmoke = "fail"; return; }
+
+  button = preview.querySelector('[data-ui-id="ask-model"] button');
+  if (!button) { root.dataset.reviewSmoke = "fail"; return; }
+  button.click();
+  if (!await waitForReview() || !stagedIsClean()) { root.dataset.reviewSmoke = "fail"; return; }
+
+  rejectReviewButton.click();
+  const rejectedSlider = preview.querySelector('input[data-state-input="temperature"]');
+  const rejectedThroughput = preview.querySelector('[data-ui-id="throughput"]');
+  const rejected = root.dataset.semanticCommit === "rejected"
+    && semanticReview.hidden === true
+    && rejectedSlider?.value === "42"
+    && rejectedThroughput?.querySelector("h3")?.textContent?.trim() === "Current throughput"
+    && rejectedThroughput?.querySelector(".metric-value")?.textContent?.trim() === "2.4M"
+    && !preview.querySelector('[data-ui-id="interaction-result"]')
+    && !source.value.includes("## Model continuation");
+  root.dataset.reviewSmoke = rejected ? "pass" : "fail";
+}
+
 async function runLlmPostSmoke() {
   if (new URLSearchParams(location.search).get("llm_smoke") !== "1") return;
   const root = document.documentElement;
@@ -1851,6 +1994,7 @@ try {
   runRemoteSmoke();
   runLlmPostSmoke();
   runInteractionSmoke();
+  runReviewSmoke();
 } catch (error) {
   setRuntimeState("ERROR");
   preview.textContent = `Could not start Streamdown WASM: ${error}`;

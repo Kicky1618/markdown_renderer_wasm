@@ -158,3 +158,9 @@ Runtime は生成Markdownを `innerHTML` / `outerHTML` / `insertAdjacentHTML` / 
 閉じたsemantic fenceは実行前と同じpolicy関数で監査されます。画面左の `Runtime policy` にはブロック件数と理由が表示されます。未知のaction verb、敏感stateキー、無効stateキー、`type=patch` の権限外フィールドなどは表示上もblockedになり、button/form実行側も同じ `parseSafeAction` 判定を使うため監査と実行が食い違いません。
 
 監査は未完のstreaming fenceには警告を出さず、fenceが閉じた時点で確定します。E2E fixtureでは意図的に `api_token` state更新を混ぜ、Runtime Policyが1件blockしつつ他のstate/patch/Undo/Redoが継続することを実Chromeで検証しています。
+
+## Human review mode
+
+Preview右上の `Review effects` を有効にすると、`action=llm:` の応答は通常Markdown/新規UIをストリーミング表示しつつ、`type=state` と `type=patch` の副作用だけを保留します。応答終了後は `SIDE EFFECTS STAGED` が表示され、`Apply staged effects` で一括commit、`Reject response` で応答前snapshotへ戻せます。
+
+保留中は次のLLM round tripとUndo/Redoをロックします。Applyした応答だけがmodel historyへcommitされ、Rejectはhistoryを増やしません。通信が途中で失敗・中断した場合もsemantic barrierをcommitせず、不完全なモデル応答を応答前snapshotへ戻します。実Chrome smokeでは `42°C / original component` のstaging状態からApplyで `58°C / patched component`、その後もう一度stageしてRejectで `42°C / original component` に戻る一連を検証しています。

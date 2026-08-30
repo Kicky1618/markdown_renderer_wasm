@@ -86,6 +86,18 @@ button.primary:hover { background: #84ebdc; }
 }
 .pane-head h2 { font-size: 16px; }
 .actions { display: flex; gap: 8px; }
+
+.review-toggle { display: inline-flex; align-items: center; gap: 6px; color: #93a7bc; font-size: 10px; white-space: nowrap; }
+.review-toggle input { accent-color: #73e09e; }
+.semantic-review {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin: 0; padding: 11px 18px; border-bottom: 1px solid #6c5731; background: #2a2113;
+}
+.semantic-review[hidden] { display: none; }
+.semantic-review strong { color: #f0d8aa; font-size: 12px; }
+.semantic-review-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.semantic-review-actions button { min-height: 34px; padding: 0 11px; }
+
 .history-controls { display: flex; align-items: center; gap: 7px; }
 .history-controls button {
   min-height: 34px; padding: 0 10px; border-radius: 999px;
@@ -395,7 +407,19 @@ footer {
   .generated-tabs-header { align-items: stretch; flex-direction: column; }
   .generated-tab-panel, .generated-form-fields { grid-template-columns: 1fr; }
   .preview-head { align-items: flex-start; }
-  .history-controls { flex-wrap: wrap; justify-content: flex-end; }
+  
+.review-toggle { display: inline-flex; align-items: center; gap: 6px; color: #93a7bc; font-size: 10px; white-space: nowrap; }
+.review-toggle input { accent-color: #73e09e; }
+.semantic-review {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin: 0; padding: 11px 18px; border-bottom: 1px solid #6c5731; background: #2a2113;
+}
+.semantic-review[hidden] { display: none; }
+.semantic-review strong { color: #f0d8aa; font-size: 12px; }
+.semantic-review-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.semantic-review-actions button { min-height: 34px; padding: 0 11px; }
+
+.history-controls { flex-wrap: wrap; justify-content: flex-end; }
   .model-commit { grid-template-columns: 1fr; }
   .commit-metrics { justify-content: flex-start; }
   .commit-details { grid-column: 1; }

@@ -109,11 +109,22 @@ edge llm ui stream
           <h2>Generated interface</h2>
         </div>
         <div class="history-controls" aria-label="Model response history">
+          <label class="review-toggle" title="Stage model state/component changes until you approve them"><input id="review-mode" type="checkbox"> Review effects</label>
           <button id="undo-model" type="button" disabled title="Undo last model response">↶ Undo model</button>
           <button id="redo-model" type="button" disabled title="Redo model response">↷ Redo</button>
           <span id="stream-state" class="pill">READY</span>
         </div>
       </div>
+      <aside id="semantic-review" class="semantic-review" hidden aria-live="polite">
+        <div>
+          <p class="eyebrow">SIDE EFFECTS STAGED</p>
+          <strong>Review model changes before applying state or component patches.</strong>
+        </div>
+        <div class="semantic-review-actions">
+          <button id="reject-review" type="button">Reject response</button>
+          <button id="apply-review" class="primary" type="button">Apply staged effects</button>
+        </div>
+      </aside>
       <aside id="model-commit" class="model-commit" hidden aria-live="polite">
         <div>
           <p class="eyebrow">LAST MODEL COMMIT</p>

@@ -247,6 +247,8 @@ assert.match(securityHtml, /frame-src 'none'/);
 assert.match(securityHtml, /form-action 'none'/);
 assert.match(securityHtml, /require-trusted-types-for 'script'/);
 assert.match(securityHtml, /trusted-types 'none'/);
+assert.match(securityHtml, /id="review-mode"/);
+assert.match(securityHtml, /id="semantic-review"/);
 assert.doesNotMatch(securityApp, /\b(?:innerHTML|outerHTML|insertAdjacentHTML|document\.write)\b/);
 assert.doesNotMatch(securityApp, /\bnew\s+Function\b|javascript:/i);
 assert.equal([...securityApp.matchAll(/\beval\s*\(/g)].length, 1);
