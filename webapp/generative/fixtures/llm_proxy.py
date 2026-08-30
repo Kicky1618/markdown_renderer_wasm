@@ -61,7 +61,14 @@ class Handler(BaseHTTPRequestHandler):
             and "Never emit JavaScript" in system
         )
         interaction = "Current local UI state" in user
-        if interaction:
+        budget_smoke = user == "Build the BUDGET smoke dashboard"
+        if budget_smoke:
+            valid = common
+            chunks = [
+                f":::llm ui type=metric id=budget-{index}\nlabel=Budget {index}\nvalue={index}\n:::\n\n"
+                for index in range(257)
+            ]
+        elif interaction:
             valid = (
                 common
                 and "Use the current state to append one compact recommendation card" in user

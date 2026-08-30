@@ -166,3 +166,7 @@ Preview右上の `Review effects` を有効にすると、`action=llm:` の応�
 Review panelはApply前に、機密風state名を除外した `state` 変更キー、`type=patch` のtarget、追加UI数、semantic block数を要約します。例: `2 state / 1 patch / 1 new UI · state: temperature, mode · patched: throughput`。要約はモデル応答中のsemantic fenceだけから作り、DOMやcredential値は読みません。
 
 保留中は次のLLM round tripとUndo/Redoをロックします。Applyした応答だけがmodel historyへcommitされ、Rejectはhistoryを増やしません。通信が途中で失敗・中断した場合もsemantic barrierをcommitせず、不完全なモデル応答を応答前snapshotへ戻します。実Chrome smokeでは `42°C / original component` のstaging状態からApplyで `58°C / patched component`、その後もう一度stageしてRejectで `42°C / original component` に戻る一連を検証しています。
+
+## Response budgets
+
+Network/model responses are checked before each decoded text chunk enters the WASM parser or DOM. A single response is capped at 2 MiB of decoded Markdown, 8,192 emitted chunks, and 256 `:::llm ui` blocks. Semantic fence counting is incremental and detects fences split across transport chunks. If a limit is exceeded, the offending chunk is never appended; `action=llm:` and remote replacement flows discard staged semantic side effects and restore the pre-response application snapshot, with the runtime state set to `LIMIT`.

@@ -11,6 +11,7 @@ import { statePatch, statePatchSignature } from "./state_patch.js";
 import { componentPatch, componentPatchSignature, mergeComponentPatches } from "./component_patch.js";
 import { parseSafeAction, summarizePolicy } from "./policy.js";
 import { summarizeModelCommit, summarizeStagedEffects } from "./commit_summary.js";
+import { ResponseBudget } from "./response_budget.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
 
@@ -762,6 +763,7 @@ async function runLlmInteraction(instruction) {
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`stream request failed: HTTP ${response.status}`);
+    const budget = new ResponseBudget();
     beginSemanticCommitBarrier();
     prefix = parser.blockCount ? "\n\n" : "";
     if (prefix) appendChunk(prefix);
@@ -770,6 +772,7 @@ async function runLlmInteraction(instruction) {
       format: requested,
       signal: controller.signal,
       onText(text) {
+        budget.push(text);
         received += text;
         appendChunk(text);
         preview.scrollTop = preview.scrollHeight;
@@ -796,6 +799,11 @@ async function runLlmInteraction(instruction) {
     if (controller.signal.aborted || error?.name === "AbortError") {
       setRuntimeState("PAUSED");
       deltaStatus.textContent = "LLM continuation stopped; incomplete response discarded";
+      return null;
+    }
+    if (error?.name === "ResponseBudgetError") {
+      setRuntimeState("LIMIT");
+      deltaStatus.textContent = `Response blocked: ${error.message || error}`;
       return null;
     }
     setRuntimeState("ERROR");
@@ -1728,12 +1736,14 @@ remoteForm.addEventListener("submit", async event => {
       headers: { ...request.headers, Accept: accept },
       signal: controller.signal,
     });
+    const budget = new ResponseBudget();
     beginSemanticCommitBarrier();
     setRuntimeState("REMOTE STREAM");
     const result = await consumeHttpResponse(response, {
       format: requested,
       signal: controller.signal,
       onText(text) {
+        budget.push(text);
         received += text;
         appendChunk(text);
         preview.scrollTop = preview.scrollHeight;
@@ -1746,10 +1756,14 @@ remoteForm.addEventListener("submit", async event => {
     setRuntimeState("LIVE");
     deltaStatus.textContent = `${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
   } catch (error) {
-    endSemanticCommitBarrier();
+    cancelSemanticCommitBarrier("discarded");
     if (controller.signal.aborted || error?.name === "AbortError") {
       setRuntimeState("PAUSED");
       deltaStatus.textContent = "Remote stream stopped";
+    } else if (error?.name === "ResponseBudgetError") {
+      if (historyBefore) restoreRuntimeHistorySnapshot(historyBefore, "Blocked over-budget response");
+      setRuntimeState("LIMIT");
+      deltaStatus.textContent = `Response blocked: ${error.message || error}`;
     } else {
       setRuntimeState("ERROR");
       deltaStatus.textContent = `Remote stream failed: ${error.message || error}`;
@@ -1969,6 +1983,32 @@ async function runLlmPostSmoke() {
   root.dataset.llmSmoke = "fail";
 }
 
+async function runBudgetSmoke() {
+  if (new URLSearchParams(location.search).get("budget_smoke") !== "1") return;
+  const root = document.documentElement;
+  root.dataset.budgetSmoke = "waiting";
+  streamUrl.value = new URL("/v1/chat/completions", location.origin).href;
+  requestProtocol.value = "chat";
+  streamFormat.value = "sse";
+  streamModel.value = "fixture-model";
+  streamPrompt.value = "Build the BUDGET smoke dashboard";
+  requestProtocol.dispatchEvent(new Event("change", { bubbles: true }));
+  remoteForm.requestSubmit();
+  for (let attempt = 0; attempt < 400; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    if (!remoteController && streamState.textContent === "LIMIT") {
+      const restored = preview.querySelector('[data-ui-id="throughput"]')
+        && !preview.querySelector('[data-ui-id="budget-0"]')
+        && source.value === DEMO
+        && deltaStatus.textContent.includes("256 semantic UI blocks");
+      root.dataset.budgetSmoke = restored ? "pass" : "fail";
+      return;
+    }
+    if (!remoteController && streamState.textContent === "ERROR") break;
+  }
+  root.dataset.budgetSmoke = "fail";
+}
+
 function runGenerativeSmoke() {
   if (new URLSearchParams(location.search).get("smoke") !== "1") return;
   const root = document.documentElement;
@@ -2025,6 +2065,7 @@ try {
   runLlmPostSmoke();
   runInteractionSmoke();
   runReviewSmoke();
+  runBudgetSmoke();
 } catch (error) {
   setRuntimeState("ERROR");
   preview.textContent = `Could not start Streamdown WASM: ${error}`;

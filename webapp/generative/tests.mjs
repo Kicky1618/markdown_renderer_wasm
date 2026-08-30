@@ -12,6 +12,7 @@ import { buildInteractionPrompt, buildLlmRequest, GENERATIVE_UI_SYSTEM_PROMPT, s
 import { statePatch, statePatchSignature } from "./state_patch.js";
 import { componentPatch, componentPatchSignature, mergeComponentPatches } from "./component_patch.js";
 import { summarizeModelCommit, summarizeStagedEffects } from "./commit_summary.js";
+import { ResponseBudget, ResponseBudgetError } from "./response_budget.js";
 import { auditUiConfig, parseSafeAction, summarizePolicy } from "./policy.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
@@ -258,6 +259,21 @@ assert.deepEqual(stagedSummary.patchTargets, ["throughput"]);
 assert.equal(stagedSummary.patchCount, 1);
 assert.equal(stagedSummary.newUiBlocks, 1);
 assert.equal(stagedSummary.semanticBlocks, 3);
+
+const budget = new ResponseBudget({ maxChars: 4096, maxChunks: 8, maxSemanticBlocks: 2 });
+budget.push("prefix :::ll");
+budget.push("m ui type=metric id=a\n");
+budget.push(":::llm ui type=metric id=b\n");
+assert.equal(budget.snapshot().semanticBlocks, 2);
+assert.equal(budget.snapshot().chunks, 3);
+assert.throws(() => budget.push(":::llm ui type=metric id=c\n"), error => error instanceof ResponseBudgetError && error.code === "semantic");
+const charBudget = new ResponseBudget({ maxChars: 1024, maxChunks: 8, maxSemanticBlocks: 8 });
+charBudget.push("x".repeat(1024));
+assert.throws(() => charBudget.push("x"), error => error instanceof ResponseBudgetError && error.code === "chars");
+const chunkBudget = new ResponseBudget({ maxChars: 4096, maxChunks: 2, maxSemanticBlocks: 8 });
+chunkBudget.push("a");
+chunkBudget.push("b");
+assert.throws(() => chunkBudget.push("c"), error => error instanceof ResponseBudgetError && error.code === "chunks");
 
 
 const securityHtml = await fs.readFile(new URL("./index.html", import.meta.url), "utf8");
