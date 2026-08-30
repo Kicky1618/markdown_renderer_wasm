@@ -71,6 +71,8 @@ struct LanguageProfile {
     brace_dash_comments: bool,
     triple_double_strings: bool,
     triple_single_strings: bool,
+    double_semicolon_comments: bool,
+    paren_semicolon_comments: bool,
 }
 
 macro_rules! empty_profile {
@@ -117,6 +119,8 @@ macro_rules! empty_profile {
             brace_dash_comments: false,
             triple_double_strings: false,
             triple_single_strings: false,
+            double_semicolon_comments: false,
+            paren_semicolon_comments: false,
         }
     };
 }
@@ -465,6 +469,12 @@ impl Language {
     pub(super) fn triple_single_strings(self) -> bool {
         self.0.triple_single_strings
     }
+    pub(super) fn double_semicolon_comments(self) -> bool {
+        self.0.double_semicolon_comments
+    }
+    pub(super) fn paren_semicolon_comments(self) -> bool {
+        self.0.paren_semicolon_comments
+    }
 
     pub(super) fn is_macro_identifier(self, word: &str) -> bool {
         self.0.macro_identifiers.contains(&word)
@@ -712,6 +722,8 @@ fn decode_binary_profile(bytes: &[u8]) -> Option<LanguageProfile> {
     profile.brace_dash_comments = flags & (1 << 25) != 0;
     profile.triple_double_strings = flags & (1 << 26) != 0;
     profile.triple_single_strings = flags & (1 << 27) != 0;
+    profile.double_semicolon_comments = flags & (1 << 28) != 0;
+    profile.paren_semicolon_comments = flags & (1 << 29) != 0;
     Some(profile)
 }
 
@@ -825,6 +837,8 @@ fn set_flag(profile: &mut LanguageProfile, flag: &str) -> Result<(), String> {
         "brace_dash_comments" => profile.brace_dash_comments = true,
         "triple_double_strings" => profile.triple_double_strings = true,
         "triple_single_strings" => profile.triple_single_strings = true,
+        "double_semicolon_comments" => profile.double_semicolon_comments = true,
+        "paren_semicolon_comments" => profile.paren_semicolon_comments = true,
         _ => return Err(format!("unknown langpack flag: {flag}")),
     }
     Ok(())

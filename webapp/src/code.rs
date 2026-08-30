@@ -476,13 +476,16 @@ fn block_comment_delimiters(
         Some((b"(*", b"*)"))
     } else if language.brace_dash_comments() && bytes.get(i..i + 2) == Some(b"{-") {
         Some((b"{-", b"-}"))
+    } else if language.paren_semicolon_comments() && bytes.get(i..i + 2) == Some(b"(;") {
+        Some((b"(;", b";)"))
     } else {
         None
     }
 }
 
 fn is_line_comment(bytes: &[u8], i: usize, language: Language) -> bool {
-    (bytes.get(i..i + 2) == Some(b"//") && language.slash_comments())
+    (bytes.get(i..i + 2) == Some(b";;") && language.double_semicolon_comments())
+        || (bytes.get(i..i + 2) == Some(b"//") && language.slash_comments())
         || (bytes.get(i..i + 2) == Some(b"--") && language.dash_comments())
         || (bytes.get(i) == Some(&b'#') && language.hash_comments())
         || (bytes.get(i) == Some(&b';') && language.semicolon_comments())

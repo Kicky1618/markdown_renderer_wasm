@@ -36,6 +36,7 @@ const flagBits = new Map([
   ["hyphen_identifiers", 21], ["question_identifiers", 22], ["bang_identifiers", 23],
   ["paren_star_comments", 24], ["brace_dash_comments", 25],
   ["triple_double_strings", 26], ["triple_single_strings", 27],
+  ["double_semicolon_comments", 28], ["paren_semicolon_comments", 29],
 ]);
 
 const encoder = new TextEncoder();
