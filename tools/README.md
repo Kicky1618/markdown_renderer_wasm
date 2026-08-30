@@ -13,7 +13,9 @@ Useful options:
 
 - `--chunk=N`: split input into N-byte chunks before feeding it through the streaming `TextDecoder`. This can deliberately cut inside UTF-8 code points.
 - `--verify`: compare the selected chunking with both one-shot parsing and one-byte streaming. A mismatch exits with status 2.
-- `--validate`: check that semantic fences are closed, `(kind,id)` pairs are unique, and JSON-looking / JSON-declared payloads parse successfully. Validation errors exit with status 3.
+- `--validate`: check that semantic fences are closed, `(kind,id)` pairs are unique, JSON-looking payloads parse, `depends=` targets resolve, and the semantic dependency graph is acyclic. Validation errors exit with status 3.
+- `--graph`: include semantic graph nodes, edges, unresolved dependencies, cycles, and dependency-first `executionOrder` in JSON output.
+- `--dot`: print the semantic dependency graph as Graphviz DOT.
 - `--deltas`: include the delta operation names emitted for each streamed chunk.
 - `--wasm=PATH`: use a non-default WASM artifact.
 
@@ -31,6 +33,31 @@ Example from stdin:
 ```sh
 printf '%s\n' 'Fact [[cite:doc-1|spec]].' | \
   node tools/streamdown-inspect.mjs --chunk=1 --verify
+```
+
+### Semantic dependencies
+
+LLM blocks can declare local dependencies without changing the core AST or MDA1 wire format:
+
+```md
+:::llm tool id=search
+{"query":"streaming markdown"}
+:::
+
+:::llm artifact id=summary depends=tool:search
+{"answer":"..."}
+:::
+
+:::llm ui id=result depends=artifact:summary
+{"type":"metric"}
+:::
+```
+
+`depends=` accepts comma-separated `kind:id` values. The inspector resolves these against local semantic blocks, reports dangling references and cycles, and emits a dependency-first execution order suitable for a runtime scheduler. See `examples/llm_graph.md`.
+
+```sh
+node tools/streamdown-inspect.mjs examples/llm_graph.md --chunk=5 --verify --validate --graph
+node tools/streamdown-inspect.mjs examples/llm_graph.md --dot
 ```
 
 ## `wasm-bench.mjs`

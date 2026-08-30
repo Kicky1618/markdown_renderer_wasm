@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { stdin } from "node:process";
 import { Streamdown } from "../js/streamdown.js";
+import { buildSemanticGraph, graphDiagnostics, graphToDot } from "./semantic-graph.mjs";
 
 function usage() {
   console.error(`Usage: node tools/streamdown-inspect.mjs [file] [options]
@@ -12,7 +13,9 @@ Options:
   --chunk=N       Feed N-byte chunks through TextDecoder (default: 32)
   --verify        Compare streamed AST with one-shot parsing and byte-by-byte parsing
   --deltas        Include per-chunk delta operation names
-  --validate      Validate closed fences, unique semantic IDs, and JSON-looking payloads
+  --validate      Validate fences, payloads, semantic IDs, dependencies, and cycles
+  --graph         Include the semantic dependency graph in JSON output
+  --dot           Print the semantic dependency graph as Graphviz DOT
   --wasm=PATH     WASM path (default: target/wasm32-unknown-unknown/release/streamdown.wasm)
   --help          Show this help
 
@@ -26,6 +29,8 @@ function parseArgs(argv) {
     verify: false,
     deltas: false,
     validate: false,
+    graph: false,
+    dot: false,
     wasm: "target/wasm32-unknown-unknown/release/streamdown.wasm",
   };
 
@@ -44,6 +49,14 @@ function parseArgs(argv) {
     }
     if (arg === "--validate") {
       options.validate = true;
+      continue;
+    }
+    if (arg === "--graph") {
+      options.graph = true;
+      continue;
+    }
+    if (arg === "--dot") {
+      options.dot = true;
       continue;
     }
     if (arg.startsWith("--chunk=")) {
@@ -136,21 +149,13 @@ async function parseOneShot(wasmBytes, text) {
   }
 }
 
-function validateSummary(summary) {
+function validateSummary(summary, graph) {
   const errors = [];
   const warnings = [];
-  const ids = new Map();
-
   for (const block of summary.llmBlocks) {
     const id = block.attributes.id;
     const where = id ? `${block.kind}:${id}` : `${block.kind}@block${block.index}`;
     if (!block.closed) errors.push(`${where}: semantic fence is not closed`);
-
-    if (id) {
-      const key = `${block.kind}:${id}`;
-      if (ids.has(key)) errors.push(`${where}: duplicate semantic id (first at block ${ids.get(key)})`);
-      else ids.set(key, block.index);
-    }
 
     const body = block.value.trim();
     const mime = block.attributes.mime ?? "";
@@ -166,13 +171,9 @@ function validateSummary(summary) {
     if (claimsJson && !body) warnings.push(`${where}: JSON payload is empty`);
   }
 
-  for (const ref of summary.semanticReferences) {
-    if (["tool", "artifact", "ui", "metric"].includes(ref.kind)) {
-      const key = `${ref.kind}:${ref.id}`;
-      if (!ids.has(key)) warnings.push(`${key}: semantic reference has no matching local block`);
-    }
-  }
-
+  const graphResult = graphDiagnostics(graph);
+  errors.push(...graphResult.errors);
+  warnings.push(...graphResult.warnings);
   return { ok: errors.length === 0, errors, warnings };
 }
 
@@ -197,8 +198,14 @@ if (options.verify) {
   if (!oneShotMatch || !bytewiseMatch) process.exitCode = 2;
 }
 
-const validation = options.validate ? validateSummary(streamed.summary) : undefined;
+const semanticGraph = buildSemanticGraph(streamed.summary);
+const validation = options.validate ? validateSummary(streamed.summary, semanticGraph) : undefined;
 if (validation && !validation.ok && !process.exitCode) process.exitCode = 3;
+
+if (options.dot) {
+  console.log(graphToDot(semanticGraph));
+  process.exit(process.exitCode ?? 0);
+}
 
 console.log(JSON.stringify({
   input: {
@@ -208,6 +215,7 @@ console.log(JSON.stringify({
   },
   verification,
   validation,
+  graph: options.graph ? semanticGraph : undefined,
   ...streamed.summary,
   document: streamed.document,
 }, null, 2));
