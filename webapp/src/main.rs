@@ -2362,53 +2362,179 @@ impl Scene {
         let table_width = self.width - x * 2.0;
         let column_width = (table_width / columns as f32).max(80.0);
         let row_height = 24.0 * scale;
-        let mut y = self.y;
-        let header_height = row_height + 8.0 * scale;
+        let painted_row_height = row_height + 8.0 * scale;
+        let table_top = self.y - 18.0 * scale;
+        let mut row_top = table_top;
+
         self.rect(
             x,
-            y,
+            row_top,
             column_width * columns as f32,
-            header_height,
+            painted_row_height,
             [0.10, 0.19, 0.25, 1.0],
             0.0,
         );
-        self.table_row(headers, x, y + 4.0 * scale, column_width, scale, FG);
-        y += header_height;
-        self.table_rule(x, y, column_width * columns as f32);
+        self.table_row(
+            headers,
+            x,
+            row_top,
+            column_width,
+            painted_row_height,
+            scale,
+            FG,
+        );
+        row_top += painted_row_height;
+        self.table_rule(x, row_top, column_width * columns as f32);
+
         for (index, row) in rows.iter().enumerate() {
             if index % 2 == 0 {
                 self.rect(
                     x,
-                    y,
+                    row_top,
                     column_width * columns as f32,
-                    row_height + 8.0 * scale,
+                    painted_row_height,
                     [0.055, 0.085, 0.12, 1.0],
                     0.0,
                 );
             }
-            self.table_row(row, x, y + 4.0 * scale, column_width, scale, FG);
-            y += row_height + 8.0 * scale;
-            self.table_rule(x, y, column_width * columns as f32);
+            self.table_row(row, x, row_top, column_width, painted_row_height, scale, FG);
+            row_top += painted_row_height;
+            self.table_rule(x, row_top, column_width * columns as f32);
         }
+
         for column in 0..=columns {
             let line_x = x + column as f32 * column_width;
-            self.rect(line_x, self.y, 1.0, y - self.y, MUTED, 0.0);
+            self.rect(line_x, table_top, 1.0, row_top - table_top, MUTED, 0.0);
         }
-        self.y = y + 12.0 * scale;
+        self.y = row_top + 12.0 * scale;
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn table_row(
         &mut self,
         cells: &[Vec<Inline>],
         x: f32,
-        y: f32,
+        row_top: f32,
         column_width: f32,
+        row_height: f32,
         scale: f32,
         color: [f32; 4],
     ) {
+        let baseline = row_top + row_height * 0.70;
+        let text_scale = (15.0 / 16.0) * scale * GPU_DOCUMENT_FONT_SCALE;
         for (column, cell) in cells.iter().enumerate() {
-            let cell_x = x + column as f32 * column_width + 8.0;
-            self.rich_text(&plain(cell), cell_x, y, scale, color, 0.0);
+            let cell_left = x + column as f32 * column_width;
+            let clip_left = cell_left + 1.0;
+            let clip_right = cell_left + column_width - 1.0;
+            let text_x = cell_left + 8.0 * scale;
+            self.table_cell_text(
+                &plain(cell),
+                text_x,
+                baseline,
+                text_scale,
+                row_top,
+                row_top + row_height,
+                clip_left,
+                clip_right,
+                color,
+            );
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn table_cell_text(
+        &mut self,
+        text: &str,
+        mut x: f32,
+        baseline: f32,
+        scale: f32,
+        clip_top: f32,
+        clip_bottom: f32,
+        clip_left: f32,
+        clip_right: f32,
+        color: [f32; 4],
+    ) {
+        self.snap_text = true;
+        for c in text.chars() {
+            if c == '\n' {
+                continue;
+            }
+            if x >= clip_right {
+                break;
+            }
+            let glyph = font::glyph(c, scale);
+            self.record_text_cell(
+                c,
+                x,
+                baseline - (clip_bottom - clip_top) * 0.8,
+                glyph.advance,
+                clip_bottom - clip_top,
+            );
+            self.draw_glyph_clipped(
+                glyph,
+                x,
+                baseline - font::baseline(scale),
+                clip_left,
+                clip_right,
+                clip_top,
+                clip_bottom,
+                color,
+            );
+            x += font::advance(c, scale);
+        }
+        self.snap_text = false;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_glyph_clipped(
+        &mut self,
+        glyph: std::rc::Rc<font::GlyphBitmap>,
+        x: f32,
+        y: f32,
+        clip_left: f32,
+        clip_right: f32,
+        clip_top: f32,
+        clip_bottom: f32,
+        color: [f32; 4],
+    ) {
+        for py in 0..glyph.height {
+            let run_y = y + glyph.top as f32 + py as f32;
+            if run_y < clip_top || run_y >= clip_bottom {
+                continue;
+            }
+            let mut px = 0;
+            while px < glyph.width {
+                let coverage =
+                    |value: u8| compat::quantize_coverage(value, self.glyph_coverage_quantum);
+                let alpha = coverage(glyph.coverage[(py * glyph.width + px) as usize]);
+                if alpha == 0 {
+                    px += 1;
+                    continue;
+                }
+                let mut run_end = px + 1;
+                while run_end < glyph.width
+                    && coverage(glyph.coverage[(py * glyph.width + run_end) as usize]) == alpha
+                {
+                    run_end += 1;
+                }
+                let run_left = x + glyph.left as f32 + px as f32;
+                let run_right = x + glyph.left as f32 + run_end as f32;
+                let clipped_left = run_left.max(clip_left);
+                let clipped_right = run_right.min(clip_right);
+                if clipped_right > clipped_left {
+                    let mut shaded = color;
+                    shaded[3] *= alpha as f32 / 255.0;
+                    self.rect(
+                        clipped_left,
+                        run_y,
+                        clipped_right - clipped_left,
+                        1.0,
+                        shaded,
+                        0.0,
+                    );
+                }
+                px = run_end;
+            }
         }
     }
 
@@ -2589,7 +2715,7 @@ fn measure_block(block: &Block, width: f32, font_scale: f32) -> f32 {
             lines as f32 * (25.0 * font_scale) + 8.0 * font_scale
         }
         Block::ThematicBreak => 28.0 * font_scale,
-        Block::Table { rows, .. } => ((rows.len() + 1) as f32 * (24.0 + 8.0) + 16.0) * font_scale,
+        Block::Table { rows, .. } => ((rows.len() + 1) as f32 * (24.0 + 8.0) + 12.0) * font_scale,
     }
 }
 
