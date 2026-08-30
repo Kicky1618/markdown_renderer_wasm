@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>user language coverage browser probe</title></head>
+<body>
+<script type="module">
+  import init from "../pkg/streamdown_web.js";
+  import { loadLanguagePack } from "../language-loader.js";
+
+  const root = document.documentElement;
+  root.dataset.userLanguageProbe = "running";
+  try {
+    await init();
+    const [catalogResponse, indexResponse] = await Promise.all([
+      fetch("./user_language_fences.tsv", { cache: "no-cache" }),
+      fetch("../langpacks/_index.slp", { cache: "no-cache" }),
+    ]);
+    if (!catalogResponse.ok || !indexResponse.ok) throw new Error("probe inputs unavailable");
+
+    const rows = (await catalogResponse.text())
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map(line => {
+        const at = line.indexOf("\t");
+        if (at <= 0) throw new Error(`invalid catalog row: ${line}`);
+        return [line.slice(0, at), line.slice(at + 1)];
+      });
+    if (rows.length !== 100) throw new Error(`expected 100 requested languages, got ${rows.length}`);
+
+    const index = JSON.parse(await indexResponse.text());
+    if (!index || !index.m || typeof index.m !== "object") throw new Error("invalid langpack index");
+
+    const expected = new Set();
+    for (const [label, fence] of rows) {
+      const canonical = index.m[fence];
+      if (typeof canonical !== "string" || canonical.length === 0) {
+        throw new Error(`${label} fence ${fence} is absent from browser alias index`);
+      }
+      expected.add(canonical);
+    }
+
+    await Promise.all(rows.map(([, fence]) => loadLanguagePack(fence)));
+    const actual = new Set((root.dataset.languagePacks ?? "").split(",").filter(Boolean));
+    const missing = [...expected].filter(pack => !actual.has(pack));
+    const extra = [...actual].filter(pack => !expected.has(pack));
+    const pass = missing.length === 0 && extra.length === 0 && actual.size === expected.size;
+
+    root.dataset.userLanguageCount = String(rows.length);
+    root.dataset.userLanguageExpectedPacks = String(expected.size);
+    root.dataset.userLanguageActualPacks = String(actual.size);
+    root.dataset.userLanguageMissing = missing.join(",");
+    root.dataset.userLanguageExtra = extra.join(",");
+    root.dataset.userLanguageProbe = pass ? "pass" : "fail";
+  } catch (error) {
+    root.dataset.userLanguageProbe = "error";
+    root.dataset.userLanguageError = String(error);
+    console.error(error);
+  }
+</script>
+</body>
+</html>
