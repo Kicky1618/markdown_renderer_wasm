@@ -70,3 +70,15 @@ node tools/wasm-bench.mjs --rounds=100000 --json
 ```
 
 It currently measures plain token streaming, syntax-heavy Markdown boundaries, an open fenced code block, and a `:::llm` semantic payload. Each scenario is measured through both `append()` and the allocation-light `appendInPlace()` path when available. Use `--wasm=PATH` to compare two WASM builds without changing the tool.
+
+
+## `semantic-timeline.mjs`
+
+`semantic-timeline.mjs` replays the real WASM parser and records when semantic blocks become visible, close, become dependency-ready, and are referenced from Markdown. This is useful for tool/artifact/UI runtimes that want to start work as soon as a streamed block is safe to consume.
+
+```sh
+node tools/semantic-timeline.mjs examples/llm_graph.md --chunk=5
+node tools/semantic-timeline.mjs examples/llm_graph.md --chunk=5 --ndjson
+```
+
+Events contain `observedAtByte` and `chunkIndex`. A node emits `ready` only after it is closed and every declared `depends=kind:id` dependency exists, is closed, and is itself ready. Malformed or unresolved dependencies therefore never become ready.
