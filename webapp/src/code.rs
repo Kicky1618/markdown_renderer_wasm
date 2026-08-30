@@ -69,6 +69,8 @@ impl<'a> Scanner<'a> {
 
         let (end, kind) = if self.preprocessor_header_expected && bytes[start] == b'<' {
             (header_string_end(self.source, start), SyntaxKind::String)
+        } else if let Some(end) = lua_long_comment_end(self.source, start, self.language) {
+            (end, SyntaxKind::Comment)
         } else if is_line_comment(bytes, start, self.language) {
             (
                 self.source[start..]
@@ -113,6 +115,8 @@ impl<'a> Scanner<'a> {
         } else if let Some(end) = macro_metavariable_end(bytes, start, self.language) {
             (end, SyntaxKind::Macro)
         } else if let Some(end) = rust_raw_string_end(self.source, start, self.language) {
+            (end, SyntaxKind::String)
+        } else if let Some(end) = lua_long_string_end(self.source, start, self.language) {
             (end, SyntaxKind::String)
         } else if let Some((quote_at, quote, triple)) =
             python_string_start(bytes, start, self.language)
@@ -821,6 +825,57 @@ fn hash_raw_string_end(source: &str, start: usize) -> Option<usize> {
         cursor += source[cursor..].chars().next().unwrap().len_utf8();
     }
     Some(bytes.len())
+}
+
+#[inline]
+fn lua_long_bracket_open(bytes: &[u8], start: usize) -> Option<(usize, usize)> {
+    if bytes.get(start) != Some(&b'[') {
+        return None;
+    }
+    let mut cursor = start + 1;
+    while bytes.get(cursor) == Some(&b'=') {
+        cursor += 1;
+    }
+    if bytes.get(cursor) != Some(&b'[') {
+        return None;
+    }
+    Some((cursor - start - 1, cursor + 1))
+}
+
+fn lua_long_bracket_end(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let (equals, mut cursor) = lua_long_bracket_open(bytes, start)?;
+    while cursor < bytes.len() {
+        if bytes[cursor] == b']' {
+            let equals_end = cursor + 1 + equals;
+            if bytes
+                .get(cursor + 1..equals_end)
+                .is_some_and(|tail| tail.iter().all(|byte| *byte == b'='))
+                && bytes.get(equals_end) == Some(&b']')
+            {
+                return Some(equals_end + 1);
+            }
+        }
+        cursor += source[cursor..].chars().next().unwrap().len_utf8();
+    }
+    Some(bytes.len())
+}
+
+#[inline]
+fn lua_long_comment_end(source: &str, start: usize, language: Language) -> Option<usize> {
+    let bytes = source.as_bytes();
+    if bytes.get(start..start + 3) != Some(b"--[") || !language.lua_long_brackets() {
+        return None;
+    }
+    lua_long_bracket_end(source, start + 2)
+}
+
+#[inline]
+fn lua_long_string_end(source: &str, start: usize, language: Language) -> Option<usize> {
+    if source.as_bytes().get(start) != Some(&b'[') || !language.lua_long_brackets() {
+        return None;
+    }
+    lua_long_bracket_end(source, start)
 }
 
 fn quoted_string_end(

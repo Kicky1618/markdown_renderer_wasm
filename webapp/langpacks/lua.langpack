@@ -2,4 +2,4 @@ STREAMDOWN_LANGPACK	1
 aliases	lua
 keywords	and	break	do	else	elseif	end	false	for	function	goto	if	in	local	nil	not	or	repeat	return	then	true	until	while
 function_declarations	function
-flags	dash_comments	multiline_strings
+flags	dash_comments	multiline_strings	lua_long_brackets

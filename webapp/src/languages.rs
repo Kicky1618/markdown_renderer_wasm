@@ -73,6 +73,7 @@ struct LanguageProfile {
     triple_single_strings: bool,
     double_semicolon_comments: bool,
     paren_semicolon_comments: bool,
+    lua_long_brackets: bool,
 }
 
 macro_rules! empty_profile {
@@ -121,6 +122,7 @@ macro_rules! empty_profile {
             triple_single_strings: false,
             double_semicolon_comments: false,
             paren_semicolon_comments: false,
+            lua_long_brackets: false,
         }
     };
 }
@@ -475,6 +477,9 @@ impl Language {
     pub(super) fn paren_semicolon_comments(self) -> bool {
         self.0.paren_semicolon_comments
     }
+    pub(super) fn lua_long_brackets(self) -> bool {
+        self.0.lua_long_brackets
+    }
 
     pub(super) fn is_macro_identifier(self, word: &str) -> bool {
         self.0.macro_identifiers.contains(&word)
@@ -724,6 +729,7 @@ fn decode_binary_profile(bytes: &[u8]) -> Option<LanguageProfile> {
     profile.triple_single_strings = flags & (1 << 27) != 0;
     profile.double_semicolon_comments = flags & (1 << 28) != 0;
     profile.paren_semicolon_comments = flags & (1 << 29) != 0;
+    profile.lua_long_brackets = flags & (1 << 30) != 0;
     Some(profile)
 }
 
@@ -839,6 +845,7 @@ fn set_flag(profile: &mut LanguageProfile, flag: &str) -> Result<(), String> {
         "triple_single_strings" => profile.triple_single_strings = true,
         "double_semicolon_comments" => profile.double_semicolon_comments = true,
         "paren_semicolon_comments" => profile.paren_semicolon_comments = true,
+        "lua_long_brackets" => profile.lua_long_brackets = true,
         _ => return Err(format!("unknown langpack flag: {flag}")),
     }
     Ok(())
