@@ -35,6 +35,8 @@ unit=ms
 - `chart`: title/values/unit
 - `slider`: state/min/max/value/step/unit
 - `button`: label/action
+- `progress`: state/min/max/unit
+- `layout`: title/columns/gap/min。直後の連続したUI componentをgrid化し、component側の`span`で列結合
 
 `slider` と `button` は runtime state を共有します。Markdown 内の `{{stateName}}` は同じ state を参照します。
 
@@ -53,6 +55,34 @@ action=increment:temperature:5
 ```
 
 `button.action` は現時点で `increment:key:n`, `decrement:key:n`, `set:key:value` のみを許可します。任意 JavaScript や HTML は実行しません。
+
+
+### Generated layout
+
+`layout` は後続する連続 UI block をまとめます。通常 Markdown が現れた時点で layout は終了します。layout 自体も semantic fence なので、`columns=` が生成途中でも構造を更新できます。
+
+```md
+:::llm ui type=layout id=dashboard
+columns=2
+gap=14
+min=220
+title=Live dashboard
+:::
+
+:::llm ui type=metric id=throughput
+label=Throughput
+value=2.4M
+:::
+
+:::llm ui type=chart id=latency span=2
+values=58,51,47,40,36
+unit=ms
+:::
+```
+
+`columns` は1〜4、`gap` は0〜40px、`min` は120〜480pxへ制限されます。LLM出力をそのまま無制限なCSS値として通しません。
+
+`progress` は同名 state に自動追従するため、slider/button/本文bindingと相互作用します。
 
 ## Streaming behavior
 

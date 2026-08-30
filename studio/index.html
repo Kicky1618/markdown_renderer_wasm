@@ -47,13 +47,15 @@
 
       <details class="syntax-help">
         <summary>Generative UI syntax</summary>
-        <pre>:::llm ui type=chart id=latency title="Latency"
-values=42,36,29,25,21
-unit=ms
+        <pre>:::llm ui type=layout columns=2
 :::
 
 :::llm ui type=slider state=temperature min=0 max=100 value=42
 label=Temperature
+:::
+
+:::llm ui type=progress state=temperature min=0 max=100
+label=Thermal load
 :::</pre>
       </details>
     </section>

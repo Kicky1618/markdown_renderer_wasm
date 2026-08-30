@@ -137,6 +137,34 @@ pre.md-block {
 }
 code.inline { padding: 2px 5px; border-radius: 5px; background: #132033; color: #8fe6db; }
 a { color: #83c5ff; }
+.generated-layout {
+  display: grid;
+  grid-template-columns: repeat(var(--layout-columns, 2), minmax(min(var(--layout-min, 180px), 100%), 1fr));
+  gap: var(--layout-gap, 14px);
+  max-width: 920px;
+  margin: 22px auto 28px;
+  padding: 14px;
+  border: 1px solid #22394f;
+  border-radius: 22px;
+  background: #09121c99;
+}
+.generated-layout-header {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 4px 0;
+}
+.generated-layout-header h3 { margin: 0; font-size: 13px; color: #a9bfd6; }
+.generated-layout-header span { color: #58738d; font: 700 9px/1 ui-monospace, monospace; text-transform: uppercase; letter-spacing: .1em; }
+.generated-layout > .ui-card {
+  grid-column: span var(--component-span, 1);
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+}
+.generated-layout.partial { border-style: dashed; }
 .ui-card {
   position: relative;
   margin: 22px auto;
@@ -168,6 +196,10 @@ a { color: #83c5ff; }
 .slider-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: center; }
 .slider-row input { width: 100%; accent-color: #69dfce; }
 .slider-value { min-width: 72px; text-align: right; color: #83eadb; font: 700 20px ui-monospace, monospace; }
+.progress-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: center; }
+.progress-track { height: 12px; overflow: hidden; border: 1px solid #2a435b; border-radius: 999px; background: #09111b; }
+.progress-fill { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #4ebdae, #78ead9); transition: width 120ms ease-out; }
+.progress-value { min-width: 72px; text-align: right; color: #83eadb; font: 700 20px ui-monospace, monospace; }
 .generated-button { min-width: 180px; border-color: #42617d; background: #172638; }
 .generated-button:active { transform: translateY(1px); }
 .ui-error { border-color: #74424b; color: #e8a5ad; }
@@ -191,4 +223,10 @@ footer {
   .preview-pane { min-height: 80vh; }
   .stream-controls { grid-template-columns: 1fr auto; }
   .stream-controls button { grid-column: 1 / -1; }
+}
+
+@media (max-width: 640px) {
+  .generated-layout { grid-template-columns: 1fr; }
+  .generated-layout > .ui-card { grid-column: 1; }
+  .generated-layout-header span { display: none; }
 }

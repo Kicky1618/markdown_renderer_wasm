@@ -1,8 +1,18 @@
 import { Streamdown, parseLlmDescriptor } from "./streamdown.js";
+import { componentSpan, layoutSpec } from "./layout.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
 
 This page is not generated after Markdown completes. **The interface appears while tokens are still arriving.**
+
+The current temperature is **{{temperature}}°C**. The LLM controls both runtime state and layout without emitting JavaScript.
+
+:::llm ui type=layout id=dashboard
+title=Live generated dashboard
+columns=2
+gap=14
+min=220
+:::
 
 :::llm ui type=metric id=throughput
 label=Current throughput
@@ -11,28 +21,29 @@ unit=chars/s
 trend=incremental AST
 :::
 
-## Live controls
-
-The current temperature is **{{temperature}}°C**. Change it below; ordinary Markdown and generated controls share the same runtime state.
-
 :::llm ui type=slider id=temp state=temperature min=0 max=100 value=42 step=1
 label=Temperature
 unit=°C
 :::
 
-:::llm ui type=button id=boost
+:::llm ui type=progress id=thermal state=temperature min=0 max=100
+label=Thermal load
+unit=°C
+:::
+
+:::llm ui type=button id=boost span=2
 label=Boost temperature +5°C
 action=increment:temperature:5
 :::
 
-## A chart grows with the stream
-
-The parser does not wait for the closing fence. Each appended value changes only this block.
-
-:::llm ui type=chart id=latency title="Streaming latency"
+:::llm ui type=chart id=latency title="Streaming latency" span=2
 values=58,51,47,40,36,31,28,24,21,19,17,16
 unit=ms
 :::
+
+## The document keeps going
+
+The layout ends automatically when ordinary Markdown resumes. The chart above grows before its closing fence arrives.
 
 > The same syntax can come directly from an LLM response. No eval(), generated JavaScript, or HTML injection is required.
 `;
@@ -54,6 +65,7 @@ let parser;
 let blockElements = [];
 let animation = 0;
 let generation = 0;
+let layoutComposed = false;
 const state = new Map();
 
 source.value = DEMO;
@@ -153,7 +165,7 @@ function number(value, fallback) {
 function initState(config) {
   const key = config.state || config.id;
   if (!key) return null;
-  if (!state.has(key)) state.set(key, number(config.value, config.value ?? 0));
+  if (!state.has(key)) updateState(key, number(config.value, config.value ?? 0));
   return key;
 }
 
@@ -164,6 +176,14 @@ function updateState(key, value) {
   }
   for (const input of document.querySelectorAll("input[data-state-input]")) {
     if (input.dataset.stateInput === key && document.activeElement !== input) input.value = String(value);
+  }
+  for (const track of document.querySelectorAll("[data-state-progress]")) {
+    if (track.dataset.stateProgress !== key) continue;
+    const min = number(track.dataset.progressMin, 0);
+    const max = Math.max(min + 1, number(track.dataset.progressMax, 100));
+    const ratio = Math.max(0, Math.min(1, (number(value, min) - min) / (max - min)));
+    const fill = track.querySelector(".progress-fill");
+    if (fill) fill.style.width = `${ratio * 100}%`;
   }
 }
 
@@ -218,13 +238,39 @@ function renderSlider(block, config) {
   output.textContent = `${input.value}${config.unit || ""}`;
   input.addEventListener("input", () => {
     const next = number(input.value, input.value);
-    state.set(key, next);
-    for (const element of document.querySelectorAll("[data-state-value]")) {
-      if (element.dataset.stateValue !== key) continue;
-      element.textContent = `${next}${element.dataset.stateUnit || ""}`;
-    }
+    updateState(key, next);
   });
   row.append(input, output);
+  card.append(title, row);
+  return card;
+}
+
+function renderProgress(block, config) {
+  const card = makeUiShell(block, config);
+  const key = initState(config);
+  const title = document.createElement("h3");
+  title.textContent = config.label || config.title || "Progress";
+  const min = number(config.min, 0);
+  const max = Math.max(min + 1, number(config.max, 100));
+  const current = number(state.get(key), number(config.value, min));
+  const row = document.createElement("div");
+  row.className = "progress-row";
+  const track = document.createElement("div");
+  track.className = "progress-track";
+  track.dataset.stateProgress = key || "";
+  track.dataset.progressMin = String(min);
+  track.dataset.progressMax = String(max);
+  const fill = document.createElement("span");
+  fill.className = "progress-fill";
+  const ratio = Math.max(0, Math.min(1, (current - min) / (max - min)));
+  fill.style.width = `${ratio * 100}%`;
+  track.append(fill);
+  const output = document.createElement("output");
+  output.className = "progress-value";
+  output.dataset.stateValue = key || "";
+  output.dataset.stateUnit = config.unit || "";
+  output.textContent = `${current}${config.unit || ""}`;
+  row.append(track, output);
   card.append(title, row);
   return card;
 }
@@ -325,10 +371,19 @@ function renderChart(block, config) {
   return card;
 }
 
+function renderLayoutMarker() {
+  const marker = document.createElement("span");
+  marker.hidden = true;
+  marker.dataset.layoutMarker = "true";
+  return marker;
+}
+
 function renderUi(block, config) {
   switch (config.type) {
+    case "layout": return renderLayoutMarker();
     case "metric": return renderMetric(block, config);
     case "slider": return renderSlider(block, config);
+    case "progress": return renderProgress(block, config);
     case "button": return renderButton(block, config);
     case "chart": return renderChart(block, config);
     default: {
@@ -414,29 +469,105 @@ function truncateBlocks(from) {
   blockElements.length = from;
 }
 
+function isLayoutBlock(block) {
+  return uiConfig(block)?.type === "layout";
+}
+
+function composeLayouts() {
+  const fragment = document.createDocumentFragment();
+  let grid = null;
+  let gridSpec = null;
+
+  const closeGrid = () => {
+    if (!grid) return;
+    fragment.append(grid);
+    grid = null;
+    gridSpec = null;
+  };
+
+  for (let index = 0; index < parser.document.length; index++) {
+    const block = parser.document[index];
+    const element = blockElements[index];
+    const config = uiConfig(block);
+
+    if (config?.type === "layout") {
+      closeGrid();
+      gridSpec = layoutSpec(config);
+      grid = document.createElement("section");
+      grid.className = `generated-layout${block.closed ? "" : " partial"}`;
+      grid.dataset.layoutId = gridSpec.id;
+      grid.dataset.layoutColumns = String(gridSpec.columns);
+      grid.style.setProperty("--layout-columns", String(gridSpec.columns));
+      grid.style.setProperty("--layout-gap", `${gridSpec.gap}px`);
+      grid.style.setProperty("--layout-min", `${gridSpec.minWidth}px`);
+      const heading = document.createElement("header");
+      heading.className = "generated-layout-header";
+      const title = document.createElement("h3");
+      title.textContent = gridSpec.title;
+      const badge = document.createElement("span");
+      badge.textContent = `${gridSpec.columns} columns`;
+      heading.append(title, badge);
+      grid.append(heading);
+      continue;
+    }
+
+    if (grid && config) {
+      element.style.setProperty("--component-span", String(componentSpan(config, gridSpec.columns)));
+      grid.append(element);
+      continue;
+    }
+
+    closeGrid();
+    if (element) {
+      element.style?.removeProperty("--component-span");
+      fragment.append(element);
+    }
+  }
+  closeGrid();
+  preview.replaceChildren(fragment);
+  layoutComposed = hasLayout();
+  for (const [key, value] of state) updateState(key, value);
+}
+
+function hasLayout() {
+  return parser.document.some(isLayoutBlock);
+}
+
 function replaceBlock(index) {
   const block = parser.document[index];
   if (!block) return;
   const next = createBlock(block);
   const previous = blockElements[index];
+  const parentLayout = previous?.closest?.(".generated-layout");
+  if (parentLayout) {
+    const config = uiConfig(block);
+    const columns = number(parentLayout.dataset.layoutColumns, 1);
+    next.style?.setProperty("--component-span", String(componentSpan(config || {}, columns)));
+  }
   if (previous) previous.replaceWith(next);
-  else preview.append(next);
+  else if (!layoutComposed && !hasLayout()) preview.append(next);
   blockElements[index] = next;
 }
 
 function renderOperations(ops) {
   const start = performance.now();
+  let structuralLayoutChange = false;
   for (const op of ops) {
-    if (op.op === "truncate") truncateBlocks(op.from);
-    else if (op.op === "push") {
+    if (op.op === "truncate") {
+      structuralLayoutChange ||= layoutComposed || hasLayout();
+      truncateBlocks(op.from);
+    } else if (op.op === "push") {
       const index = blockElements.length;
       const element = createBlock(parser.document[index]);
       blockElements.push(element);
-      preview.append(element);
+      if (layoutComposed || hasLayout()) structuralLayoutChange = true;
+      else preview.append(element);
     } else if (op.op === "spliceCode" || op.op === "sealCode" || op.op === "appendText") {
+      structuralLayoutChange ||= isLayoutBlock(parser.document[op.block]);
       replaceBlock(op.block);
     }
   }
+  if (structuralLayoutChange || (hasLayout() && !layoutComposed)) composeLayouts();
   renderMs.textContent = (performance.now() - start).toFixed(3);
   blockCount.textContent = String(parser.blockCount);
   deltaStatus.textContent = ops.length ? `${ops.map(op => op.op).join(" · ")}` : "No structural change";
@@ -533,7 +664,7 @@ window.addEventListener("resize", () => {
 });
 
 try {
-  parser = await Streamdown.load(fetch("./streamdown.wasm"));
+  parser = await Streamdown.load(await fetch("./streamdown.wasm"));
   setRuntimeState("READY");
   renderAll();
 } catch (error) {
