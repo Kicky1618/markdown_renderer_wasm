@@ -3,8 +3,8 @@ mod compat;
 
 use compat::{
     RendererBackend, RendererPreference, SurfaceAction, SurfaceEvent, SurfaceFailureTracker,
-    gpu_canvas_metrics, quantize_coverage, replace_renderer_search, runtime_recovery_search,
-    runtime_recovery_trace,
+    gpu_canvas_metrics, prefer_display_encoded_format, quantize_coverage, replace_renderer_search,
+    runtime_recovery_search, runtime_recovery_trace,
 };
 
 #[test]
@@ -200,5 +200,25 @@ fn repeated_surface_loss_escalates_but_timeout_and_occlusion_do_not() {
     assert_eq!(
         tracker.observe(SurfaceEvent::Validation),
         SurfaceAction::Recover
+    );
+}
+
+#[test]
+fn surface_format_prefers_display_encoded_target() {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Format {
+        Linear,
+        Srgb,
+    }
+    let selected = prefer_display_encoded_format(&[Format::Srgb, Format::Linear], |format| {
+        format == Format::Srgb
+    });
+    assert_eq!(selected, Some(Format::Linear));
+
+    let srgb_only = prefer_display_encoded_format(&[Format::Srgb], |_| true);
+    assert_eq!(srgb_only, Some(Format::Srgb));
+    assert_eq!(
+        prefer_display_encoded_format::<Format>(&[], |_| false),
+        None
     );
 }

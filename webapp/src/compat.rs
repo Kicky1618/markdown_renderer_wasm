@@ -305,3 +305,19 @@ pub fn gpu_canvas_metrics(
         backing_scale,
     }
 }
+
+/// Prefer a non-sRGB presentation format for the renderer's existing palette.
+///
+/// GPU color constants are authored as display/sRGB byte values to match the
+/// Canvas2D CSS palette. Rendering those values into an sRGB attachment would
+/// apply an extra transfer function and make WebGPU/WebGL2 visibly diverge.
+pub fn prefer_display_encoded_format<T: Copy>(
+    formats: &[T],
+    is_srgb: impl Fn(T) -> bool,
+) -> Option<T> {
+    formats
+        .iter()
+        .copied()
+        .find(|format| !is_srgb(*format))
+        .or_else(|| formats.first().copied())
+}
