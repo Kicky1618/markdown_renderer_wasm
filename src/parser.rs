@@ -149,6 +149,12 @@ struct TailPending {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PendingLineBreak {
+    Soft,
+    Hard { truncate_bytes: usize },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LinkTailPending {
     Label {
         opener: usize,
@@ -205,6 +211,8 @@ pub struct Parser {
     live_link_fast_ambiguous: bool,
     live_thematic_marker: u8,
     live_tail_pending: Option<TailPending>,
+    live_multiline_plain_safe: bool,
+    live_pending_line_break: Option<PendingLineBreak>,
 }
 
 impl Default for Parser {
@@ -243,6 +251,8 @@ impl Parser {
             live_link_fast_ambiguous: false,
             live_thematic_marker: 0,
             live_tail_pending: None,
+            live_multiline_plain_safe: false,
+            live_pending_line_break: None,
         }
     }
 
@@ -357,29 +367,38 @@ impl Parser {
     /// cleared before parsing.
     pub fn append_into(&mut self, input: &str, delta: &mut Delta) {
         delta.ops.clear();
-        if self.try_append_thematic(input) {
+        let force_normal = self.live_pending_line_break.is_some();
+        if self.try_append_stable_multiline_paragraph(input, delta) {
             return;
         }
-        if self.try_append_list_tail(input, delta) {
-            return;
-        }
-        if self.try_append_quote_tail(input, delta) {
-            return;
-        }
-        if self.try_append_table_tail(input, delta) {
-            return;
-        }
-        if self.try_append_plain(input, delta) {
-            return;
-        }
-        if self.try_append_complete_semantic_chunk(input, delta) {
-            return;
-        }
-        if self.try_append_complete_link_chunk(input, delta) {
-            return;
-        }
-        if self.try_append_inline_text(input, delta) {
-            return;
+        if force_normal {
+            self.live_pending_line_break = None;
+            self.live_multiline_plain_safe = false;
+        } else {
+            if self.try_append_thematic(input) {
+                return;
+            }
+            if self.try_append_list_tail(input, delta) {
+                return;
+            }
+            if self.try_append_quote_tail(input, delta) {
+                return;
+            }
+            if self.try_append_table_tail(input, delta) {
+                return;
+            }
+            if self.try_append_plain(input, delta) {
+                return;
+            }
+            if self.try_append_complete_semantic_chunk(input, delta) {
+                return;
+            }
+            if self.try_append_complete_link_chunk(input, delta) {
+                return;
+            }
+            if self.try_append_inline_text(input, delta) {
+                return;
+            }
         }
         let mut rest = input;
         loop {
@@ -406,6 +425,98 @@ impl Parser {
                 }
             }
         }
+    }
+
+    fn try_append_stable_multiline_paragraph(&mut self, input: &str, delta: &mut Delta) -> bool {
+        if input.is_empty()
+            || !matches!(self.mode, Mode::Normal)
+            || !self.has_live
+            || self.pending_kind != Some(PendingKind::Paragraph)
+        {
+            return false;
+        }
+        let Some(block_index) = self.blocks.len().checked_sub(1) else {
+            return false;
+        };
+        let Some(Block::Paragraph(nodes)) = self.blocks.get_mut(block_index) else {
+            return false;
+        };
+
+        if let Some(pending_break) = self.live_pending_line_break {
+            if input.contains(['\n', '\r']) || !input.bytes().all(is_plain_stream_byte) {
+                return false;
+            }
+            let (break_node, truncate_bytes) = match pending_break {
+                PendingLineBreak::Soft => (Inline::SoftBreak, 0),
+                PendingLineBreak::Hard { truncate_bytes } => (Inline::HardBreak, truncate_bytes),
+            };
+            let append = vec![break_node, Inline::Text(input.to_owned())];
+            splice_inline_tail(nodes, truncate_bytes, 0, &append);
+            self.line.push_str(input);
+            self.live_pending_line_break = None;
+            self.live_plain = false;
+            self.live_inline_appendable = true;
+            self.trailing_backslash_odd = false;
+            self.reset_delimiter_runs();
+            self.live_special_bracket = SpecialBracketKind::None;
+            self.live_special_opener = 0;
+            self.live_has_link_label_open = false;
+            self.live_link_label_just_closed = false;
+            self.live_has_link_destination_start = false;
+            self.live_link_tail_pending = None;
+            self.live_link_fast_ambiguous = false;
+            self.live_tail_pending = None;
+            delta.ops.push(Op::SpliceInlineTail {
+                block: block_index as u32,
+                remove_nodes: 0,
+                truncate_bytes: truncate_bytes as u32,
+                append,
+            });
+            return true;
+        }
+
+        if input != "\n"
+            || !self.live_multiline_plain_safe
+            || self.line.trim().is_empty()
+            || classify(&self.line) != PendingKind::Paragraph
+            || heading(&self.line).is_some()
+            || is_thematic(&self.line)
+            || llm_fence_open(&self.line).is_some()
+            || fence_open(&self.line).is_some()
+        {
+            return false;
+        }
+
+        let trailing_spaces = self
+            .line
+            .as_bytes()
+            .iter()
+            .rev()
+            .take_while(|&&byte| byte == b' ')
+            .count();
+        self.live_pending_line_break = Some(if trailing_spaces >= 2 {
+            PendingLineBreak::Hard {
+                truncate_bytes: trailing_spaces,
+            }
+        } else {
+            PendingLineBreak::Soft
+        });
+        self.pending.push_str(&self.line);
+        self.pending.push('\n');
+        self.line.clear();
+        self.live_plain = false;
+        self.live_inline_appendable = false;
+        self.trailing_backslash_odd = false;
+        self.reset_delimiter_runs();
+        self.live_special_bracket = SpecialBracketKind::None;
+        self.live_special_opener = 0;
+        self.live_has_link_label_open = false;
+        self.live_link_label_just_closed = false;
+        self.live_has_link_destination_start = false;
+        self.live_link_tail_pending = None;
+        self.live_link_fast_ambiguous = false;
+        self.live_tail_pending = None;
+        true
     }
 
     fn try_append_thematic(&mut self, input: &str) -> bool {
@@ -1034,6 +1145,8 @@ impl Parser {
         self.line.push_str(input);
         self.live_plain = false;
         self.live_inline_appendable = true;
+        self.live_multiline_plain_safe = false;
+        self.live_pending_line_break = None;
         self.live_special_bracket = SpecialBracketKind::None;
         self.live_special_opener = 0;
         self.live_has_link_label_open = false;
@@ -1091,6 +1204,8 @@ impl Parser {
         self.line.push_str(input);
         self.live_plain = false;
         self.live_inline_appendable = true;
+        self.live_multiline_plain_safe = false;
+        self.live_pending_line_break = None;
         self.live_special_bracket = SpecialBracketKind::None;
         self.live_special_opener = 0;
         self.live_has_link_label_open = false;
@@ -1125,6 +1240,10 @@ impl Parser {
         let Some(Block::Paragraph(nodes)) = self.blocks.get_mut(block_index) else {
             return false;
         };
+        if !input.bytes().all(is_plain_stream_byte) {
+            self.live_multiline_plain_safe = false;
+            self.live_pending_line_break = None;
+        }
 
         if let Some(mut pending) = self.live_tail_pending
             && input.len() == 1
@@ -1776,6 +1895,8 @@ impl Parser {
             self.live_has_link_destination_start = false;
             self.live_thematic_marker = 0;
             self.live_tail_pending = None;
+            self.live_multiline_plain_safe = false;
+            self.live_pending_line_break = None;
         }
     }
 
@@ -1897,6 +2018,8 @@ impl Parser {
             self.live_has_link_destination_start = false;
             self.live_thematic_marker = 0;
             self.live_tail_pending = None;
+            self.live_multiline_plain_safe = false;
+            self.live_pending_line_break = None;
             return;
         }
         if self.pending_kind.is_none() && is_thematic(&self.line) {
@@ -1911,6 +2034,8 @@ impl Parser {
             self.live_inline_appendable = false;
             self.live_thematic_marker = thematic_marker(&self.line);
             self.live_tail_pending = None;
+            self.live_multiline_plain_safe = false;
+            self.live_pending_line_break = None;
             self.push(Block::ThematicBreak, delta);
             self.has_live = true;
             return;
@@ -1967,6 +2092,11 @@ impl Parser {
             || link_label_just_closed;
         self.live_thematic_marker = 0;
         self.live_tail_pending = None;
+        self.live_multiline_plain_safe = stable_multiline_paragraph
+            && source
+                .bytes()
+                .all(|byte| byte == b'\n' || is_plain_stream_byte(byte));
+        self.live_pending_line_break = None;
         self.push(block, delta);
         self.has_live = true;
     }
@@ -4114,6 +4244,41 @@ $$
         let mut whole = Parser::new();
         whole.append("a|b\n---|---\nnot a row");
         assert_eq!(plain.blocks(), whole.blocks());
+    }
+
+    #[test]
+    fn stable_multiline_paragraph_defers_break_delta_until_next_line_starts() {
+        let mut parser = Parser::new();
+        parser.append("a|b\n---|--x");
+        let newline = parser.append("\n");
+        assert!(newline.ops.is_empty());
+
+        let next = parser.append("next");
+        assert!(matches!(
+            next.ops.as_slice(),
+            [Op::SpliceInlineTail {
+                truncate_bytes: 0,
+                append,
+                ..
+            }] if matches!(append.as_slice(), [Inline::SoftBreak, Inline::Text(text)] if text == "next")
+        ));
+
+        let mut hard = Parser::new();
+        hard.append("a|b\n---|--x  ");
+        assert!(hard.append("\n").ops.is_empty());
+        let next = hard.append("next");
+        assert!(matches!(
+            next.ops.as_slice(),
+            [Op::SpliceInlineTail {
+                truncate_bytes: 2,
+                append,
+                ..
+            }] if matches!(append.as_slice(), [Inline::HardBreak, Inline::Text(text)] if text == "next")
+        ));
+
+        let mut whole = Parser::new();
+        whole.append("a|b\n---|--x  \nnext");
+        assert_eq!(hard.blocks(), whole.blocks());
     }
 
     #[test]

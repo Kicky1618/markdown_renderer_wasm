@@ -239,6 +239,25 @@ fn table_rows_are_character_stream_independent() {
 }
 
 #[test]
+fn malformed_table_multiline_fast_path_preserves_breaks_and_block_transitions() {
+    for markdown in [
+        "a|b\n---|--x\na|b\n---|--x\ntail",
+        "a|b\n---|--x  \nnext",
+        "a|b\n---|--x\n- item\n",
+        "a|b\n---|--x\n*open\nclose*",
+        "a|b\n---|--x\n日本語✅",
+    ] {
+        let expected = parse_whole(markdown);
+        let boundaries = utf8_boundaries(markdown);
+        let actual = parse_chunks(boundaries.windows(2).map(|w| &markdown[w[0]..w[1]]));
+        assert_eq!(
+            actual, expected,
+            "character stream changed stable malformed-table paragraph for {markdown:?}"
+        );
+    }
+}
+
+#[test]
 fn table_separator_becoming_valid_during_plain_append_reparses() {
     let markdown = "a|b\n---|---";
     let expected = parse_whole(markdown);
