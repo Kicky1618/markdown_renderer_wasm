@@ -109,6 +109,7 @@ function normalizedAliases(profile, packName) {
 export function buildAll({ check = false } = {}) {
   const sources = fs.readdirSync(LANGPACK_DIR).filter(name => name.endsWith(".langpack")).sort();
   const outputs = new Map();
+  const aliasToPack = new Map();
   const versionHash = createHash("sha256");
   let totalSource = 0;
   let totalBinary = 0;
@@ -118,27 +119,27 @@ export function buildAll({ check = false } = {}) {
     const source = fs.readFileSync(path.join(LANGPACK_DIR, name), "utf8");
     const profile = parsePack(source);
     const binary = encodePack(profile);
+    const aliases = normalizedAliases(profile, packName);
+    const outputName = `${packName}.slp`;
+    if (outputs.has(outputName)) throw new Error(`duplicate canonical langpack output: ${packName}`);
+    outputs.set(outputName, binary);
     // Version the emitted bytes, not the source text. Encoder/schema changes that
     // alter SLP1 therefore invalidate browser caches even when .langpack text is unchanged.
     versionHash.update(packName).update("\0").update(binary).update("\0");
-    const aliases = normalizedAliases(profile, packName);
     totalSource += Buffer.byteLength(source);
     totalBinary += binary.byteLength;
     for (const alias of aliases) {
-      const filename = `${alias}.slp`;
-      if (outputs.has(filename)) throw new Error(`duplicate langpack alias output: ${alias}`);
-      outputs.set(filename, binary);
+      if (aliasToPack.has(alias)) throw new Error(`duplicate langpack alias: ${alias}`);
+      aliasToPack.set(alias, packName);
     }
   }
 
   if (outputs.has(INDEX_NAME)) throw new Error(`${INDEX_NAME} is reserved`);
-  const aliasCount = outputs.size;
+  const aliasCount = aliasToPack.size;
   const emittedBytes = [...outputs.values()].reduce((sum, binary) => sum + binary.byteLength, 0);
   const version = versionHash.digest("hex").slice(0, 16);
-  const index = encoder.encode(JSON.stringify({
-    v: version,
-    a: [...outputs.keys()].map(name => name.slice(0, -4)).sort(),
-  }));
+  const aliasMap = Object.fromEntries([...aliasToPack.entries()].sort(([left], [right]) => left.localeCompare(right)));
+  const index = encoder.encode(JSON.stringify({ v: version, m: aliasMap }));
   outputs.set(INDEX_NAME, index);
 
   const stale = [];
@@ -172,5 +173,5 @@ export function buildAll({ check = false } = {}) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const check = process.argv.includes("--check");
   const result = buildAll({ check });
-  console.log(`langpacks ${check ? "checked" : "built"}: ${result.count} packs / ${result.aliases} aliases, version=${result.version}, ${result.sourceBytes} text bytes -> ${result.binaryBytes} canonical SLP1 bytes (${result.emittedBytes} alias-file bytes + ${result.indexBytes} index bytes)`);
+  console.log(`langpacks ${check ? "checked" : "built"}: ${result.count} packs / ${result.aliases} aliases, version=${result.version}, ${result.sourceBytes} text bytes -> ${result.binaryBytes} canonical SLP1 bytes (${result.emittedBytes} canonical-file bytes + ${result.indexBytes} index bytes)`);
 }

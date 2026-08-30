@@ -1,12 +1,12 @@
 const MAX_CONCURRENT_PACKS = 16;
 const MAX_PACK_BYTES = 16 * 1024;
-const MAX_INDEX_BYTES = 16 * 1024;
+const MAX_INDEX_BYTES = 64 * 1024;
 const SAFE_LANGUAGE = /^[a-z0-9_+#-]+$/;
 const SAFE_VERSION = /^[0-9a-f]{16}$/;
 const INDEX_URL = new URL("./langpacks/_index.slp", import.meta.url);
 const inFlight = new Map();
-const failedAliases = new Set();
-const loadedAliases = new Set();
+const failedPacks = new Set();
+const loadedPacks = new Set();
 const registered = new Set();
 const decoder = new TextDecoder();
 const packWaiters = [];
@@ -54,22 +54,33 @@ async function responseBytes(response, maxBytes, label) {
   return new Uint8Array(buffer);
 }
 
+function readAliasIndex(bytes) {
+  const index = JSON.parse(decoder.decode(bytes));
+  if (!index || !SAFE_VERSION.test(index.v) || !index.m || typeof index.m !== "object" || Array.isArray(index.m)) {
+    throw new Error("invalid langpack index");
+  }
+  const packByAlias = new Map();
+  for (const [rawAlias, rawPack] of Object.entries(index.m)) {
+    const alias = normalizeLanguage(rawAlias);
+    const pack = normalizeLanguage(rawPack);
+    if (!alias || alias !== rawAlias || !pack || pack !== rawPack || packByAlias.has(alias)) {
+      throw new Error("invalid langpack index entry");
+    }
+    packByAlias.set(alias, pack);
+  }
+  if (packByAlias.size === 0) throw new Error("empty langpack index");
+  for (const pack of new Set(packByAlias.values())) {
+    if (packByAlias.get(pack) !== pack) throw new Error(`langpack index missing canonical alias: ${pack}`);
+  }
+  return { packByAlias, version: index.v };
+}
+
 function loadAliasIndex() {
   if (!aliasIndexPromise) {
     aliasIndexPromise = (async () => {
       const response = await fetch(INDEX_URL, { cache: "no-cache" });
       const bytes = await responseBytes(response, MAX_INDEX_BYTES, "langpack index");
-      const index = JSON.parse(decoder.decode(bytes));
-      if (!index || !SAFE_VERSION.test(index.v) || !Array.isArray(index.a) || index.a.length === 0) {
-        throw new Error("invalid langpack index");
-      }
-      const aliases = new Set();
-      for (const value of index.a) {
-        const alias = normalizeLanguage(value);
-        if (!alias || alias !== value || aliases.has(alias)) throw new Error("invalid langpack index alias");
-        aliases.add(alias);
-      }
-      return { aliases, version: index.v };
+      return readAliasIndex(bytes);
     })().catch(error => {
       aliasIndexPromise = undefined;
       throw error;
@@ -106,65 +117,62 @@ function invalidateRenderer() {
 
 export async function loadLanguagePack(name) {
   const alias = normalizeLanguage(name);
-  if (!alias || loadedAliases.has(alias) || failedAliases.has(alias)) return false;
+  if (!alias) return false;
 
-  let knownAliases;
+  let index;
   try {
-    knownAliases = await loadAliasIndex();
+    index = await loadAliasIndex();
   } catch (error) {
     document.documentElement.dataset.languagePackError = `index:${String(error)}`;
     console.warn("language pack index unavailable:", error);
     return false;
   }
-  // Unknown fence names never reach the network and are not cached locally: the
-  // index membership check is cheap, while caching attacker-controlled misses
-  // would make memory usage grow with document input.
-  if (!knownAliases.aliases.has(alias)) return false;
 
-  const existing = inFlight.get(alias);
+  const pack = index.packByAlias.get(alias);
+  if (!pack || loadedPacks.has(pack) || failedPacks.has(pack)) return false;
+
+  const existing = inFlight.get(pack);
   if (existing) return existing.then(() => false, () => false);
 
   const task = (async () => {
     await acquirePackSlot();
     try {
-      if (loadedAliases.has(alias)) return false;
-      const url = new URL(`./langpacks/${encodeURIComponent(alias)}.slp`, import.meta.url);
-      url.searchParams.set("v", knownAliases.version);
+      if (loadedPacks.has(pack) || failedPacks.has(pack)) return false;
+      const url = new URL(`./langpacks/${encodeURIComponent(pack)}.slp`, import.meta.url);
+      url.searchParams.set("v", index.version);
       const response = await fetch(url, { cache: "force-cache" });
       const binary = await responseBytes(response, MAX_PACK_BYTES, "langpack");
       const packAliases = readPackAliases(binary);
-      if (!packAliases.includes(alias)) throw new Error(`langpack alias mismatch: ${alias}`);
-      const wasm = await import("./pkg/streamdown_web.js");
-      if (packAliases.some(packAlias => loadedAliases.has(packAlias))) {
-        for (const packAlias of packAliases) loadedAliases.add(packAlias);
-        return false;
+      if (!packAliases.includes(pack) || !packAliases.includes(alias)) {
+        throw new Error(`langpack alias mismatch: ${alias}->${pack}`);
       }
+      const wasm = await import("./pkg/streamdown_web.js");
       const registeredNow = wasm.register_language_pack_binary(binary);
       if (registeredNow) {
-        for (const packAlias of packAliases) loadedAliases.add(packAlias);
-        registered.add(alias);
+        loadedPacks.add(pack);
+        registered.add(pack);
         const root = document.documentElement;
-        root.dataset.languagePackRegistered = alias;
+        root.dataset.languagePackRegistered = pack;
         root.dataset.languagePackRegisteredCount = String(registered.size);
         root.dataset.languagePacks = [...registered].sort().join(",");
         invalidateRenderer();
-      } else if (!packAliases.some(packAlias => loadedAliases.has(packAlias))) {
-        failedAliases.add(alias);
-        document.documentElement.dataset.languagePackError = `${alias}:wasm-rejected`;
+      } else {
+        failedPacks.add(pack);
+        document.documentElement.dataset.languagePackError = `${pack}:wasm-rejected`;
       }
       return registeredNow;
     } catch (error) {
-      failedAliases.add(alias);
-      document.documentElement.dataset.languagePackError = `${alias}:${String(error)}`;
-      console.warn(`language pack ${JSON.stringify(alias)} unavailable:`, error);
+      failedPacks.add(pack);
+      document.documentElement.dataset.languagePackError = `${pack}:${String(error)}`;
+      console.warn(`language pack ${JSON.stringify(pack)} unavailable:`, error);
       return false;
     } finally {
-      inFlight.delete(alias);
+      inFlight.delete(pack);
       releasePackSlot();
     }
   })();
-  inFlight.set(alias, task);
+  inFlight.set(pack, task);
   return task;
 }
 
-export const __test = { normalizeLanguage, readPackAliases };
+export const __test = { normalizeLanguage, readPackAliases, readAliasIndex };

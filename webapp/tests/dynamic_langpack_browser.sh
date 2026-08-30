@@ -89,22 +89,22 @@ fi
 
 flood_count=$(grep -c 'GET /langpacks/missing-.*\.slp HTTP/1.1' "$WORK/http.log" || true)
 if [ "$flood_count" -ne 0 ]; then
-  echo "dynamic langpack browser: unknown-language flood reached pack HTTP $flood_count times (expected zero after SLI1 membership check)"
+  echo "dynamic langpack browser: unknown-language flood reached pack HTTP $flood_count times (expected zero after alias-index membership check)"
   cat "$WORK/http.log"
   exit 1
 fi
 
-js_count=$(grep -c 'GET /langpacks/typescript.slp?v=[0-9a-f]* HTTP/1.1.* 200' "$WORK/http.log" || true)
+js_count=$(grep -c 'GET /langpacks/javascript.slp?v=[0-9a-f]* HTTP/1.1.* 200' "$WORK/http.log" || true)
 if [ "$js_count" -ne 1 ]; then
-  echo "dynamic langpack browser: TypeScript alias fetched $js_count times (expected once; ts must dedupe from SLP1 aliases)"
+  echo "dynamic langpack browser: JavaScript canonical pack fetched $js_count times (expected once for TypeScript + ts aliases)"
   cat "$WORK/http.log"
   exit 1
 fi
 
-cpp_alias_count=$(grep -c 'GET /langpacks/c%2B%2B.slp?v=[0-9a-f]* HTTP/1.1.* 200' "$WORK/http.log" || true)
+cpp_alias_count=$(grep -c 'GET /langpacks/c%2B%2B.slp?v=[0-9a-f]* HTTP/1.1' "$WORK/http.log" || true)
 cpp_count=$(grep -c 'GET /langpacks/cpp.slp?v=[0-9a-f]* HTTP/1.1.* 200' "$WORK/http.log" || true)
-if [ "$cpp_alias_count" -ne 1 ] || [ "$cpp_count" -ne 1 ]; then
-  echo "dynamic langpack browser: concurrent c++/cpp aliases fetched c++=$cpp_alias_count cpp=$cpp_count (expected one each, one WASM registration)"
+if [ "$cpp_alias_count" -ne 0 ] || [ "$cpp_count" -ne 1 ]; then
+  echo "dynamic langpack browser: concurrent c++/cpp aliases fetched alias=$cpp_alias_count canonical=$cpp_count (expected canonical cpp exactly once)"
   cat "$WORK/http.log"
   exit 1
 fi

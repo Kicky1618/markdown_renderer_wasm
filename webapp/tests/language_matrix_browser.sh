@@ -87,10 +87,10 @@ if [ "$index_count" -ne 1 ]; then
   exit 1
 fi
 
-for alias in kt c%23 c%2B%2B f%23 rb hs sv webgpu tf ps1; do
-  count=$(grep -c "GET /langpacks/$alias.slp?v=[0-9a-f]* HTTP/1.1.* 200" "$WORK/http.log" || true)
+for pack in kotlin csharp cpp fsharp ruby haskell verilog wgsl terraform powershell; do
+  count=$(grep -c "GET /langpacks/$pack.slp?v=[0-9a-f]* HTTP/1.1.* 200" "$WORK/http.log" || true)
   if [ "$count" -ne 1 ]; then
-    echo "language matrix browser: alias $alias pack fetched $count times (expected once)"
+    echo "language matrix browser: canonical pack $pack fetched $count times (expected once)"
     cat "$WORK/http.log"
     exit 1
   fi
