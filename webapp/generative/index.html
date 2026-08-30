@@ -108,6 +108,20 @@ edge llm ui stream
           <span id="stream-state" class="pill">READY</span>
         </div>
       </div>
+      <aside id="model-commit" class="model-commit" hidden aria-live="polite">
+        <div>
+          <p class="eyebrow">LAST MODEL COMMIT</p>
+          <strong id="commit-title">No model commit yet</strong>
+        </div>
+        <div class="commit-metrics">
+          <span><b id="commit-source">0</b> chars</span>
+          <span><b id="commit-state">0</b> state</span>
+          <span><b id="commit-patches">0</b> patches</span>
+          <span><b id="commit-ui">0</b> new UI</span>
+          <span><b id="commit-latency">—</b> first UI</span>
+        </div>
+        <p id="commit-details" class="commit-details"></p>
+      </aside>
       <div id="preview" class="preview" aria-live="polite"></div>
     </section>
   </main>

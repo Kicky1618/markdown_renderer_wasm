@@ -11,6 +11,7 @@ import { consumeHttpResponse, decodeNdjsonLine, decodeSseEvent, extractDeltaText
 import { buildInteractionPrompt, buildLlmRequest, GENERATIVE_UI_SYSTEM_PROMPT, snapshotUiComponents, snapshotUiState } from "./llm_request.js";
 import { statePatch, statePatchSignature } from "./state_patch.js";
 import { componentPatch, componentPatchSignature, mergeComponentPatches } from "./component_patch.js";
+import { summarizeModelCommit } from "./commit_summary.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
   id: "",
@@ -201,6 +202,26 @@ assert.equal(
   componentPatchSignature([componentPatch({ target: "x", value: "1" })]),
   componentPatchSignature([componentPatch({ target: "x", value: "1" })]),
 );
+
+
+const commitSummary = summarizeModelCommit({
+  before: { source: "# Before", state: [["temperature", 42], ["api_token", "secret"]] },
+  after: { source: "# Before\n\nmore", state: [["temperature", 58], ["api_token", "changed"], ["mode", "exact"]] },
+  responseText: `:::llm ui type=state\ntemperature=58\n:::\n\n:::llm ui type=patch target=throughput value=3.1M\n:::\n\n:::llm ui type=metric id=new-card\nvalue=58\n:::\n`,
+  format: "sse",
+  chunks: 5,
+  firstUiMs: 9.75,
+});
+assert.equal(commitSummary.sourceDelta, 6);
+assert.deepEqual(commitSummary.stateKeys, ["temperature", "mode"]);
+assert.equal(commitSummary.stateChangeCount, 2);
+assert.deepEqual(commitSummary.patchTargets, ["throughput"]);
+assert.equal(commitSummary.patchCount, 1);
+assert.equal(commitSummary.semanticBlocks, 3);
+assert.equal(commitSummary.newUiBlocks, 1);
+assert.equal(commitSummary.format, "SSE");
+assert.equal(commitSummary.chunks, 5);
+assert.equal(commitSummary.firstUiMs, 9.75);
 
 const wasm = await fs.readFile(new URL("./streamdown.wasm", import.meta.url));
 const instance = await WebAssembly.instantiate(wasm, {});

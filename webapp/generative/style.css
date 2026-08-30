@@ -68,7 +68,7 @@ button.primary:hover { background: #84ebdc; }
 }
 .editor-pane, .preview-pane { min-width: 0; background: #0a1019; }
 .editor-pane { display: grid; grid-template-rows: auto minmax(360px, 1fr) auto auto auto; }
-.preview-pane { display: grid; grid-template-rows: auto 1fr; }
+.preview-pane { display: grid; grid-template-rows: auto auto 1fr; }
 .pane-head {
   display: flex;
   align-items: center;
@@ -86,6 +86,21 @@ button.primary:hover { background: #84ebdc; }
 }
 .history-controls button:disabled { opacity: .38; cursor: not-allowed; }
 .history-controls button:not(:disabled):hover { color: #8fe6db; border-color: #4f8d86; }
+.model-commit {
+  display: grid; grid-template-columns: minmax(160px, .7fr) minmax(280px, 1.3fr);
+  gap: 8px 18px; align-items: center; padding: 11px 18px;
+  border-bottom: 1px solid #182435; background: #08111bd9;
+}
+.model-commit[hidden] { display: none; }
+.model-commit strong { display: block; margin-top: 3px; color: #c6d7e8; font-size: 12px; }
+.model-commit[data-status="undone"] { opacity: .62; }
+.commit-metrics { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.commit-metrics span {
+  border: 1px solid #21364b; border-radius: 999px; padding: 5px 8px;
+  color: #6f879f; background: #0a1520; font: 10px/1 ui-monospace, monospace;
+}
+.commit-metrics b { color: #9ddfd5; font-weight: 700; }
+.commit-details { grid-column: 1 / -1; margin: 0; color: #6f879f; font: 10px/1.45 ui-monospace, monospace; }
 #source {
   width: 100%;
   min-height: 0;
@@ -366,5 +381,8 @@ footer {
   .generated-tab-panel, .generated-form-fields { grid-template-columns: 1fr; }
   .preview-head { align-items: flex-start; }
   .history-controls { flex-wrap: wrap; justify-content: flex-end; }
+  .model-commit { grid-template-columns: 1fr; }
+  .commit-metrics { justify-content: flex-start; }
+  .commit-details { grid-column: 1; }
 }
 

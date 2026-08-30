@@ -141,4 +141,9 @@ This avoids transient screens where, for example, `temperature=58` has already c
 The preview header keeps a bounded response history for LLM/HTTP transitions. Before a successful remote response mutates the application, the runtime snapshots the current Markdown source plus local primitive state. `Undo model` rebuilds the WASM parser/UI from that previous source and restores the local state snapshot; `Redo` reconstructs the response again. Raw DOM nodes are never serialized into history.
 
 History is intentionally bounded to 8 response snapshots, and snapshots are skipped when the source exceeds 4 MiB. Manual `Render now`, local stream replay, and `Reset demo` establish a new baseline and clear model-response history. The browser interaction smoke verifies `58°C + component patch -> Undo -> 42°C + original component -> Redo -> 58°C + patch` and exposes `data-history-smoke="pass"`.
+## Commit Inspector
+
+Each successful model/HTTP transition also produces a bounded semantic commit summary in the preview. The inspector reports source character delta, changed non-sensitive state keys, `type=patch` targets, semantic block count, newly-created UI count, stream chunk count, and measured first-UI latency. It derives this information from the local response/source snapshots; it never serializes DOM nodes or executes model-provided content.
+
+The summary follows Undo/Redo: undo marks the corresponding commit as `undone`, redo returns it to `applied`. Sensitive-looking state names are filtered from the displayed state-key list. The interaction browser smoke currently verifies `1 patch`, `1 new UI`, and `patched: throughput` after the redo path.
 

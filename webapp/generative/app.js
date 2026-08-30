@@ -9,6 +9,7 @@ import { buildInteractionPrompt, buildLlmRequest } from "./llm_request.js";
 import { layoutGraph, parseGraph } from "./graph.js";
 import { statePatch, statePatchSignature } from "./state_patch.js";
 import { componentPatch, componentPatchSignature, mergeComponentPatches } from "./component_patch.js";
+import { summarizeModelCommit } from "./commit_summary.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
 
@@ -163,6 +164,14 @@ const postOnly = document.querySelector("[data-post-only]");
 const connectStreamButton = document.querySelector("#connect-stream");
 const undoModelButton = document.querySelector("#undo-model");
 const redoModelButton = document.querySelector("#redo-model");
+const modelCommit = document.querySelector("#model-commit");
+const commitTitle = document.querySelector("#commit-title");
+const commitSource = document.querySelector("#commit-source");
+const commitState = document.querySelector("#commit-state");
+const commitPatches = document.querySelector("#commit-patches");
+const commitUi = document.querySelector("#commit-ui");
+const commitLatency = document.querySelector("#commit-latency");
+const commitDetails = document.querySelector("#commit-details");
 
 let parser;
 let blockElements = [];
@@ -225,13 +234,37 @@ function updateHistoryControls() {
   redoModelButton.title = modelHistoryFuture.length ? `Redo model response (${modelHistoryFuture.length})` : "No model response to redo";
 }
 
+function renderCommitSummary(summary, status = "applied") {
+  if (!summary) {
+    modelCommit.hidden = true;
+    delete modelCommit.dataset.status;
+    return;
+  }
+  modelCommit.hidden = false;
+  modelCommit.dataset.status = status;
+  const format = summary.format || "MODEL";
+  commitTitle.textContent = `${format} semantic commit · ${status}`;
+  commitSource.textContent = `${summary.sourceDelta >= 0 ? "+" : ""}${summary.sourceDelta}`;
+  commitState.textContent = String(summary.stateChangeCount);
+  commitPatches.textContent = String(summary.patchCount);
+  commitUi.textContent = String(summary.newUiBlocks);
+  commitLatency.textContent = summary.firstUiMs === null ? "—" : `${summary.firstUiMs.toFixed(1)}ms`;
+  const details = [];
+  if (summary.stateKeys.length) details.push(`state: ${summary.stateKeys.join(", ")}`);
+  if (summary.patchTargets.length) details.push(`patched: ${summary.patchTargets.join(", ")}`);
+  details.push(`${summary.semanticBlocks} semantic block${summary.semanticBlocks === 1 ? "" : "s"}`);
+  if (summary.chunks) details.push(`${summary.chunks} stream chunks`);
+  commitDetails.textContent = details.join(" · ");
+}
+
 function clearModelHistory() {
   modelHistoryPast.length = 0;
   modelHistoryFuture.length = 0;
+  renderCommitSummary(null);
   updateHistoryControls();
 }
 
-function recordModelHistory(before) {
+function recordModelHistory(before, meta = {}) {
   if (!before) {
     updateHistoryControls();
     return false;
@@ -241,9 +274,18 @@ function recordModelHistory(before) {
     updateHistoryControls();
     return false;
   }
-  modelHistoryPast.push(before);
+  const summary = summarizeModelCommit({
+    before,
+    after,
+    responseText: meta.responseText || "",
+    format: meta.format || "",
+    chunks: meta.chunks || 0,
+    firstUiMs: meta.firstUiMs ?? null,
+  });
+  modelHistoryPast.push({ snapshot: before, summary });
   if (modelHistoryPast.length > MODEL_HISTORY_LIMIT) modelHistoryPast.splice(0, modelHistoryPast.length - MODEL_HISTORY_LIMIT);
   modelHistoryFuture.length = 0;
+  renderCommitSummary(summary, "applied");
   updateHistoryControls();
   return true;
 }
@@ -267,9 +309,10 @@ function restoreRuntimeHistorySnapshot(snapshot, label) {
 function undoModelResponse() {
   if (!modelHistoryPast.length || remoteController) return false;
   const current = runtimeHistorySnapshot();
-  const previous = modelHistoryPast.pop();
-  if (current) modelHistoryFuture.push(current);
-  const restored = restoreRuntimeHistorySnapshot(previous, "Undid model response");
+  const entry = modelHistoryPast.pop();
+  if (current) modelHistoryFuture.push({ snapshot: current, summary: entry.summary });
+  const restored = restoreRuntimeHistorySnapshot(entry.snapshot, "Undid model response");
+  renderCommitSummary(entry.summary, "undone");
   updateHistoryControls();
   return restored;
 }
@@ -277,9 +320,10 @@ function undoModelResponse() {
 function redoModelResponse() {
   if (!modelHistoryFuture.length || remoteController) return false;
   const current = runtimeHistorySnapshot();
-  const next = modelHistoryFuture.pop();
-  if (current) modelHistoryPast.push(current);
-  const restored = restoreRuntimeHistorySnapshot(next, "Redid model response");
+  const entry = modelHistoryFuture.pop();
+  if (current) modelHistoryPast.push({ snapshot: current, summary: entry.summary });
+  const restored = restoreRuntimeHistorySnapshot(entry.snapshot, "Redid model response");
+  renderCommitSummary(entry.summary, "applied");
   updateHistoryControls();
   return restored;
 }
@@ -690,7 +734,7 @@ async function runLlmInteraction(instruction) {
     renderOperations(parser.finish());
     endSemanticCommitBarrier();
     source.value += prefix + received;
-    recordModelHistory(historyBefore);
+    recordModelHistory(historyBefore, { responseText: received, format: result.format, chunks: result.chunks, firstUiMs: firstUiAt });
     setRuntimeState("LIVE");
     deltaStatus.textContent = `LLM ${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
     return result;
@@ -1573,7 +1617,7 @@ remoteForm.addEventListener("submit", async event => {
     renderOperations(parser.finish());
     endSemanticCommitBarrier();
     source.value = received;
-    recordModelHistory(historyBefore);
+    recordModelHistory(historyBefore, { responseText: received, format: result.format, chunks: result.chunks, firstUiMs: firstUiAt });
     setRuntimeState("LIVE");
     deltaStatus.textContent = `${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
   } catch (error) {
@@ -1672,6 +1716,7 @@ async function runInteractionSmoke() {
         && undoThroughput?.querySelector(".metric-value")?.textContent?.trim() === "2.4M"
         && !preview.querySelector('[data-ui-id="interaction-result"]')
         && !source.value.includes("## Model continuation")
+        && modelCommit.dataset.status === "undone"
         && !redoModelButton.disabled;
 
       const redid = redoModelResponse();
@@ -1683,7 +1728,11 @@ async function runInteractionSmoke() {
         && redoThroughput?.querySelector("h3")?.textContent?.trim() === "Model-updated throughput"
         && redoThroughput?.querySelector(".metric-value")?.textContent?.trim() === "3.1M"
         && redoResult?.querySelector(".metric-value")?.textContent?.trim() === "58"
-        && source.value.includes("## Model continuation");
+        && source.value.includes("## Model continuation")
+        && modelCommit.dataset.status === "applied"
+        && commitPatches.textContent === "1"
+        && commitUi.textContent === "1"
+        && commitDetails.textContent.includes("throughput");
 
       root.dataset.historySmoke = undoPassed && redoPassed ? "pass" : "fail";
       root.dataset.interactionSmoke = responsePassed && undoPassed && redoPassed ? "pass" : "fail";
