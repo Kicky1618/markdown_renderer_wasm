@@ -1,5 +1,6 @@
 const MAX_CONCURRENT_PACKS = 16;
 const MAX_FAILED_PACKS = 128;
+const MAX_PACK_BYTES = 16 * 1024;
 const SAFE_LANGUAGE = /^[a-z0-9_+#-]+$/;
 const inFlight = new Map();
 const failedAliases = new Map();
@@ -69,7 +70,13 @@ export function loadLanguagePack(name) {
       const url = new URL(`./langpacks/${encodeURIComponent(alias)}.slp`, import.meta.url);
       const response = await fetch(url, { cache: "force-cache" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const binary = new Uint8Array(await response.arrayBuffer());
+      const declaredLength = Number(response.headers.get("content-length"));
+      if (Number.isFinite(declaredLength) && declaredLength > MAX_PACK_BYTES) {
+        throw new Error(`langpack too large: ${declaredLength} bytes`);
+      }
+      const buffer = await response.arrayBuffer();
+      if (buffer.byteLength > MAX_PACK_BYTES) throw new Error(`langpack too large: ${buffer.byteLength} bytes`);
+      const binary = new Uint8Array(buffer);
       const packAliases = readPackAliases(binary);
       const wasm = await import("./pkg/streamdown_web.js");
       if (packAliases.some(packAlias => loadedAliases.has(packAlias))) {
