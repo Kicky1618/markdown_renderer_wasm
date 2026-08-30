@@ -119,3 +119,53 @@ provides antialiased coverage for the GPU renderers. The fallback includes JIS X
 back to U+FFFD instead of disappearing. Canvas2D loads the same files as web fonts.
 Glyph positions remain integer-snapped, while the rasterized outline coverage carries
 the antialiasing, so scrolling does not blur the text.
+
+## LLM semantic Markdown and Generative UI
+
+The core parser keeps LLM-specific syntax compatible with ordinary Markdown
+renderers. Semantic constructs are normalized onto existing AST nodes instead
+of requiring a second parser or a JSON side channel:
+
+```md
+Fact [[cite:doc-42|design spec]] is reflected in @[artifact:plot-1].
+
+:::llm tool name=search id=q1
+{"query":"streaming markdown wasm"}
+:::
+
+:::llm ui type=metric label="Tokens / second" value=42000
+:::
+```
+
+`[[cite:source|label]]` becomes a normal link with an `llm:cite:` destination,
+`@[kind:id]` becomes a link with an `llm:<kind>:<id>` destination, and
+`:::llm ...` becomes a code block whose language starts with `llm:`. This means
+the normal Viewer can still render the document when it does not opt into the
+extra semantics. Open semantic fences stream through the same tail-splice path
+as code fences, so a large tool result or generated artifact is not retransmitted
+on every token.
+
+The Generative UI page at `/generative/` interprets only the allowlisted
+`:::llm ui` components documented in `generative/README.md`. Unknown kinds,
+unknown components, malformed attributes, and ordinary Markdown remain data;
+they are never evaluated as JavaScript or injected as arbitrary HTML. Actions
+are restricted to the built-in state operations, expressions use the dedicated
+safe evaluator, and the canvas component accepts only its fixed drawing DSL.
+
+A useful local verification loop is:
+
+```sh
+./webapp/build.sh
+npm test
+node webapp/generative/tests.mjs
+python3 -m http.server 8080 --directory webapp
+```
+
+Then compare both views of the same streaming protocol:
+
+- `http://localhost:8080/` — canvas Markdown viewer with WebGPU → WebGL2 → Canvas2D fallback.
+- `http://localhost:8080/generative/` — semantic `:::llm ui` promotion.
+
+For parser-level syntax and wire-format details, see `../LLM_EXTENSIONS.md` and
+`../FORMAT.md`. The command-line semantic inspection tools live in `../tools/`.
+
