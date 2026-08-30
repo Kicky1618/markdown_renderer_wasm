@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	cypher
+keywords	match	optional	where	return	with	create	merge	delete	detach	set	remove	unwind	call	yield	union	all	order	by	skip	limit	as	distinct	case	when	then	else	end	foreach	in	starts	ends	contains	is	null	true	false	and	or	xor	not
+flags	case_insensitive_keywords	slash_comments	block_comments

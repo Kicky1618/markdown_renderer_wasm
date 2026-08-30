@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	upc	unified-parallel-c
+keywords	shared	strict	relaxed	upc_forall	THREADS	MYTHREAD	upc_barrier	upc_notify	upc_wait	upc_fence	upc_lock	upc_unlock	upc_memput	upc_memget	upc_memcpy	upc_memset	if	else	for	while	do	switch	case	break	continue	return	typedef	struct	union	enum	static	extern	const	volatile	restrict	inline
+type_declarations	struct	union	enum	typedef
+flags	slash_comments	block_comments	preprocessor

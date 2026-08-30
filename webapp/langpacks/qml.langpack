@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	qml
+keywords	import	as	pragma	property	readonly	required	default	alias	signal	function	on	id	parent	anchors	states	transitions	state	when	true	false	null	var	let	const	if	else	for	while	return	component	inline	enum
+builtin_types	int	real	double	bool	string	url	color	date	time	datetime	rect	point	size	vector2d	vector3d	vector4d	matrix4x4	quaternion	list	var
+function_declarations	function
+flags	slash_comments	block_comments	javascript_lexing

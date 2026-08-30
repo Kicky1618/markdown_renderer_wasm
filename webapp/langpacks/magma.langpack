@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	magma
+keywords	and	assert	assert2	assert3	assigned	break	case	catch	continue	declare	delete	do	elif	else	end	enum	error	error	if	for	forall	forward	freeze	function	if	import	intrinsic	local	not	or	procedure	record	repeat	require	requirege	requirerange	return	select	then	time	try	until	verbose	when	where	while	true	false
+function_declarations	function	procedure	intrinsic
+type_declarations	record	enum
+flags	slash_comments	block_comments

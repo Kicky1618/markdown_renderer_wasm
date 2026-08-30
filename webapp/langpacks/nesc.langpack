@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	nesc
+keywords	module	configuration	interface	implementation	components	provides	uses	command	event	task	async	atomic	norace	unique	uniqueCount	call	signal	post	new	if	else	switch	case	for	while	do	return	typedef	struct	enum	nx_struct	nx_union	generic
+type_declarations	module	configuration	interface	struct	enum	typedef
+flags	slash_comments	block_comments	preprocessor

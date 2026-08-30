@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	oz
+keywords	andthen	at	attr	case	catch	choice	class	cond	declare	define	dis	div	do	else	elseif	end	export	feat	finally	for	from	fun	functor	if	import	in	local	lock	meth	mod	not	of	or	proc	prop	raise	require	self	skip	then	thread	try	unit	until	meth	end	true	false	nil
+function_declarations	fun	proc	meth
+type_declarations	class
+flags	percent_comments

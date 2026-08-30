@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	cilk	cilkplus
+keywords	cilk_spawn	cilk_sync	cilk_for	_Cilk_spawn	_Cilk_sync	_Cilk_for	if	else	for	while	do	switch	case	default	break	continue	return	goto	sizeof	typedef	struct	union	enum	static	extern	const	volatile	restrict	inline
+type_declarations	struct	union	enum	typedef
+flags	slash_comments	block_comments	preprocessor

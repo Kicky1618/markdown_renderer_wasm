@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	squirrel
+keywords	base	break	case	catch	class	clone	continue	const	default	delete	else	enum	extends	for	foreach	function	if	in	instanceof	local	null	resume	return	switch	this	throw	true	try	typeof	while	yield	constructor	static
+builtin_types	integer	float	bool	string	table	array	class	instance	generator	closure	thread	userdata	null
+function_declarations	function
+type_declarations	class	enum
+flags	slash_comments	block_comments

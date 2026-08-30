@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	promql
+keywords	and	or	unless	by	without	on	ignoring	group_left	group_right	offset	bool
+flags	hash_comments

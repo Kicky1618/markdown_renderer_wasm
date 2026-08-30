@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	objectscript	cache-objectscript
+keywords	Class	Extends	Include	Import	Method	ClassMethod	Property	Parameter	Index	Relationship	Query	Trigger	XData	Storage	As	Of	Public	Private	Internal	Final	Abstract	ProcedureBlock	CodeMode	New	Quit	Return	Set	Kill	Do	If	Else	ElseIf	For	While	Try	Catch	Throw	Write	Read	Open	Close	Use	Lock	Merge	Job	Hang	Goto	true	false
+function_declarations	Method	ClassMethod
+type_declarations	Class
+flags	case_insensitive_keywords	slash_comments	block_comments

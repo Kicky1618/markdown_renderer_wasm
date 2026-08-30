@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	tex	latex
+keywords	begin	end	documentclass	usepackage	newcommand	renewcommand	def	let	input	include	section	subsection	chapter	label	ref	cite	item	textbf	textit	emph	hbox	vbox	mathrm	mathbf	frac	sqrt	left	right
+flags	percent_comments

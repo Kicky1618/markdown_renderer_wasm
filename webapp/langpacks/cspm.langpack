@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	cspm
+keywords	assert	channel	datatype	subtype	external	transparent	nametype	module	exports	instance	timed	if	then	else	let	within	and	or	not	true	false
+type_declarations	datatype	subtype	nametype	module
+flags	dash_comments	brace_dash_comments	nested_block_comments

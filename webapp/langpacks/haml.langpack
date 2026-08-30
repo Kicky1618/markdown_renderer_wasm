@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	haml
+keywords	doctype	if	else	elsif	unless	each	yield	content_for	capture	haml_concat	haml_tag
+flags	hash_comments	hyphen_identifiers	question_identifiers	bang_identifiers

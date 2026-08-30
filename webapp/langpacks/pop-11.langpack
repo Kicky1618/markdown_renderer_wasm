@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	pop-11	pop11
+keywords	define	enddefine	procedure	endprocedure	lvars	vars	constant	section	endsection	if	then	elseif	else	endif	unless	endunless	for	endfor	while	endwhile	repeat	endrepeat	until	switchon	case	else	endswitchon	return	quitloop	nextloop	true	false	undef
+function_declarations	define	procedure
+flags	semicolon_comments

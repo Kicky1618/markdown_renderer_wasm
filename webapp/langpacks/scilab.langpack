@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	scilab
+keywords	break	case	catch	continue	do	else	elseif	end	endfunction	endselect	for	function	global	if	pause	resume	return	select	then	try	while	true	false	null
+function_declarations	function
+flags	slash_comments

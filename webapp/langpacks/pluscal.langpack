@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	pluscal
+keywords	algorithm	fair	process	procedure	macro	variables	variable	begin	end	while	do	either	or	with	await	if	then	else	goto	return	call	print	assert	skip	when	define	true	false
+function_declarations	procedure	macro
+flags	paren_star_comments	nested_block_comments

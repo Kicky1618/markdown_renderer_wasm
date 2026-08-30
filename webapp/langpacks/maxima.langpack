@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	maxima
+keywords	and	do	else	elseif	false	for	from	if	in	inf	thru	unless	while	then	or	not	true	local	block	lambda	return	ev	kill	assume	declare	matchdeclare	tellsimp	tellsimpafter	let	defrule	apply1	apply2
+flags	block_comments

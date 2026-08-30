@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	gams
+keywords	Sets	Set	Alias	Parameters	Parameter	Scalars	Scalar	Table	Variables	Variable	Equations	Equation	Model	Models	Solve	using	minimizing	maximizing	Display	Option	Options	Loop	While	For	If	Else	ElseIf	Abort	Put	File	Files	Execute	Execute_Load	Execute_Unload	Include	true	false	yes	no
+flags	case_insensitive_keywords

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	jinja2	jinja
+keywords	if	elif	else	endif	for	endfor	in	is	not	and	or	set	block	endblock	extends	include	import	from	macro	endmacro	call	endcall	filter	endfilter	with	endwith	autoescape	endautoescape	true	false	none	recursive
+flags	hash_comments

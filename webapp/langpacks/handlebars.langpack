@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	handlebars	hbs
+keywords	if	unless	each	with	lookup	log	this	else	true	false	null	undefined
+flags	bang_comments	hyphen_identifiers

@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	fortress
+keywords	api	component	comprises	export	import	trait	object	extends	excludes	comprises	getter	setter	abstract	test	property	private	local	nat	type	opr	where	if	then	else	elif	end	for	while	do	case	of	try	catch	finally	throw	return	spawn	atomic	also	true	false
+type_declarations	trait	object	api	component	type
+flags	paren_star_comments	nested_block_comments

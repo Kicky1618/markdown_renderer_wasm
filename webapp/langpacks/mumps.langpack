@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	mumps
+keywords	BREAK	CLOSE	DO	ELSE	FOR	GOTO	HANG	HALT	IF	JOB	KILL	LOCK	MERGE	NEW	OPEN	QUIT	READ	SET	USE	VIEW	WRITE	XECUTE
+flags	case_insensitive_keywords	semicolon_comments

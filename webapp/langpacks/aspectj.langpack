@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	aspectj
+keywords	aspect	pointcut	adviceexecution	after	around	before	call	cflow	cflowbelow	execution	get	handler	if	initialization	parents	precedence	preinitialization	returning	set	softening	staticinitialization	target	this	throwing	within	withincode	declare	warning	error	parents	soft	precedence	privileged	class	interface	extends	implements	public	protected	private	static	final	abstract	synchronized	native	transient	volatile	strictfp	new	return	throw	throws	try	catch	finally	if	else	switch	case	default	for	while	do	break	continue	instanceof	true	false	null
+type_declarations	aspect	class	interface
+flags	slash_comments	block_comments

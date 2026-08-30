@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	ceylon
+keywords	assembly	module	package	import	alias	class	interface	object	given	value	assign	void	function	new	of	extends	satisfies	abstracts	in	out	return	throw	try	catch	finally	then	else	if	switch	case	for	while	break	continue	dynamic	let	this	outer	super	is	exists	nonempty	assert	true	false	null
+builtin_types	Anything	Object	Null	String	Character	Integer	Float	Boolean	Byte	Tuple	Iterable	Sequential	Sequence	Callable
+type_declarations	class	interface	object	alias
+flags	slash_comments	block_comments

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	apache	httpd	apacheconf	apache-httpd
+keywords	ServerRoot	Listen	LoadModule	User	Group	ServerAdmin	ServerName	DocumentRoot	Directory	DirectoryIndex	ErrorLog	CustomLog	LogLevel	AllowOverride	Require	Options	RewriteEngine	RewriteRule	RewriteCond	ProxyPass	ProxyPassReverse	VirtualHost	IfModule	Location	FilesMatch	Header	SetEnv	Include	IncludeOptional
+flags	hash_comments

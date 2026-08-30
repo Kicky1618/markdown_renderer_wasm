@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	qsharp	q#
+keywords	namespace	open	internal	operation	function	newtype	body	adjoint	controlled	is	self	auto	distribute	intrinsic	invert	let	mutable	set	use	borrow	within	apply	repeat	until	fixup	for	in	while	if	elif	else	return	fail	true	false	PauliI	PauliX	PauliY	PauliZ	Zero	One
+builtin_types	Qubit	Result	Pauli	Range	String	Unit	Int	BigInt	Double	Bool	Array	Tuple
+function_declarations	operation	function
+type_declarations	newtype	namespace
+flags	slash_comments	block_comments

@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	modelica
+keywords	algorithm	and	annotation	assert	block	break	class	connect	connector	constant	constrainedby	der	discrete	each	else	elseif	elsewhen	encapsulated	end	enumeration	equation	expandable	extends	external	false	final	flow	for	function	if	import	impure	in	initial	inner	input	loop	model	not	operator	or	outer	output	package	parameter	partial	protected	public	pure	record	redeclare	replaceable	return	stream	then	true	type	when	while	within
+function_declarations	function
+type_declarations	class	model	block	connector	package	record	type
+flags	slash_comments	block_comments

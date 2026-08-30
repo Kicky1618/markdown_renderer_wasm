@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	openqasm	qasm
+keywords	OPENQASM	include	gate	opaque	qreg	creg	bit	qubit	int	uint	float	angle	bool	duration	stretch	const	let	measure	reset	barrier	delay	if	else	while	for	in	break	continue	end	return	input	output	def	extern	box	ctrl	negctrl	inv	pow	true	false
+builtin_types	bit	qubit	int	uint	float	angle	bool	duration	stretch
+function_declarations	gate	def	extern
+flags	slash_comments	block_comments

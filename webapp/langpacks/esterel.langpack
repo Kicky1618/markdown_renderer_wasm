@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	esterel
+keywords	module	end	module	input	output	inputoutput	signal	constant	type	relation	function	procedure	task	sensor	run	copymodule	emit	sustain	present	then	else	end	present	await	every	loop	end	loop	repeat	times	end	repeat	abort	when	end	abort	weak	abort	trap	exit	end	trap	suspend	when	end	suspend	halt	pause	nothing	parallel	do	watching	handle	var	in	end	var	if	then	elsif	else	end	if	case	of	end	case	true	false
+type_declarations	module	type
+flags	percent_comments

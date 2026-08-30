@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	wren
+keywords	as	break	class	construct	continue	else	false	for	foreign	if	import	in	is	null	return	static	super	this	true	var	while
+type_declarations	class
+flags	slash_comments	block_comments

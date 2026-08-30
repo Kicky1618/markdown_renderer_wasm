@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	gremlin
+keywords	graph	traversal	withStrategies	V	E	addV	addE	from	to	has	hasLabel	hasId	values	valueMap	property	out	in	both	outE	inE	bothE	where	filter	map	flatMap	sideEffect	order	by	group	groupCount	project	select	path	repeat	emit	until	times	simplePath	dedup	fold	unfold	count	sum	min	max	mean	inject	constant	coalesce	choose	union	match	drop
+flags	slash_comments	block_comments

@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	pawn	sourcepawn	sp
+keywords	assert	break	case	const	continue	default	defined	do	else	enum	exit	for	forward	goto	if	native	new	operator	public	return	sizeof	sleep	state	static	stock	switch	tagof	this	while	methodmap	property	view_as	typeset	typedef	struct	enum	struct
+builtin_types	bool	char	int	float	any	void	Handle	StringMap	ArrayList
+type_declarations	enum	methodmap	typeset	typedef	struct
+flags	slash_comments	block_comments	preprocessor

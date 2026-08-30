@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	ampl
+keywords	set	param	var	arc	minimize	maximize	subject	to	s.t.	submodel	table	check	objective	data	model	include	commands	problem	suffix	drop	restore	let	fix	unfix	reset	update	solve	option	display	print	printf	if	then	else	for	in	while	repeat	until	break	continue	ordered	by	within	default	symbolic	integer	binary	logical	true	false
+flags	hash_comments

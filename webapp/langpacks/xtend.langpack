@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	xtend
+keywords	class	interface	enum	annotation	package	import	extends	implements	def	override	dispatch	create	new	this	super	if	else	switch	case	for	while	do	try	catch	finally	throw	return	synchronized	typeof	as	instanceof	val	var	static	public	protected	private	abstract	final	strictfp	native	volatile	transient	true	false	null
+builtin_types	boolean	byte	short	int	long	char	float	double	void	String	Object
+function_declarations	def
+type_declarations	class	interface	enum	annotation
+flags	slash_comments	block_comments

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	ejs
+keywords	const	let	var	function	return	if	else	for	while	switch	case	break	continue	class	extends	new	this	async	await	import	export	from	true	false	null	undefined
+flags	slash_comments	block_comments	dollar_identifiers	javascript_lexing

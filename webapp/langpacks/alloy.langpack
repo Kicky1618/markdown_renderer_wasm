@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	alloy
+keywords	module	open	as	sig	abstract	extends	in	one	lone	some	no	enum	fact	pred	fun	assert	check	run	for	but	exactly	expect	let	all	sum	disj	set	seq	univ	none	iden	Int	int	String	if	then	else	implies	iff	and	or	not	else
+function_declarations	pred	fun
+type_declarations	sig	enum
+flags	slash_comments	dash_comments	block_comments

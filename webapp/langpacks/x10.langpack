@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	x10
+keywords	class	struct	interface	extends	implements	public	protected	private	static	final	transient	abstract	native	property	val	var	def	operator	this	super	new	return	throw	throws	try	catch	finally	if	else	switch	case	default	for	while	do	break	continue	async	finish	at	ateach	atomic	when	clocked	here	place	true	false	null	instanceof	as	in
+builtin_types	Boolean	Byte	Char	Short	Int	Long	Float	Double	UByte	UShort	UInt	ULong	String	Any	Rail	Array	Dist	Place	Region
+function_declarations	def
+type_declarations	class	struct	interface
+flags	slash_comments	block_comments

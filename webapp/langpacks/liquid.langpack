@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	liquid
+keywords	assign	capture	case	when	else	endcase	cycle	decrement	echo	elsif	for	endfor	if	endif	include	increment	liquid	raw	endraw	render	tablerow	endtablerow	unless	endunless	break	continue	and	or	contains	true	false	nil	blank	empty
+flags	hyphen_identifiers

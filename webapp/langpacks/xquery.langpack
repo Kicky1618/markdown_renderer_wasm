@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	xquery
+keywords	xquery	version	encoding	module	namespace	declare	default	boundary-space	construction	ordering	copy-namespaces	import	schema	function	variable	external	for	let	where	order	by	stable	return	if	then	else	typeswitch	case	default	switch	try	catch	some	every	satisfies	instance	of	treat	as	castable	cast	validate	updating	insert	delete	replace	rename	copy	modify	transform
+flags	hyphen_identifiers

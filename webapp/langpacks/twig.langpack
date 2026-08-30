@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	twig
+keywords	autoescape	block	do	embed	extends	filter	flush	for	from	if	import	include	macro	sandbox	set	use	verbatim	with	endautoescape	endblock	endembed	endfilter	endfor	endif	endmacro	endsandbox	endset	endverbatim	endwith	else	elseif	in	is	not	and	or	true	false	none	null
+flags	hash_comments

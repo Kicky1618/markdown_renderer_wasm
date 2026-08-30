@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	promela
+keywords	active	proctype	init	never	trace	notrace	typedef	mtype	chan	bit	bool	byte	short	int	unsigned	pid	if	fi	do	od	for	select	atomic	d_step	unless	timeout	else	goto	break	skip	assert	printf	len	empty	nempty	full	nfull	run	true	false	of
+type_declarations	proctype	typedef	mtype
+flags	slash_comments	block_comments

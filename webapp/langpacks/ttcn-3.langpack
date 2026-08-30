@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	ttcn-3	ttcn3
+keywords	module	import	from	all	except	group	type	record	set	union	enumerated	port	component	signature	function	testcase	altstep	const	template	var	timer	external	runs	on	system	return	if	else	select	case	for	while	do	break	continue	goto	activate	deactivate	alt	interleave	label	repeat	connect	map	send	receive	call	reply	raise	catch	getcall	getreply	check	trigger	value	sender	true	false	omit	pass	fail	inconc	error	none
+function_declarations	function	testcase	altstep
+type_declarations	module	type	record	set	union	enumerated	component	port	signature
+flags	slash_comments	block_comments

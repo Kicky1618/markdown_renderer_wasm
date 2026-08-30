@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	seed7
+keywords	const	var	ref	inout	func	begin	end	if	then	else	elsif	case	when	otherwise	for	while	repeat	until	return	raise	exception	new	type	struct	array	hash	set	interface	is	do	local	global	forward	include	import	true	false	NIL
+function_declarations	func
+type_declarations	type	struct	interface
+flags	hash_comments

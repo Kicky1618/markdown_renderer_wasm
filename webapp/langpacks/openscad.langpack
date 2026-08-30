@@ -1,0 +1,5 @@
+STREAMDOWN_LANGPACK	1
+aliases	openscad
+keywords	module	function	if	else	for	intersection_for	let	each	assert	echo	true	false	undef	include	use
+function_declarations	module	function
+flags	slash_comments	block_comments

@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	maple
+keywords	and	assuming	break	by	catch	description	do	done	elif	else	end	error	export	fi	finally	for	from	global	if	implies	in	intersect	local	minus	mod	module	next	not	od	option	options	or	proc	quit	read	return	save	stop	then	to	try	union	use	uses	while	xor	true	false	NULL
+function_declarations	proc
+type_declarations	module
+flags	hash_comments

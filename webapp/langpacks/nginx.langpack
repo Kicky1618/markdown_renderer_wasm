@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	nginx	nginxconf	nginx-config
+keywords	user	worker_processes	events	http	server	location	listen	server_name	root	index	proxy_pass	proxy_set_header	upstream	include	access_log	error_log	return	rewrite	try_files	ssl	ssl_certificate	ssl_certificate_key	gzip	map	limit_req_zone	fastcgi_pass	fastcgi_param
+flags	hash_comments

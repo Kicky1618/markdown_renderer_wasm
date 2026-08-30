@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	tads	tads3
+keywords	class	object	function	method	local	inherited	replace	modify	property	if	else	while	do	for	foreach	switch	case	default	break	continue	return	throw	try	catch	finally	new	self	nil	true	enum	dictionary	grammar	VerbRule	DefineTAction	DefineIAction
+function_declarations	function	method
+type_declarations	class	object
+flags	slash_comments	block_comments

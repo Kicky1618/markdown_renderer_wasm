@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	angelscript
+keywords	and	auto	break	case	cast	catch	class	const	continue	default	do	else	enum	false	final	for	from	funcdef	get	if	import	in	inout	interface	is	mixin	namespace	not	null	or	out	override	private	protected	return	set	shared	super	switch	this	throw	true	try	typedef	uint	void	while	xor
+builtin_types	bool	int	int8	int16	int32	int64	uint	uint8	uint16	uint32	uint64	float	double	string	void	auto
+type_declarations	class	enum	interface	namespace	typedef
+flags	slash_comments	block_comments

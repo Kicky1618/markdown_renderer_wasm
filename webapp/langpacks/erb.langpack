@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	erb
+keywords	if	elsif	else	end	unless	while	until	for	in	do	def	class	module	begin	rescue	ensure	case	when	then	yield	return	true	false	nil	self
+flags	hash_comments	question_identifiers	bang_identifiers

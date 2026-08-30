@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	cfml	coldfusion
+keywords	component	function	property	var	local	arguments	if	else	elseif	for	while	switch	case	default	try	catch	finally	throw	return	new	true	false	null	import	public	private	remote	package	required	output	access
+flags	slash_comments	block_comments

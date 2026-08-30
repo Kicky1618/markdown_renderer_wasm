@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	dax
+keywords	VAR	RETURN	DEFINE	MEASURE	EVALUATE	ORDER	BY	START	AT	ASC	DESC	TRUE	FALSE	IN	NOT	AND	OR
+flags	case_insensitive_keywords	slash_comments	block_comments

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	slim
+keywords	doctype	if	else	elsif	unless	each	yield	content_for	capture	include	extends	block
+flags	hash_comments	hyphen_identifiers	question_identifiers	bang_identifiers

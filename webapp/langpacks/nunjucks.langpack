@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	nunjucks	njk
+keywords	block	endblock	extends	include	import	from	macro	endmacro	call	endcall	if	elif	else	endif	for	endfor	in	set	filter	endfilter	raw	endraw	true	false	none	and	or	not
+flags	hash_comments

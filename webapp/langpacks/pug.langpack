@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	pug	jade
+keywords	doctype	extends	block	append	prepend	include	mixin	case	when	default	each	while	if	unless	else	yield
+flags	slash_comments	hyphen_identifiers

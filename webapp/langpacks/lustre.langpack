@@ -1,0 +1,6 @@
+STREAMDOWN_LANGPACK	1
+aliases	lustre
+keywords	node	returns	let	tel	var	const	type	enum	struct	if	then	else	with	pre	current	when	merge	every	assert	assume	guarantee	automaton	state	until	unless	restart	resume	last	fby	true	false
+function_declarations	node
+type_declarations	type	enum	struct
+flags	dash_comments	paren_star_comments

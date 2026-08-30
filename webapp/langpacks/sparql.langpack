@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	sparql
+keywords	select	construct	describe	ask	where	from	named	prefix	base	optional	graph	union	filter	bind	values	service	minus	exists	not	distinct	reduced	order	by	asc	desc	limit	offset	group	having	as	in	a	true	false	undef
+flags	case_insensitive_keywords	hash_comments

@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	minizinc	mzn
+keywords	annotation	any	array	bool	constraint	else	elseif	endif	enum	float	function	if	in	include	int	list	maximize	minimize	of	op	output	par	predicate	record	satisfy	set	solve	string	test	then	tuple	type	var	where	true	false
+builtin_types	bool	int	float	string	ann
+function_declarations	function	predicate	test
+type_declarations	enum	record	tuple	type
+flags	percent_comments

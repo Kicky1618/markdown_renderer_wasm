@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	stata
+keywords	if	else	in	using	by	bysort	foreach	forvalues	while	quietly	noisily	capture	program	define	end	syntax	args	local	global	scalar	matrix	tempvar	tempfile	preserve	restore	return	exit	continue	break	generate	replace	egen	summarize	regress	logit	probit	tabulate	merge	append	reshape	sort	keep	drop	rename	label	encode	decode	collapse	contract	expand
+flags	slash_comments	block_comments

@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	rpg	rpgle	rpgile
+keywords	ctl-opt	dcl-s	dcl-c	dcl-ds	dcl-pr	dcl-pi	dcl-proc	end-proc	if	elseif	else	endif	select	when	other	endsl	for	endfor	dow	dou	enddo	monitor	on-error	endmon	return	eval	callp	setll	reade	chain	update	write	delete	exfmt	true	false
+flags	case_insensitive_keywords	slash_comments	hyphen_identifiers
