@@ -1,7 +1,18 @@
 const utf8Encoder = new TextEncoder();
 
-function classifyLinePrefix(line) {
+function compactLinePrefix(line) {
   const trimmed = line.trimStart();
+  if (trimmed === "") return "";
+
+  let colons = 0;
+  while (colons < trimmed.length && trimmed.charCodeAt(colons) === 58) colons += 1;
+  if (colons >= 3 && colons === trimmed.length) return ":::";
+  if (colons > 3) return `:::${trimmed.slice(colons)}`;
+  return trimmed;
+}
+
+function classifyLinePrefix(line) {
+  const trimmed = line;
   if (trimmed === "") return { retain: true, forceNext: false, confirmed: false };
 
   let colons = 0;
@@ -91,6 +102,7 @@ export class SemanticChangeDetector {
       return;
     }
 
+    this.linePrefix = compactLinePrefix(this.linePrefix);
     const classification = classifyLinePrefix(this.linePrefix);
     this.headerCandidate = classification.forceNext;
     this.headerLine = classification.confirmed;

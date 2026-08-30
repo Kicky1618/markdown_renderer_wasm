@@ -13,6 +13,15 @@ assert.deepEqual(decisions(["before ", "@[artifact:x", "] after"]), [false, true
 assert.deepEqual(decisions(["plain", "\n", "plain"]), [false, true, false]);
 assert.deepEqual(decisions([":::", "\n"]), [true, true]);
 
+const boundedWhitespace = new SemanticChangeDetector();
+for (let i = 0; i < 10000; i += 1) boundedWhitespace.shouldObserve(" ");
+assert.equal(boundedWhitespace.linePrefix, "");
+
+const boundedColons = new SemanticChangeDetector();
+for (let i = 0; i < 10000; i += 1) boundedColons.shouldObserve(":");
+assert.equal(boundedColons.linePrefix, ":::");
+assert.equal(boundedColons.shouldObserve("llm tool id=x"), true);
+
 const reset = new SemanticChangeDetector();
 reset.shouldObserve(":::ll");
 reset.reset();
