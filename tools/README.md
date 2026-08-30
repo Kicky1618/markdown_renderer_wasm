@@ -42,4 +42,4 @@ node tools/wasm-bench.mjs --rounds=100000 --warmup=5000
 node tools/wasm-bench.mjs --rounds=100000 --json
 ```
 
-It currently measures plain token streaming, syntax-heavy Markdown boundaries, an open fenced code block, and a `:::llm` semantic payload. Use `--wasm=PATH` to compare two WASM builds without changing the tool.
+It currently measures plain token streaming, syntax-heavy Markdown boundaries, an open fenced code block, and a `:::llm` semantic payload. Each scenario is measured through both `append()` and the allocation-light `appendInPlace()` path when available. Use `--wasm=PATH` to compare two WASM builds without changing the tool.

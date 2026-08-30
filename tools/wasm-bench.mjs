@@ -35,20 +35,24 @@ async function makeParser(wasm) {
   return Streamdown.load(wasm);
 }
 
-async function benchScenario(wasm, { name, setup = "", chunk, rounds, warmup }) {
+async function benchScenario(wasm, { name, setup = "", chunk, rounds, warmup, method = "append" }) {
   const parser = await makeParser(wasm);
   try {
-    if (setup) parser.append(setup);
-    for (let i = 0; i < warmup; i++) parser.append(chunk);
+    const append = method === "appendInPlace" && typeof parser.appendInPlace === "function"
+      ? (value) => parser.appendInPlace(value)
+      : (value) => parser.append(value);
+    if (setup) append(setup);
+    for (let i = 0; i < warmup; i++) append(chunk);
     parser.reset();
-    if (setup) parser.append(setup);
+    if (setup) append(setup);
 
     const start = performance.now();
-    for (let i = 0; i < rounds; i++) parser.append(chunk);
+    for (let i = 0; i < rounds; i++) append(chunk);
     const elapsedMs = performance.now() - start;
     const bytes = rounds * new TextEncoder().encode(chunk).length;
     return {
       name,
+      method,
       rounds,
       bytes,
       elapsedMs,
@@ -72,11 +76,14 @@ const scenarios = [
 
 const results = [];
 for (const scenario of scenarios) {
-  results.push(await benchScenario(wasm, {
-    ...scenario,
-    rounds: options.rounds,
-    warmup: Math.min(options.warmup, options.rounds),
-  }));
+  for (const method of ["append", "appendInPlace"]) {
+    results.push(await benchScenario(wasm, {
+      ...scenario,
+      method,
+      rounds: options.rounds,
+      warmup: Math.min(options.warmup, options.rounds),
+    }));
+  }
 }
 
 const report = {
@@ -91,7 +98,7 @@ if (options.json) {
 } else {
   for (const result of results) {
     console.log(
-      `${result.name.padEnd(18)} ${result.appendsPerSecond.toFixed(0).padStart(10)} append/s  ` +
+      `${`${result.name}/${result.method === "appendInPlace" ? "inplace" : "append"}`.padEnd(27)} ${result.appendsPerSecond.toFixed(0).padStart(10)} append/s  ` +
       `${result.mibPerSecond.toFixed(1).padStart(7)} MiB/s  ${result.elapsedMs.toFixed(2)} ms`,
     );
   }
