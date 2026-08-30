@@ -82,3 +82,38 @@ node tools/semantic-timeline.mjs examples/llm_graph.md --chunk=5 --ndjson
 ```
 
 Events contain `observedAtByte` and `chunkIndex`. A node emits `ready` only after it is closed and every declared `depends=kind:id` dependency exists, is closed, and is itself ready. Malformed or unresolved dependencies therefore never become ready.
+
+
+## `semantic-scheduler.mjs`
+
+`SemanticScheduler` executes semantic `ready` events only after runtime dependencies have completed successfully. Timeline readiness is syntactic; scheduler completion is operational. This prevents an artifact from running merely because its upstream tool block has finished streaming.
+
+```js
+import { SemanticScheduler } from "./tools/semantic-scheduler.mjs";
+
+const scheduler = new SemanticScheduler({
+  concurrency: 4,
+  runners: {
+    tool: async (node) => runTool(node),
+    artifact: async (node, { dependencyResults }) =>
+      buildArtifact(node, dependencyResults),
+    ui: async (node, { dependencyResults }) =>
+      renderUi(node, dependencyResults),
+  },
+});
+
+scheduler.updateGraph(graph);
+for (const event of timelineEvents) scheduler.accept(event);
+await scheduler.idle();
+```
+
+Node states are `ready`, `queued`, `running`, `completed`, `failed`, and `blocked`. A failed/missing runner propagates `blocked` through known downstream dependencies. Ready events may arrive out of order; execution still follows completed dependencies. `concurrency` bounds independent branches.
+
+Tests:
+
+```sh
+node tools/semantic-scheduler.test.mjs
+node tools/semantic-scheduler.integration.mjs
+```
+
+The integration test streams `examples/llm_graph.md` through the real WASM parser in 5-byte chunks and verifies `tool:search -> artifact:summary -> ui:metric`, including dependency result passing.
