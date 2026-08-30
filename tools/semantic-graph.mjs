@@ -1,4 +1,4 @@
-const LOCAL_KINDS = new Set(["tool", "artifact", "ui", "metric", "state", "data"]);
+const LOCAL_KINDS = new Set(["tool", "artifact", "ui", "metric", "state", "patch", "data"]);
 
 function semanticKey(kind, id) {
   return `${kind}:${id}`;

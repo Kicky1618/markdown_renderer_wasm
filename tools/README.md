@@ -169,3 +169,41 @@ N=500000 REPEATS=7 node tools/semantic-runtime-bench.mjs
 ```
 
 On the i7-12700 development host, the 500k-token / 7-repeat median measured about 6.10M append/s for incremental `SemanticRuntime` versus 1.21M append/s for always-scan mode and 6.71M append/s for bare `appendInPlace()` (about 5.0x over always-scan and 91% of bare-parser throughput).
+
+
+## `semantic-state.mjs`
+
+`:::llm state` initializes JSON state and `:::llm patch` updates it without adding a new parser AST or MDA1 variant. Patches default to RFC 7396 JSON Merge Patch semantics: object keys merge recursively, `null` deletes a key, and arrays/scalars replace the target value.
+
+```md
+:::llm state id=session
+{"count":0,"status":"warming"}
+:::
+
+:::llm patch id=ready target=state:session depends=state:session
+{"count":1,"status":"ready"}
+:::
+```
+
+Patch ordering is expressed in the same semantic DAG. Multiple updates to one state should form a dependency chain (`patch:b depends=patch:a`) so concurrent scheduler execution cannot reorder them. `format=replace` replaces the whole state; `merge`, `merge-patch`, and `application/merge-patch+json` use Merge Patch. Unsafe JSON keys such as `__proto__`, `prototype`, and `constructor` are rejected.
+
+The state store exposes monotonically increasing revisions and clones values at its public boundary so runner consumers cannot mutate canonical state by retaining a reference.
+
+```js
+import { SemanticStateStore, createStateRunners } from "./tools/semantic-state.mjs";
+
+const store = new SemanticStateStore({
+  onChange: ({ key, revision, value }) => updateUi(key, revision, value),
+});
+const runtime = await SemanticRuntime.load(wasm, {
+  runners: { ...createStateRunners(store), ...otherRunners },
+});
+```
+
+`streamdown-inspect.mjs --validate` additionally checks state/patch JSON safety, targets, formats, dependency paths, and warns when same-state patches are not serialized.
+
+```sh
+node tools/semantic-state.test.mjs
+node tools/semantic-state.integration.mjs
+node tools/streamdown-inspect.mjs examples/llm_state.md --chunk=5 --verify --validate --graph
+```

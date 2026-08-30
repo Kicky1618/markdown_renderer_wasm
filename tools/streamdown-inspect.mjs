@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { stdin } from "node:process";
 import { Streamdown } from "../js/streamdown.js";
 import { buildSemanticGraph, graphDiagnostics, graphToDot } from "./semantic-graph.mjs";
+import { validateSemanticStateProtocol } from "./semantic-state.mjs";
 
 function usage() {
   console.error(`Usage: node tools/streamdown-inspect.mjs [file] [options]
@@ -174,6 +175,10 @@ function validateSummary(summary, graph) {
   const graphResult = graphDiagnostics(graph);
   errors.push(...graphResult.errors);
   warnings.push(...graphResult.warnings);
+
+  const stateResult = validateSemanticStateProtocol(summary, graph);
+  errors.push(...stateResult.errors);
+  warnings.push(...stateResult.warnings);
   return { ok: errors.length === 0, errors, warnings };
 }
 
