@@ -128,6 +128,7 @@ pub struct Parser {
     live_has_link_label_open: bool,
     live_link_label_just_closed: bool,
     live_has_link_destination_start: bool,
+    live_thematic_marker: u8,
 }
 
 impl Default for Parser {
@@ -161,6 +162,7 @@ impl Parser {
             live_has_link_label_open: false,
             live_link_label_just_closed: false,
             live_has_link_destination_start: false,
+            live_thematic_marker: 0,
         }
     }
 
@@ -211,6 +213,7 @@ impl Parser {
                 self.live_has_link_label_open = false;
                 self.live_link_label_just_closed = false;
                 self.live_has_link_destination_start = false;
+                self.live_thematic_marker = 0;
                 self.line.clear();
                 self.pending.clear();
                 self.pending_kind = None;
@@ -247,6 +250,7 @@ impl Parser {
                     self.live_has_link_label_open = false;
                     self.live_link_label_just_closed = false;
                     self.live_has_link_destination_start = false;
+                    self.live_thematic_marker = 0;
                 }
             }
         }
@@ -265,6 +269,9 @@ impl Parser {
     /// cleared before parsing.
     pub fn append_into(&mut self, input: &str, delta: &mut Delta) {
         delta.ops.clear();
+        if self.try_append_thematic(input) {
+            return;
+        }
         if self.try_append_plain(input, delta) {
             return;
         }
@@ -296,6 +303,23 @@ impl Parser {
                 }
             }
         }
+    }
+
+    fn try_append_thematic(&mut self, input: &str) -> bool {
+        let marker = self.live_thematic_marker;
+        if marker == 0
+            || input.is_empty()
+            || !matches!(self.mode, Mode::Normal)
+            || !self.has_live
+            || !matches!(self.blocks.last(), Some(Block::ThematicBreak))
+            || !input.bytes().all(|byte| {
+                byte != b'\n' && byte != b'\r' && (byte == marker || byte.is_ascii_whitespace())
+            })
+        {
+            return false;
+        }
+        self.line.push_str(input);
+        true
     }
 
     fn try_append_plain(&mut self, input: &str, delta: &mut Delta) -> bool {
@@ -644,6 +668,7 @@ impl Parser {
             self.live_has_link_label_open = false;
             self.live_link_label_just_closed = false;
             self.live_has_link_destination_start = false;
+            self.live_thematic_marker = 0;
         }
     }
 
@@ -751,6 +776,7 @@ impl Parser {
             self.live_has_link_label_open = false;
             self.live_link_label_just_closed = false;
             self.live_has_link_destination_start = false;
+            self.live_thematic_marker = 0;
             return;
         }
         if self.pending_kind.is_none() && is_thematic(&self.line) {
@@ -762,6 +788,7 @@ impl Parser {
             self.live_link_label_just_closed = false;
             self.live_has_link_destination_start = false;
             self.live_inline_appendable = false;
+            self.live_thematic_marker = thematic_marker(&self.line);
             self.push(Block::ThematicBreak, delta);
             self.has_live = true;
             return;
@@ -805,6 +832,7 @@ impl Parser {
         self.live_has_link_label_open = link_label_open;
         self.live_link_label_just_closed = link_label_just_closed;
         self.live_has_link_destination_start = closing_paren_sensitive(&source);
+        self.live_thematic_marker = 0;
         self.push(block, delta);
         self.has_live = true;
     }
@@ -1557,6 +1585,13 @@ fn ordered_item(line: &str) -> Option<(u32, &str)> {
     Some((line[..digits].parse().ok()?, &line[digits + 2..]))
 }
 
+fn thematic_marker(line: &str) -> u8 {
+    line.bytes()
+        .find(|byte| !byte.is_ascii_whitespace())
+        .filter(|byte| matches!(byte, b'-' | b'*' | b'_'))
+        .unwrap_or(0)
+}
+
 fn is_thematic(line: &str) -> bool {
     let mut marker = 0;
     let mut count = 0;
@@ -1889,6 +1924,25 @@ $$
             [Block::Paragraph(nodes)]
                 if matches!(nodes.last(), Some(Inline::Text(text)) if text.ends_with(" !"))
         ));
+    }
+
+    #[test]
+    fn live_thematic_break_extends_without_reparse() {
+        let mut parser = Parser::new();
+        parser.append("---");
+        let delta = parser.append("----------------");
+        assert!(delta.ops.is_empty());
+        assert!(matches!(parser.blocks(), [Block::ThematicBreak]));
+
+        let mut whole = Parser::new();
+        whole.append("-------------------");
+        assert_eq!(parser.blocks(), whole.blocks());
+
+        let mixed = parser.append("_");
+        assert!(matches!(mixed.ops.first(), Some(Op::Truncate { from: 0 })));
+        let mut whole = Parser::new();
+        whole.append("-------------------_");
+        assert_eq!(parser.blocks(), whole.blocks());
     }
 
     #[test]
