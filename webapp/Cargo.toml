@@ -41,6 +41,7 @@ features = [
   "Clipboard",
   "CanvasRenderingContext2d",
   "Performance",
+  "Response",
   "TextMetrics",
   "WheelEvent",
   "Window",

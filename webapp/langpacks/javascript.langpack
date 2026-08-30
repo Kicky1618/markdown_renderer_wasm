@@ -1,0 +1,8 @@
+STREAMDOWN_LANGPACK	1
+aliases	js	javascript	node	mjs	cjs	jsx	ts	typescript	mts	cts	tsx
+keywords	async	await	break	case	catch	class	const	continue	debugger	default	delete	do	else	export	extends	false	finally	for	from	function	if	implements	import	in	instanceof	interface	keyof	let	new	null	of	return	static	super	switch	this	throw	true	try	type	typeof	undefined	unknown	var	void	while	yield
+builtin_types	any	bigint	boolean	never	number	object	string	symbol	unknown
+function_declarations	function
+type_declarations	class	interface	type
+expression_prefixes	return	throw	case	delete	typeof	void	yield	await	new	in	of	instanceof
+flags	slash_comments	block_comments	dollar_identifiers	javascript_lexing

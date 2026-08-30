@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	go	golang
+keywords	break	case	chan	const	continue	default	defer	else	fallthrough	false	for	func	go	goto	if	import	interface	iota	map	nil	package	range	return	select	struct	switch	true	type	var
+builtin_types	any	bool	byte	complex64	complex128	error	float32	float64	int	int8	int16	int32	int64	rune	string	uint	uint8	uint16	uint32	uint64	uintptr
+function_declarations	func
+type_declarations	type
+flags	slash_comments	block_comments

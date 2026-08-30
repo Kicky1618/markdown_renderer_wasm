@@ -1,0 +1,4 @@
+STREAMDOWN_LANGPACK	1
+aliases	sql	postgres	postgresql
+keywords	select	from	where	insert	into	values	update	delete	create	alter	drop	table	index	join	left	right	inner	outer	on	as	and	or	not	null	true	false	group	by	order	having	limit	offset	union	all	distinct	case	when	then	else	end
+flags	case_insensitive_keywords	dash_comments	block_comments

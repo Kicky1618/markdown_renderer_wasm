@@ -1,0 +1,11 @@
+STREAMDOWN_LANGPACK	1
+aliases	c	h	cpp	c++	cc	cxx	hpp
+keywords	auto	break	case	class	const	constexpr	continue	default	do	else	enum	false	for	friend	if	namespace	new	private	protected	public	register	reinterpret_cast	return	sizeof	static	static_assert	static_cast	struct	switch	this	thread_local	throw	true	try	typedef	union	using	virtual	volatile	while
+builtin_types	bool	char	double	float	int	long	short	signed	unsigned	void	wchar_t	size_t
+type_declarations	class	struct	enum	union
+preprocessor_macro_operands	define	ifdef	ifndef	undef
+preprocessor_headers	include	include_next	import
+macro_identifiers	defined	__has_include	__has_include_next	__has_cpp_attribute	__has_builtin	__has_feature	__cplusplus
+macro_operand_identifiers	defined
+header_macro_identifiers	__has_include	__has_include_next
+flags	slash_comments	block_comments	preprocessor	uppercase_macros

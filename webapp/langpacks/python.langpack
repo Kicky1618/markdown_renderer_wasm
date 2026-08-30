@@ -1,0 +1,7 @@
+STREAMDOWN_LANGPACK	1
+aliases	py	python	python3
+keywords	and	as	assert	async	await	break	case	class	continue	def	del	elif	else	except	False	finally	for	from	global	if	import	in	is	lambda	match	None	nonlocal	not	or	pass	raise	return	True	try	while	with	yield
+builtin_types	bool	bytes	dict	float	frozenset	int	list	set	str	tuple
+function_declarations	def
+type_declarations	class
+flags	hash_comments	decorators	python_strings
