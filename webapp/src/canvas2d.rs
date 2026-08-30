@@ -714,7 +714,8 @@ impl State {
                     | Op::AppendInlineText { .. }
                     | Op::SpliceInlineTail { .. }
                     | Op::AppendListItem { .. }
-                    | Op::SpliceListItemTail { .. } => {}
+                    | Op::SpliceListItemTail { .. }
+                    | Op::SpliceQuoteTail { .. } => {}
                 }
             }
             appended += end - self.source_offset;

@@ -141,6 +141,7 @@ export function decodeDelta(bytes) {
       case 7: return { op: "spliceInlineTail", block: u32(), removeNodes: u32(), truncateBytes: u32(), append: inlines() };
       case 8: return { op: "appendListItem", block: u32(), item: inlines() };
       case 9: return { op: "spliceListItemTail", block: u32(), removeNodes: u32(), truncateBytes: u32(), append: inlines() };
+      case 10: return { op: "spliceQuoteTail", block: u32(), removeNodes: u32(), truncateBytes: u32(), append: inlines() };
       default: throw new Error("unknown delta operation");
     }
   });
@@ -191,6 +192,26 @@ export function applyDelta(document, ops) {
       const node = document[change.block];
       if (node.type !== "unorderedList" && node.type !== "orderedList") throw new Error("appendListItem target is not a list");
       node.items.push(change.item);
+    }
+    else if (change.op === "spliceQuoteTail") {
+      const node = document[change.block];
+      if (node.type !== "blockQuote") throw new Error("spliceQuoteTail target is not a block quote");
+      const children = node.children;
+      if (change.truncateBytes) {
+        const tail = children[children.length - 1];
+        if (tail?.type !== "text") throw new Error("spliceQuoteTail target has no trailing text");
+        tail.value = removeUtf8Tail(tail.value, change.truncateBytes);
+        if (!tail.value) children.pop();
+      }
+      if (change.removeNodes) {
+        if (change.removeNodes > children.length) throw new Error("spliceQuoteTail removes too many nodes");
+        children.length -= change.removeNodes;
+      }
+      for (const incoming of change.append) {
+        const tail = children[children.length - 1];
+        if (incoming.type === "text" && tail?.type === "text") tail.value += incoming.value;
+        else children.push(incoming);
+      }
     }
     else if (change.op === "spliceListItemTail") {
       const node = document[change.block];

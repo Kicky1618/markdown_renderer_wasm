@@ -79,6 +79,13 @@ pub enum Op {
         truncate_bytes: u32,
         append: Vec<Inline>,
     },
+    /// Edit only the inline tail of a live block quote.
+    SpliceQuoteTail {
+        block: u32,
+        remove_nodes: u32,
+        truncate_bytes: u32,
+        append: Vec<Inline>,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -345,6 +352,9 @@ impl Parser {
         if self.try_append_list_tail(input, delta) {
             return;
         }
+        if self.try_append_quote_tail(input, delta) {
+            return;
+        }
         if self.try_append_plain(input, delta) {
             return;
         }
@@ -398,6 +408,66 @@ impl Parser {
             return false;
         }
         self.line.push_str(input);
+        true
+    }
+
+    fn try_append_quote_tail(&mut self, input: &str, delta: &mut Delta) -> bool {
+        if input.is_empty()
+            || !matches!(self.mode, Mode::Normal)
+            || !self.has_live
+            || self.pending_kind != Some(PendingKind::Quote)
+            || input.contains('\r')
+        {
+            return false;
+        }
+        let Some(block_index) = self.blocks.len().checked_sub(1) else {
+            return false;
+        };
+        let Some(Block::BlockQuote(nodes)) = self.blocks.get_mut(block_index) else {
+            return false;
+        };
+
+        let old_body = quote_line_body(&self.line);
+        if !old_body.bytes().all(is_plain_stream_byte) {
+            return false;
+        }
+
+        if input == "\n" {
+            if self.line.is_empty() {
+                return false;
+            }
+            self.pending.push_str(&self.line);
+            self.pending.push('\n');
+            self.line.clear();
+            return true;
+        }
+        if input.contains('\n') || !input.bytes().all(is_plain_stream_byte) {
+            return false;
+        }
+
+        let old_body_len = old_body.len();
+        self.line.push_str(input);
+        let new_body = quote_line_body(&self.line);
+        if new_body.len() < old_body_len {
+            return false;
+        }
+        let append_text = &new_body[old_body_len..];
+        if append_text.is_empty() {
+            return true;
+        }
+
+        let mut append = Vec::with_capacity(2);
+        if old_body_len == 0 && !nodes.is_empty() {
+            append.push(Inline::SoftBreak);
+        }
+        append.push(Inline::Text(append_text.to_owned()));
+        splice_inline_tail(nodes, 0, 0, &append);
+        delta.ops.push(Op::SpliceQuoteTail {
+            block: block_index as u32,
+            remove_nodes: 0,
+            truncate_bytes: 0,
+            append,
+        });
         true
     }
 
@@ -2369,6 +2439,12 @@ fn first_line_paragraph_is_stable(line: &str) -> bool {
     true
 }
 
+fn quote_line_body(line: &str) -> &str {
+    let trimmed = line.trim_start();
+    let body = trimmed.strip_prefix('>').unwrap_or(trimmed);
+    body.trim_start()
+}
+
 fn classify(line: &str) -> PendingKind {
     let t = line.trim_start();
     if t.starts_with("> ") || t == ">" {
@@ -3592,6 +3668,32 @@ $$
     }
 
     #[test]
+    fn quote_tail_deltas_match_streamed_quote() {
+        let mut parser = Parser::new();
+        let mut mirror = Vec::new();
+        for chunk in [">", " ", "x", "\n", ">", " ", "日", "本", "語"] {
+            let delta = parser.append(chunk);
+            apply(&mut mirror, &delta);
+            assert_eq!(
+                mirror,
+                parser.blocks(),
+                "quote mirror diverged after {chunk:?}"
+            );
+        }
+        let mut whole = Parser::new();
+        whole.append("> x\n> 日本語");
+        assert_eq!(parser.blocks(), whole.blocks());
+        assert!(matches!(
+            parser.blocks(),
+            [Block::BlockQuote(nodes)] if nodes == &vec![
+                Inline::Text("x".to_owned()),
+                Inline::SoftBreak,
+                Inline::Text("日本語".to_owned()),
+            ]
+        ));
+    }
+
+    #[test]
     fn list_tail_deltas_match_streamed_lists() {
         for markdown in ["- one\n- two\n- three", "1. one\n2. two\n3. three"] {
             let mut parser = Parser::new();
@@ -3676,6 +3778,22 @@ $$
                     }
                     _ => panic!("not list"),
                 },
+                Op::SpliceQuoteTail {
+                    block,
+                    remove_nodes,
+                    truncate_bytes,
+                    append,
+                } => {
+                    let Block::BlockQuote(nodes) = &mut document[*block as usize] else {
+                        panic!("not quote")
+                    };
+                    splice_inline_tail(
+                        nodes,
+                        *truncate_bytes as usize,
+                        *remove_nodes as usize,
+                        append,
+                    );
+                }
                 Op::SpliceCode {
                     block,
                     truncate_bytes,

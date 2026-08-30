@@ -78,6 +78,18 @@ pub fn encode_delta_into(delta: &Delta, output: &mut Vec<u8>) {
                 w.u32(*truncate_bytes);
                 w.inlines(append);
             }
+            Op::SpliceQuoteTail {
+                block,
+                remove_nodes,
+                truncate_bytes,
+                append,
+            } => {
+                w.u8(10);
+                w.u32(*block);
+                w.u32(*remove_nodes);
+                w.u32(*truncate_bytes);
+                w.inlines(append);
+            }
         }
     }
 }

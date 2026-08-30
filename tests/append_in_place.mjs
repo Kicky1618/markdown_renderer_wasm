@@ -60,6 +60,16 @@ for (const chunk of ["- one\n", "-", " ", "two", "\n", "-", " ", "three"]) {
 regularLists.dispose();
 inPlaceLists.dispose();
 
+const regularQuotes = await Streamdown.load(wasm);
+const inPlaceQuotes = await Streamdown.load(wasm);
+for (const chunk of ["> one\n", ">", " ", "two", "\n", ">", " ", "日本語"]) {
+  regularQuotes.append(chunk);
+  inPlaceQuotes.appendInPlace(chunk);
+  assert.deepEqual(inPlaceQuotes.document, regularQuotes.document);
+}
+regularQuotes.dispose();
+inPlaceQuotes.dispose();
+
 const consumed = await Streamdown.load(wasm);
 await consumed.consume(["Answer **now**: ", "token ", "token ", "日本語"], { finalize: true });
 assert.equal(consumed.toPlainText(), "Answer now: token token 日本語");

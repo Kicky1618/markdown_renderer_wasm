@@ -204,6 +204,37 @@ fn apply(document: &mut Vec<Block>, delta: &Delta) {
                     }
                 }
             }
+            Op::SpliceQuoteTail {
+                block,
+                remove_nodes,
+                truncate_bytes,
+                append,
+            } => {
+                let Block::BlockQuote(nodes) = &mut document[*block as usize] else {
+                    panic!("SpliceQuoteTail target is not a block quote")
+                };
+                if *truncate_bytes != 0 {
+                    let Some(Inline::Text(text)) = nodes.last_mut() else {
+                        panic!("SpliceQuoteTail target has no trailing text")
+                    };
+                    text.truncate(text.len() - *truncate_bytes as usize);
+                    if text.is_empty() {
+                        nodes.pop();
+                    }
+                }
+                if *remove_nodes != 0 {
+                    nodes.truncate(nodes.len() - *remove_nodes as usize);
+                }
+                for incoming in append {
+                    if let Inline::Text(value) = incoming
+                        && let Some(Inline::Text(text)) = nodes.last_mut()
+                    {
+                        text.push_str(value);
+                    } else {
+                        nodes.push(incoming.clone());
+                    }
+                }
+            }
             Op::AppendListItem { block, item } => match &mut document[*block as usize] {
                 Block::UnorderedList(items) | Block::OrderedList { items, .. } => {
                     items.push(item.clone())

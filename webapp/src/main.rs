@@ -1380,7 +1380,8 @@ impl App {
                 | Op::AppendInlineText { block, .. }
                 | Op::SpliceInlineTail { block, .. }
                 | Op::AppendListItem { block, .. }
-                | Op::SpliceListItemTail { block, .. } => *block as usize,
+                | Op::SpliceListItemTail { block, .. }
+                | Op::SpliceQuoteTail { block, .. } => *block as usize,
                 Op::Push(_) => self.layouts.len(),
             })
             .min()

@@ -160,6 +160,30 @@ assert.deepEqual(apiParser.document[0], {
 });
 
 apiParser.reset();
+apiParser.append("> one\n");
+apiParser.append(">");
+apiParser.append(" ");
+const quoteTail = apiParser.append("two");
+assert.deepEqual(quoteTail, [{
+  op: "spliceQuoteTail",
+  block: 0,
+  removeNodes: 0,
+  truncateBytes: 0,
+  append: [
+    { type: "softBreak" },
+    { type: "text", value: "two" },
+  ],
+}]);
+assert.deepEqual(apiParser.document[0], {
+  type: "blockQuote",
+  children: [
+    { type: "text", value: "one" },
+    { type: "softBreak" },
+    { type: "text", value: "two" },
+  ],
+});
+
+apiParser.reset();
 apiParser.append(':::llm tool name="web search" id=q1\n');
 apiParser.append('{"query":"rust wasm"}');
 apiParser.append('\n:::\n');
