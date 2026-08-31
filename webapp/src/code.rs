@@ -71,6 +71,8 @@ impl<'a> Scanner<'a> {
             (header_string_end(self.source, start), SyntaxKind::String)
         } else if let Some(end) = lua_long_comment_end(self.source, start, self.language) {
             (end, SyntaxKind::Comment)
+        } else if let Some(end) = cmake_bracket_comment_end(self.source, start, self.language) {
+            (end, SyntaxKind::Comment)
         } else if let Some((opener, closer, nested)) =
             block_comment_delimiters(bytes, start, self.language)
         {
@@ -112,6 +114,8 @@ impl<'a> Scanner<'a> {
         } else if let Some(end) = rust_raw_string_end(self.source, start, self.language) {
             (end, SyntaxKind::String)
         } else if let Some(end) = lua_long_string_end(self.source, start, self.language) {
+            (end, SyntaxKind::String)
+        } else if let Some(end) = cmake_bracket_string_end(self.source, start, self.language) {
             (end, SyntaxKind::String)
         } else if let Some((quote_at, quote, triple)) =
             python_string_start(bytes, start, self.language)
@@ -836,7 +840,7 @@ fn hash_raw_string_end(source: &str, start: usize) -> Option<usize> {
 }
 
 #[inline]
-fn lua_long_bracket_open(bytes: &[u8], start: usize) -> Option<(usize, usize)> {
+fn equals_bracket_open(bytes: &[u8], start: usize) -> Option<(usize, usize)> {
     if bytes.get(start) != Some(&b'[') {
         return None;
     }
@@ -850,9 +854,9 @@ fn lua_long_bracket_open(bytes: &[u8], start: usize) -> Option<(usize, usize)> {
     Some((cursor - start - 1, cursor + 1))
 }
 
-fn lua_long_bracket_end(source: &str, start: usize) -> Option<usize> {
+fn equals_bracket_end(source: &str, start: usize) -> Option<usize> {
     let bytes = source.as_bytes();
-    let (equals, mut cursor) = lua_long_bracket_open(bytes, start)?;
+    let (equals, mut cursor) = equals_bracket_open(bytes, start)?;
     while cursor < bytes.len() {
         if bytes[cursor] == b']' {
             let equals_end = cursor + 1 + equals;
@@ -875,7 +879,7 @@ fn lua_long_comment_end(source: &str, start: usize, language: Language) -> Optio
     if bytes.get(start..start + 3) != Some(b"--[") || !language.lua_long_brackets() {
         return None;
     }
-    lua_long_bracket_end(source, start + 2)
+    equals_bracket_end(source, start + 2)
 }
 
 #[inline]
@@ -883,7 +887,24 @@ fn lua_long_string_end(source: &str, start: usize, language: Language) -> Option
     if source.as_bytes().get(start) != Some(&b'[') || !language.lua_long_brackets() {
         return None;
     }
-    lua_long_bracket_end(source, start)
+    equals_bracket_end(source, start)
+}
+
+#[inline]
+fn cmake_bracket_comment_end(source: &str, start: usize, language: Language) -> Option<usize> {
+    let bytes = source.as_bytes();
+    if bytes.get(start) != Some(&b'#') || !language.cmake_brackets() {
+        return None;
+    }
+    equals_bracket_end(source, start + 1)
+}
+
+#[inline]
+fn cmake_bracket_string_end(source: &str, start: usize, language: Language) -> Option<usize> {
+    if source.as_bytes().get(start) != Some(&b'[') || !language.cmake_brackets() {
+        return None;
+    }
+    equals_bracket_end(source, start)
 }
 
 fn quoted_string_end(
