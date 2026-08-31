@@ -25,10 +25,11 @@ fn main() {
             .unwrap();
     }
     let build = build_start.elapsed();
-    let stats = model.stats();
+    let builder_stats = model.stats();
 
     let chunks: Vec<String> = (0..256).map(|i| surface(i * 313 % WORDS)).collect();
     let mut stream = model.stream_delta();
+    let runtime_stats = stream.model_stats();
     let mut delta = StreamDelta::default();
     for _ in 0..10 {
         for chunk in &chunks {
@@ -46,12 +47,14 @@ fn main() {
     let elapsed = start.elapsed();
     let appends = rounds * chunks.len();
     println!(
-        "large-dict: words={WORDS} build={build:?} appends={appends} elapsed={elapsed:?} throughput={:.3} M/s tail={}B buffered={} trie_nodes={} dense_nodes={} dense_KiB={:.1}",
+        "large-dict: words={WORDS} build={build:?} appends={appends} elapsed={elapsed:?} throughput={:.3} M/s tail={}B buffered={} trie_nodes={} dense_nodes={} dense_KiB={:.1} builder_trie_MiB={:.1} runtime_trie_MiB={:.1}",
         appends as f64 / elapsed.as_secs_f64() / 1e6,
         stream.tail_bytes(),
         stream.buffered_tokens(),
-        stats.trie_nodes,
-        stats.dense_dispatch_nodes,
-        stats.dense_dispatch_bytes as f64 / 1024.0,
+        builder_stats.trie_nodes,
+        builder_stats.dense_dispatch_nodes,
+        builder_stats.dense_dispatch_bytes as f64 / 1024.0,
+        builder_stats.builder_trie_bytes as f64 / (1024.0 * 1024.0),
+        runtime_stats.runtime_trie_bytes as f64 / (1024.0 * 1024.0),
     );
 }

@@ -186,6 +186,7 @@ impl Model {
         Ok(Self {
             entries,
             trie,
+            frozen_trie: None,
             transitions,
             max_lexicon_bytes,
             max_unknown_chars: max_unknown_chars.clamp(1, 1024),

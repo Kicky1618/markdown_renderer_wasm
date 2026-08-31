@@ -104,14 +104,14 @@ The raw WASM API uses the same reusable input/output buffers as the native hot p
 
 Environment: Intel Core i7-12700, release build, CPU affinity fixed to logical CPU 2, 160,000 appends per run, 9 runs. On the synthetic overlapping Japanese test lexicon used by the included benchmarks:
 
-- Native history-retaining stream: median ~1.595 M append/s.
-- Native history-free `stream_delta()`: median ~1.630 M append/s, max 4 buffered tokens and 27-byte reparsed tail.
-- Raw WASM + JavaScript full metadata decode: median ~0.499 M append/s.
-- Raw WASM + JavaScript surface-only decode: median ~0.638 M append/s.
+- Native history-retaining stream: median ~1.711 M append/s.
+- Native history-free `stream_delta()`: median ~1.710 M append/s, max 4 buffered tokens and 27-byte reparsed tail.
+- Raw WASM + JavaScript full metadata decode: median ~0.548 M append/s.
+- Raw WASM + JavaScript surface-only decode: median ~0.715 M append/s.
 
 These numbers measure the included synthetic dictionary, not a production Japanese dictionary. Dictionary size, ambiguity and transition density materially affect throughput.
 
-A separate 100,000-entry synthetic CJK lexicon benchmark (`bench_large_dict`) exercises trie fan-out. High-fan-out nodes automatically promote to a 256-way byte dispatch table while ordinary nodes remain compact linear edge lists. On the same pinned CPU this improves streaming throughput by roughly 17% versus binary/linear-only fan-out experiments. The 100k synthetic model contains about 706k trie nodes; only about 2.1k promote, adding roughly 2 MiB of dispatch tables.
+A separate 100,000-entry synthetic CJK lexicon benchmark (`bench_large_dict`) exercises trie fan-out. High-fan-out nodes automatically promote to a 256-way byte dispatch table while ordinary nodes remain compact linear edge lists. When a streaming analyzer starts, the mutable builder trie is frozen into contiguous 16-byte node metadata plus packed edge/entry arrays and the builder storage is released. In the synthetic 100k model this changes estimated trie storage from about 100.0 MiB to 18.5 MiB while improving pinned-CPU streaming throughput from roughly 1.205 M append/s to roughly 1.257 M append/s. The model contains about 706k trie nodes; only about 2.1k need dense dispatch tables (~2 MiB).
 
 ## Licensing boundary
 

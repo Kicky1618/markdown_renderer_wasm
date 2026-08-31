@@ -42,6 +42,8 @@ pub struct ModelStats {
     pub trie_edges: usize,
     pub dense_dispatch_nodes: usize,
     pub dense_dispatch_bytes: usize,
+    pub builder_trie_bytes: usize,
+    pub runtime_trie_bytes: usize,
     pub transitions: usize,
     pub max_token_bytes: usize,
 }
@@ -130,11 +132,117 @@ impl TrieNode {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct FrozenNode {
+    edge_start: u32,
+    entry_start: u32,
+    dense_index: u32,
+    edge_len: u16,
+    entry_len: u16,
+}
+
+#[derive(Clone, Debug)]
+struct FrozenTrie {
+    nodes: Vec<FrozenNode>,
+    edge_bytes: Vec<u8>,
+    edge_targets: Vec<u32>,
+    entries: Vec<u32>,
+    dense: Vec<[u32; 256]>,
+}
+
+impl FrozenTrie {
+    const NO_DENSE: u32 = u32::MAX;
+
+    fn from_nodes(nodes: &[TrieNode]) -> Option<Self> {
+        if nodes.len() > u32::MAX as usize {
+            return None;
+        }
+        let edge_count: usize = nodes.iter().map(|node| node.next.len()).sum();
+        let entry_count: usize = nodes.iter().map(|node| node.entries.len()).sum();
+        if edge_count > u32::MAX as usize || entry_count > u32::MAX as usize {
+            return None;
+        }
+        let mut out = Self {
+            nodes: Vec::with_capacity(nodes.len()),
+            edge_bytes: Vec::with_capacity(edge_count),
+            edge_targets: Vec::with_capacity(edge_count),
+            entries: Vec::with_capacity(entry_count),
+            dense: Vec::new(),
+        };
+        for node in nodes {
+            if node.entries.len() > u16::MAX as usize {
+                return None;
+            }
+            let dense_index = if let Some(dense) = &node.dense {
+                let index = out.dense.len();
+                if index >= u32::MAX as usize {
+                    return None;
+                }
+                out.dense.push(**dense);
+                index as u32
+            } else {
+                Self::NO_DENSE
+            };
+            out.nodes.push(FrozenNode {
+                edge_start: out.edge_bytes.len() as u32,
+                entry_start: out.entries.len() as u32,
+                entry_len: node.entries.len() as u16,
+                dense_index,
+                edge_len: node.next.len() as u16,
+            });
+            for &(byte, target) in &node.next {
+                if target > u32::MAX as usize {
+                    return None;
+                }
+                out.edge_bytes.push(byte);
+                out.edge_targets.push(target as u32);
+            }
+            for &entry in &node.entries {
+                if entry > u32::MAX as usize {
+                    return None;
+                }
+                out.entries.push(entry as u32);
+            }
+        }
+        Some(out)
+    }
+
+    fn child(&self, node: usize, byte: u8) -> Option<usize> {
+        let meta = self.nodes[node];
+        if meta.dense_index != Self::NO_DENSE {
+            let encoded = self.dense[meta.dense_index as usize][byte as usize];
+            return (encoded != 0).then_some(encoded as usize - 1);
+        }
+        let start = meta.edge_start as usize;
+        let end = start + meta.edge_len as usize;
+        self.edge_bytes[start..end]
+            .iter()
+            .position(|&edge| edge == byte)
+            .map(|offset| self.edge_targets[start + offset] as usize)
+    }
+
+    fn terminal_entries(&self, node: usize) -> &[u32] {
+        let meta = self.nodes[node];
+        let start = meta.entry_start as usize;
+        let end = start + meta.entry_len as usize;
+        &self.entries[start..end]
+    }
+
+    fn storage_bytes(&self) -> usize {
+        self.nodes.capacity() * size_of::<FrozenNode>()
+            + self.edge_bytes.capacity()
+            + self.edge_targets.capacity() * size_of::<u32>()
+            + self.entries.capacity() * size_of::<u32>()
+            + self.dense.capacity() * size_of::<[u32; 256]>()
+    }
+}
+
 /// Morphological model. No external dictionary is bundled with the crate.
 #[derive(Clone, Debug)]
 pub struct Model {
     entries: Vec<LexiconEntry>,
     trie: Vec<TrieNode>,
+    frozen_trie: Option<FrozenTrie>,
     transitions: HashMap<(TagId, TagId), i32>,
     max_lexicon_bytes: usize,
     max_unknown_chars: usize,
@@ -152,6 +260,7 @@ impl Model {
         Self {
             entries: Vec::new(),
             trie: vec![TrieNode::default()],
+            frozen_trie: None,
             transitions: HashMap::new(),
             max_lexicon_bytes: 0,
             max_unknown_chars: 8,
@@ -259,17 +368,42 @@ impl Model {
     }
 
     pub fn stats(&self) -> ModelStats {
+        if let Some(frozen) = &self.frozen_trie {
+            return ModelStats {
+                entries: self.entries.len(),
+                trie_nodes: frozen.nodes.len(),
+                trie_edges: frozen.edge_bytes.len(),
+                dense_dispatch_nodes: frozen.dense.len(),
+                dense_dispatch_bytes: frozen.dense.len() * 256 * size_of::<u32>(),
+                builder_trie_bytes: 0,
+                runtime_trie_bytes: frozen.storage_bytes(),
+                transitions: self.transitions.len(),
+                max_token_bytes: self.max_token_bytes(),
+            };
+        }
         let dense_dispatch_nodes = self
             .trie
             .iter()
             .filter(|node| node.dense.is_some())
             .count();
+        let builder_trie_bytes = self.trie.capacity() * size_of::<TrieNode>()
+            + self
+                .trie
+                .iter()
+                .map(|node| {
+                    node.next.capacity() * size_of::<(u8, usize)>()
+                        + node.entries.capacity() * size_of::<usize>()
+                        + node.dense.as_ref().map_or(0, |_| 256 * size_of::<u32>())
+                })
+                .sum::<usize>();
         ModelStats {
             entries: self.entries.len(),
             trie_nodes: self.trie.len(),
             trie_edges: self.trie.iter().map(|node| node.next.len()).sum(),
             dense_dispatch_nodes,
             dense_dispatch_bytes: dense_dispatch_nodes * 256 * size_of::<u32>(),
+            builder_trie_bytes,
+            runtime_trie_bytes: 0,
             transitions: self.transitions.len(),
             max_token_bytes: self.max_token_bytes(),
         }
@@ -279,17 +413,31 @@ impl Model {
         self.analyze(text, 0, TAG_BOS_EOS)
     }
 
-    pub fn stream(self) -> StreamAnalyzer {
+    pub fn stream(mut self) -> StreamAnalyzer {
+        self.freeze_for_stream();
         StreamAnalyzer::new(self, true)
     }
 
     /// Streaming analyzer optimized for consumers that apply every delta and
     /// therefore do not need the analyzer to retain committed token history.
     /// Internal memory stays bounded by the ambiguous tail.
-    pub fn stream_delta(self) -> DeltaStreamAnalyzer {
+    pub fn stream_delta(mut self) -> DeltaStreamAnalyzer {
+        self.freeze_for_stream();
         DeltaStreamAnalyzer {
             inner: StreamAnalyzer::new(self, false),
         }
+    }
+
+    fn freeze_for_stream(&mut self) {
+        if self.frozen_trie.is_some() || self.trie.is_empty() {
+            return;
+        }
+        let Some(frozen) = FrozenTrie::from_nodes(&self.trie) else {
+            return;
+        };
+        self.frozen_trie = Some(frozen);
+        self.trie.clear();
+        self.trie.shrink_to_fit();
     }
 
     fn transition_cost(&self, previous: TagId, next: TagId) -> i32 {
@@ -303,16 +451,32 @@ impl Model {
         let bytes = text.as_bytes();
         let mut node = 0usize;
         let mut end = start;
-        while end < bytes.len() {
-            let Some(next) = self.trie[node].child(bytes[end]) else {
-                break;
-            };
-            node = next;
-            end += 1;
-            for &entry in &self.trie[node].entries {
-                // Every inserted surface is valid UTF-8. A complete byte-trie
-                // match therefore necessarily lands on a char boundary.
-                out.push(Candidate::Lexicon { end, entry });
+        if let Some(trie) = &self.frozen_trie {
+            while end < bytes.len() {
+                let Some(next) = trie.child(node, bytes[end]) else {
+                    break;
+                };
+                node = next;
+                end += 1;
+                for &entry in trie.terminal_entries(node) {
+                    out.push(Candidate::Lexicon {
+                        end,
+                        entry: entry as usize,
+                    });
+                }
+            }
+        } else {
+            while end < bytes.len() {
+                let Some(next) = self.trie[node].child(bytes[end]) else {
+                    break;
+                };
+                node = next;
+                end += 1;
+                for &entry in &self.trie[node].entries {
+                    // Every inserted surface is valid UTF-8. A complete byte-trie
+                    // match therefore necessarily lands on a char boundary.
+                    out.push(Candidate::Lexicon { end, entry });
+                }
             }
         }
     }
@@ -846,6 +1010,10 @@ impl StreamAnalyzer {
     pub fn absolute_bytes(&self) -> usize {
         self.tail_offset + self.tail.len()
     }
+
+    pub fn model_stats(&self) -> ModelStats {
+        self.model.stats()
+    }
 }
 
 /// History-free streaming facade. Apply every returned delta to the consumer's
@@ -885,6 +1053,10 @@ impl DeltaStreamAnalyzer {
 
     pub fn absolute_bytes(&self) -> usize {
         self.inner.absolute_bytes()
+    }
+
+    pub fn model_stats(&self) -> ModelStats {
+        self.inner.model_stats()
     }
 }
 
