@@ -713,7 +713,6 @@ impl Model {
                         let index = nodes.len();
                         let depth = prev.map_or(1, |id| nodes[id.index()].depth + 1);
                         nodes.push(PathNode {
-                            start,
                             end,
                             candidate,
                             prev,
@@ -726,7 +725,6 @@ impl Model {
                     let index = nodes.len();
                     let depth = prev.map_or(1, |id| nodes[id.index()].depth + 1);
                     nodes.push(PathNode {
-                        start,
                         end,
                         candidate,
                         prev,
@@ -957,7 +955,6 @@ struct State {
 
 #[derive(Clone, Copy, Debug)]
 struct PathNode {
-    start: usize,
     end: usize,
     candidate: Candidate,
     prev: Option<NodeId>,
@@ -1005,7 +1002,8 @@ fn reconstruct_tokens_into(
     }
     while let Some(id) = node {
         let current = nodes[id.index()];
-        out.push(current.candidate.token(model, text, base, current.start));
+        let start = current.prev.map_or(0, |prev| nodes[prev.index()].end);
+        out.push(current.candidate.token(model, text, base, start));
         node = current.prev;
     }
     out.reverse();
