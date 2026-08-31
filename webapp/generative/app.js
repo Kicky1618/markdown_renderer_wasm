@@ -15,6 +15,7 @@ import { buildReviewDiff, formatReviewValue } from "./review_diff.js";
 import { ResponseBudget } from "./response_budget.js";
 import { StreamReplayRecorder, replayDecodedChunks } from "./stream_replay.js";
 import { StreamTimelineRecorder } from "./stream_timeline.js";
+import { compareReplayDeterminism, expectedReplaySource } from "./determinism.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
 
@@ -197,6 +198,9 @@ const timelineChars = document.querySelector("#timeline-chars");
 const timelineFirstUi = document.querySelector("#timeline-first-ui");
 const timelineDuration = document.querySelector("#timeline-duration");
 const timelineEvents = document.querySelector("#timeline-events");
+const replayDeterminism = document.querySelector("#replay-determinism");
+const determinismStatus = document.querySelector("#determinism-status");
+const determinismDetails = document.querySelector("#determinism-details");
 
 let parser;
 let blockElements = [];
@@ -248,8 +252,46 @@ function timelineRuntimePoint() {
   };
 }
 
+function semanticReplaySnapshot(startBlock = 0) {
+  const result = [];
+  for (let index = Math.max(0, Number(startBlock) || 0); index < (parser?.document?.length || 0); index++) {
+    const block = parser.document[index];
+    const descriptor = parseLlmDescriptor(block?.language);
+    if (!descriptor) continue;
+    result.push({
+      kind: descriptor.kind,
+      attributes: descriptor.attributes,
+      value: block.value || "",
+      closed: Boolean(block.closed),
+    });
+  }
+  return result;
+}
+
+function renderReplayDeterminism(result) {
+  if (!result) {
+    replayDeterminism.hidden = true;
+    delete replayDeterminism.dataset.status;
+    delete document.documentElement.dataset.replayDeterminism;
+    determinismStatus.textContent = "—";
+    determinismDetails.textContent = "";
+    return;
+  }
+  replayDeterminism.hidden = false;
+  const status = result.verified ? "verified" : "diverged";
+  replayDeterminism.dataset.status = status;
+  document.documentElement.dataset.replayDeterminism = status;
+  determinismStatus.textContent = result.verified ? "VERIFIED" : "DIVERGED";
+  determinismDetails.textContent = [
+    `source ${result.source ? "✓" : "✗"}`,
+    `semantic ${result.semantic ? "✓" : "✗"}`,
+    `state ${result.state ? "✓" : "✗"}`,
+  ].join(" · ");
+}
+
 function renderStreamTimeline(timeline, label = "STREAM") {
   lastStreamTimeline = timeline || null;
+  if (!String(label).startsWith("REPLAY")) renderReplayDeterminism(null);
   if (!timeline?.events?.length) {
     streamTimeline.hidden = true;
     timelineEvents.replaceChildren();
@@ -539,7 +581,16 @@ async function replayLastModelStream() {
       recordModelHistory(currentBeforeReplay, meta);
       setRuntimeState("LIVE");
     }
+    const determinism = replay.expected ? compareReplayDeterminism({
+      expectedSource: expectedReplaySource(replay),
+      actualSource: source.value,
+      expectedSemantic: replay.expected.semantic,
+      actualSemantic: semanticReplaySnapshot(responseStartBlock),
+      expectedState: replay.expected.state,
+      actualState: snapshotLocalState(),
+    }) : null;
     renderStreamTimeline(timeline.finish(timelineRuntimePoint()), "REPLAY");
+    renderReplayDeterminism(determinism);
     document.documentElement.dataset.replayState = "done";
     deltaStatus.textContent = `REPLAY · ${result.chunks} chunks · ${result.chars} chars`;
     return true;
@@ -972,10 +1023,9 @@ async function runLlmInteraction(instruction) {
     source.value += prefix + received;
     const meta = { responseText: received, format: result.format, chunks: result.chunks, firstUiMs: firstUiAt };
     const recording = replayRecorder.snapshot();
-    if (!recording.truncated && historyBefore) {
-      lastStreamReplay = { kind: "append", before: historyBefore, prefix, recording };
-      updateHistoryControls();
-    }
+    const replayCandidate = !recording.truncated && historyBefore
+      ? { kind: "append", before: historyBefore, prefix, recording }
+      : null;
     if (responseNeedsHumanReview(received)) {
       pendingModelReview = { before: historyBefore, meta, startBlock: responseStartBlock };
       endSemanticCommitBarrier({ review: true });
@@ -986,6 +1036,14 @@ async function runLlmInteraction(instruction) {
       recordModelHistory(historyBefore, meta);
       setRuntimeState("LIVE");
       deltaStatus.textContent = `LLM ${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
+    }
+    if (replayCandidate) {
+      replayCandidate.expected = {
+        semantic: semanticReplaySnapshot(responseStartBlock),
+        state: snapshotLocalState(),
+      };
+      lastStreamReplay = replayCandidate;
+      updateHistoryControls();
     }
     renderStreamTimeline(timeline.finish(timelineRuntimePoint()), `LLM ${result.format.toUpperCase()}`);
     return result;
@@ -1958,10 +2016,9 @@ remoteForm.addEventListener("submit", async event => {
     source.value = received;
     const meta = { responseText: received, format: result.format, chunks: result.chunks, firstUiMs: firstUiAt };
     const recording = replayRecorder.snapshot();
-    if (!recording.truncated && historyBefore) {
-      lastStreamReplay = { kind: "replace", before: historyBefore, prefix: "", recording };
-      updateHistoryControls();
-    }
+    const replayCandidate = !recording.truncated && historyBefore
+      ? { kind: "replace", before: historyBefore, prefix: "", recording }
+      : null;
     if (responseNeedsHumanReview(received)) {
       pendingModelReview = { before: historyBefore, meta, startBlock: responseStartBlock };
       endSemanticCommitBarrier({ review: true });
@@ -1972,6 +2029,14 @@ remoteForm.addEventListener("submit", async event => {
       recordModelHistory(historyBefore, meta);
       setRuntimeState("LIVE");
       deltaStatus.textContent = `${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
+    }
+    if (replayCandidate) {
+      replayCandidate.expected = {
+        semantic: semanticReplaySnapshot(responseStartBlock),
+        state: snapshotLocalState(),
+      };
+      lastStreamReplay = replayCandidate;
+      updateHistoryControls();
     }
     renderStreamTimeline(timeline.finish(timelineRuntimePoint()), result.format.toUpperCase());
   } catch (error) {
@@ -2150,6 +2215,13 @@ async function runReplaySmoke() {
     && Number(streamTimeline.dataset.events || 0) >= 2
     && timelineEvents.textContent.includes("+1 UI");
   root.dataset.timelineSmoke = timelinePassed ? "pass" : "fail";
+  const determinismPassed = root.dataset.replayDeterminism === "verified"
+    && replayDeterminism.dataset.status === "verified"
+    && determinismStatus.textContent === "VERIFIED"
+    && determinismDetails.textContent.includes("source ✓")
+    && determinismDetails.textContent.includes("semantic ✓")
+    && determinismDetails.textContent.includes("state ✓");
+  root.dataset.determinismSmoke = determinismPassed ? "pass" : "fail";
   const passed = root.dataset.replayState === "done"
     && streamState.textContent === "LIVE"
     && replaySlider?.value === "58"
@@ -2157,7 +2229,8 @@ async function runReplaySmoke() {
     && replayThroughput?.querySelector(".metric-value")?.textContent?.trim() === "3.1M"
     && source.value === firstSource
     && deltaStatus.textContent.startsWith("REPLAY ·")
-    && timelinePassed;
+    && timelinePassed
+    && determinismPassed;
   root.dataset.replaySmoke = passed ? "pass" : "fail";
 }
 

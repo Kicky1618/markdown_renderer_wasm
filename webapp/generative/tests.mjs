@@ -17,6 +17,7 @@ import { ResponseBudget, ResponseBudgetError } from "./response_budget.js";
 import { auditUiConfig, parseSafeAction, summarizePolicy } from "./policy.js";
 import { StreamReplayRecorder, replayDecodedChunks } from "./stream_replay.js";
 import { StreamTimelineRecorder } from "./stream_timeline.js";
+import { compareReplayDeterminism, expectedReplaySource, normalizeDeterminismState, normalizeSemanticBlocks } from "./determinism.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
   id: "",
@@ -361,6 +362,31 @@ const boundedTimelineSnapshot = boundedTimeline.finish({ blocks: 3, ui: 1, commi
 assert.equal(boundedTimelineSnapshot.events.length, 2);
 assert.equal(boundedTimelineSnapshot.events.at(-1).kind, "finish");
 assert.equal(boundedTimelineSnapshot.truncated, true);
+
+const deterministicReplay = {
+  kind: "append",
+  before: { source: "# Base", state: [["temperature", 42]] },
+  prefix: "\n\n",
+  recording: { chunks: [{ text: ":::llm ui type=metric id=x\nvalue=1\n:::\n" }] },
+};
+assert.equal(expectedReplaySource(deterministicReplay), "# Base\n\n:::llm ui type=metric id=x\nvalue=1\n:::\n");
+assert.deepEqual(normalizeDeterminismState([["z", 1], ["api_token", "secret"], ["a", true]]), [["a", true], ["z", 1]]);
+const semanticA = [{ kind: "ui", attributes: { type: "metric", id: "x" }, value: "value=1", closed: true }];
+const semanticB = [{ kind: "ui", attributes: { id: "x", type: "metric" }, value: "value=1", closed: true }];
+assert.deepEqual(normalizeSemanticBlocks(semanticA), normalizeSemanticBlocks(semanticB));
+const deterministic = compareReplayDeterminism({
+  expectedSource: "same", actualSource: "same",
+  expectedSemantic: semanticA, actualSemantic: semanticB,
+  expectedState: [["temperature", 58], ["api_token", "hidden"]],
+  actualState: [["temperature", 58], ["api_token", "different"]],
+});
+assert.deepEqual(deterministic, { verified: true, source: true, semantic: true, state: true });
+const stateDivergence = compareReplayDeterminism({
+  expectedSource: "same", actualSource: "same",
+  expectedSemantic: semanticA, actualSemantic: semanticB,
+  expectedState: [["temperature", 58]], actualState: [["temperature", 42]],
+});
+assert.deepEqual(stateDivergence, { verified: false, source: true, semantic: true, state: false });
 
 const securityHtml = await fs.readFile(new URL("./index.html", import.meta.url), "utf8");
 const securityApp = await fs.readFile(new URL("./app.js", import.meta.url), "utf8");

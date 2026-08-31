@@ -185,3 +185,9 @@ Replay first reconstructs the original response-start application state, then em
 Completed network and replay sessions produce a bounded timeline of semantic milestones without retaining chunk text. The recorder keeps at most 64 change points containing chunk number, cumulative decoded characters, elapsed time, parser block count, newly generated UI count relative to the response-start baseline, and semantic commit state. DOM is rendered only once at session completion, so timeline diagnostics stay off the parser hot path.
 
 The panel reports both the first-UI chunk and cumulative character position (for example `#4 / 294 chars`) in addition to elapsed time. This makes the streaming property visible as both latency and token/output progress. The Chrome replay smoke verifies the timeline through the network-free replay path and exposes `data-timeline-smoke="pass"`.
+
+## Replay determinism check
+
+After a local `Replay stream`, the runtime compares the replay against the original post-stream snapshot across three bounded axes: the exact decoded Markdown source, the response-local semantic block sequence, and non-sensitive primitive local state. Source expectation is reconstructed from the existing decoded-chunk recording rather than storing a second source copy; semantic attributes are normalized before comparison and credential-like state keys are excluded.
+
+The Timeline panel reports `VERIFIED` only when all three axes match and shows `source ✓ · semantic ✓ · state ✓`; otherwise it reports `DIVERGED` with the failing axis. The Chrome replay smoke currently verifies the full network-free replay as `data-determinism-smoke="pass"` and `data-replay-determinism="verified"`.
