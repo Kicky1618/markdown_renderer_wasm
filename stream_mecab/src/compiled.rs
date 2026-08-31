@@ -188,6 +188,7 @@ impl Model {
             trie,
             frozen_trie: None,
             transitions,
+            dense_transitions: None,
             max_lexicon_bytes,
             max_unknown_chars: max_unknown_chars.clamp(1, 1024),
             empty: Arc::from(""),

@@ -82,6 +82,29 @@ pub unsafe extern "C" fn sm_add_tsv_input(handle: *mut Handle, len: usize) -> u3
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn sm_add_transition_tsv_input(handle: *mut Handle, len: usize) -> u32 {
+    let Some(handle) = (unsafe { handle.as_mut() }) else {
+        return 0;
+    };
+    if handle.stream.is_some() {
+        return handle.fail("model cannot be changed after sm_start");
+    }
+    if len > handle.input.len() {
+        return handle.fail("input length exceeds reserved buffer");
+    }
+    let Ok(text) = str::from_utf8(&handle.input[..len]) else {
+        return handle.fail("transition input is not UTF-8");
+    };
+    match handle.model.add_transition_tsv(text) {
+        Ok(_) => {
+            handle.clear_error();
+            1
+        }
+        Err(error) => handle.fail(error.to_string()),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn sm_load_compiled_input(handle: *mut Handle, len: usize) -> u32 {
     let Some(handle) = (unsafe { handle.as_mut() }) else {
         return 0;

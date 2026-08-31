@@ -160,6 +160,12 @@ export class StreamMecab {
     return this;
   }
 
+  addTransitionTsv(tsv) {
+    const length = this.#write(tsv);
+    if (!this.exports.sm_add_transition_tsv_input(this.handle, length)) throw new Error(this.#error());
+    return this;
+  }
+
   loadCompiled(bytes) {
     const length = this.#writeBytes(bytes);
     if (!this.exports.sm_load_compiled_input(this.handle, length)) throw new Error(this.#error());

@@ -38,4 +38,20 @@ for (const chunk of ["私", "は東", "京", "大学", "の学", "生で", "す"
 applyDelta(surfaces, surfaceOnly.finish());
 assert.deepEqual(surfaces, ["私", "は", "東京大学", "の", "学生", "です"]);
 surfaceOnly.destroy();
+
+const transitionModel = await StreamMecab.instantiate(bytes);
+transitionModel
+  .addTsv([
+    "東京\t東京-A\t\t9\t0",
+    "東京\t東京-B\t\t10\t0",
+  ].join("\n") + "\n")
+  .addTransitionTsv("0\t9\t100\n0\t10\t-100\n")
+  .start();
+const transitionTokens = [];
+applyDelta(transitionTokens, transitionModel.append("東京"));
+applyDelta(transitionTokens, transitionModel.finish());
+assert.equal(transitionTokens.length, 1);
+assert.equal(transitionTokens[0].tag, 10);
+transitionModel.destroy();
+
 console.log("stream-mecab raw WASM round trip: ok");

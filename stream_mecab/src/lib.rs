@@ -45,6 +45,7 @@ pub struct ModelStats {
     pub builder_trie_bytes: usize,
     pub runtime_trie_bytes: usize,
     pub transitions: usize,
+    pub runtime_transition_bytes: usize,
     pub max_token_bytes: usize,
 }
 
@@ -237,6 +238,61 @@ impl FrozenTrie {
     }
 }
 
+#[derive(Clone, Debug)]
+struct DenseTransitions {
+    width: usize,
+    costs: Vec<i32>,
+    explicit_count: usize,
+}
+
+impl DenseTransitions {
+    const MAX_BYTES: usize = 8 * 1024 * 1024;
+
+    fn from_sparse(transitions: &HashMap<(TagId, TagId), i32>) -> Option<Self> {
+        if transitions.is_empty() {
+            return None;
+        }
+        let max_tag = transitions
+            .keys()
+            .map(|&(previous, next)| previous.max(next) as usize)
+            .max()?;
+        let width = max_tag.checked_add(1)?;
+        let cells = width.checked_mul(width)?;
+        let bytes = cells.checked_mul(size_of::<i32>())?;
+        // Small matrices are always worthwhile. Larger matrices must be at
+        // least 1/16 populated so a handful of high tag IDs cannot force a
+        // multi-megabyte allocation.
+        if bytes > Self::MAX_BYTES
+            || (bytes > 64 * 1024 && cells > transitions.len().saturating_mul(16))
+        {
+            return None;
+        }
+        let mut costs = vec![0i32; cells];
+        for (&(previous, next), &cost) in transitions {
+            costs[previous as usize * width + next as usize] = cost;
+        }
+        Some(Self {
+            width,
+            costs,
+            explicit_count: transitions.len(),
+        })
+    }
+
+    fn cost(&self, previous: TagId, next: TagId) -> i32 {
+        let previous = previous as usize;
+        let next = next as usize;
+        if previous >= self.width || next >= self.width {
+            0
+        } else {
+            self.costs[previous * self.width + next]
+        }
+    }
+
+    fn storage_bytes(&self) -> usize {
+        self.costs.capacity() * size_of::<i32>()
+    }
+}
+
 /// Morphological model. No external dictionary is bundled with the crate.
 #[derive(Clone, Debug)]
 pub struct Model {
@@ -244,6 +300,7 @@ pub struct Model {
     trie: Vec<TrieNode>,
     frozen_trie: Option<FrozenTrie>,
     transitions: HashMap<(TagId, TagId), i32>,
+    dense_transitions: Option<DenseTransitions>,
     max_lexicon_bytes: usize,
     max_unknown_chars: usize,
     empty: Arc<str>,
@@ -262,6 +319,7 @@ impl Model {
             trie: vec![TrieNode::default()],
             frozen_trie: None,
             transitions: HashMap::new(),
+            dense_transitions: None,
             max_lexicon_bytes: 0,
             max_unknown_chars: 8,
             empty: Arc::from(""),
@@ -324,6 +382,7 @@ impl Model {
     /// Set a first-order transition cost from the previous token tag to the
     /// next token tag. Missing transitions cost zero.
     pub fn set_transition(&mut self, previous: TagId, next: TagId, cost: i32) {
+        self.dense_transitions = None;
         self.transitions.insert((previous, next), cost);
     }
 
@@ -361,6 +420,46 @@ impl Model {
         Ok(added)
     }
 
+    /// Load the project-specific transition TSV format:
+    /// `previous-tag<TAB>next-tag<TAB>cost`.
+    pub fn add_transition_tsv(&mut self, tsv: &str) -> Result<usize, ModelError> {
+        let mut added = 0usize;
+        for (line_index, raw) in tsv.lines().enumerate() {
+            let line = raw.trim_end();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let fields: Vec<&str> = line.split('\t').collect();
+            if fields.len() != 3 {
+                return Err(ModelError::InvalidTsv {
+                    line: line_index + 1,
+                    message: "expected 3 transition fields: previous, next, cost".to_owned(),
+                });
+            }
+            let previous = fields[0]
+                .parse::<TagId>()
+                .map_err(|_| ModelError::InvalidTsv {
+                    line: line_index + 1,
+                    message: "previous tag-id is not u16".to_owned(),
+                })?;
+            let next = fields[1]
+                .parse::<TagId>()
+                .map_err(|_| ModelError::InvalidTsv {
+                    line: line_index + 1,
+                    message: "next tag-id is not u16".to_owned(),
+                })?;
+            let cost = fields[2]
+                .parse::<i32>()
+                .map_err(|_| ModelError::InvalidTsv {
+                    line: line_index + 1,
+                    message: "transition cost is not i32".to_owned(),
+                })?;
+            self.set_transition(previous, next, cost);
+            added += 1;
+        }
+        Ok(added)
+    }
+
     pub fn max_token_bytes(&self) -> usize {
         self.max_lexicon_bytes
             .max(self.max_unknown_chars.saturating_mul(4))
@@ -377,7 +476,14 @@ impl Model {
                 dense_dispatch_bytes: frozen.dense.len() * 256 * size_of::<u32>(),
                 builder_trie_bytes: 0,
                 runtime_trie_bytes: frozen.storage_bytes(),
-                transitions: self.transitions.len(),
+                transitions: self
+                    .dense_transitions
+                    .as_ref()
+                    .map_or(self.transitions.len(), |dense| dense.explicit_count),
+                runtime_transition_bytes: self
+                    .dense_transitions
+                    .as_ref()
+                    .map_or(0, DenseTransitions::storage_bytes),
                 max_token_bytes: self.max_token_bytes(),
             };
         }
@@ -405,6 +511,7 @@ impl Model {
             builder_trie_bytes,
             runtime_trie_bytes: 0,
             transitions: self.transitions.len(),
+            runtime_transition_bytes: 0,
             max_token_bytes: self.max_token_bytes(),
         }
     }
@@ -429,6 +536,13 @@ impl Model {
     }
 
     fn freeze_for_stream(&mut self) {
+        if self.dense_transitions.is_none()
+            && let Some(dense) = DenseTransitions::from_sparse(&self.transitions)
+        {
+            self.dense_transitions = Some(dense);
+            self.transitions.clear();
+            self.transitions.shrink_to_fit();
+        }
         if self.frozen_trie.is_some() || self.trie.is_empty() {
             return;
         }
@@ -441,10 +555,14 @@ impl Model {
     }
 
     fn transition_cost(&self, previous: TagId, next: TagId) -> i32 {
-        self.transitions
-            .get(&(previous, next))
-            .copied()
-            .unwrap_or(0)
+        if let Some(dense) = &self.dense_transitions {
+            dense.cost(previous, next)
+        } else {
+            self.transitions
+                .get(&(previous, next))
+                .copied()
+                .unwrap_or(0)
+        }
     }
 
     fn dictionary_candidates(&self, text: &str, start: usize, out: &mut Vec<Candidate>) {
@@ -1218,6 +1336,34 @@ mod tests {
     }
 
     #[test]
+    fn dense_transition_runtime_is_adaptive() {
+        let mut dense_model = demo_model();
+        for previous in TAG_BOS_EOS..=FIRST_USER_TAG + 4 {
+            for next in TAG_BOS_EOS..=FIRST_USER_TAG + 4 {
+                dense_model.set_transition(previous, next, previous as i32 - next as i32);
+            }
+        }
+        let dense_stream = dense_model.stream_delta();
+        let dense_stats = dense_stream.model_stats();
+        assert!(dense_stats.runtime_transition_bytes > 0);
+        assert!(dense_stats.runtime_transition_bytes <= DenseTransitions::MAX_BYTES);
+
+        let mut sparse_model = Model::new();
+        sparse_model
+            .add_entry("高", "高", "", 60_000, 10)
+            .unwrap();
+        sparse_model.set_transition(60_000, 60_000, -5);
+        let expected = sparse_model.tokenize("高高");
+        let mut sparse_stream = sparse_model.stream_delta();
+        assert_eq!(sparse_stream.model_stats().runtime_transition_bytes, 0);
+        let mut mirror = Vec::new();
+        sparse_stream.append("高").apply(&mut mirror);
+        sparse_stream.append("高").apply(&mut mirror);
+        sparse_stream.finish().apply(&mut mirror);
+        assert_eq!(mirror, expected);
+    }
+
+    #[test]
     fn randomized_streaming_matches_batch_at_every_prefix() {
         // Deterministic xorshift; no test-only dependency. The generated model
         // deliberately contains overlapping surfaces and negative connection
@@ -1279,6 +1425,15 @@ mod tests {
             stream.finish().apply(&mut mirror);
             assert_eq!(mirror, model.tokenize(&text), "case={case} final");
         }
+    }
+
+    #[test]
+    fn transition_tsv_round_trips_through_compiled_model() {
+        let mut model = demo_model();
+        assert_eq!(model.add_transition_tsv("0\t9\t-7\n9\t10\t12\n").unwrap(), 2);
+        let expected = model.tokenize("私は");
+        let restored = Model::from_compiled(&model.to_compiled()).unwrap();
+        assert_eq!(restored.tokenize("私は"), expected);
     }
 
     #[test]

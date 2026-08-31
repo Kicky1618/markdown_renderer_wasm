@@ -39,13 +39,22 @@ The source TSV format is intentionally not MeCab-compatible:
 surface<TAB>lemma<TAB>reading<TAB>tag-id<TAB>word-cost
 ```
 
-Tag IDs `0..=8` are reserved for BOS/EOS and built-in unknown classes. User tags start at `FIRST_USER_TAG` (`9`). Transition costs are configured with `Model::set_transition(previous, next, cost)`.
+Tag IDs `0..=8` are reserved for BOS/EOS and built-in unknown classes. User tags start at `FIRST_USER_TAG` (`9`). Transition costs can be configured individually with `Model::set_transition(previous, next, cost)` or loaded in bulk using the project-specific transition TSV format:
+
+```text
+previous-tag<TAB>next-tag<TAB>cost
+```
+
+Rust uses `Model::add_transition_tsv()` and the JavaScript/WASM wrapper exposes `addTransitionTsv()`.
 
 For deployment, compile TSV to the crate's own `SMD1` binary format:
 
 ```bash
 cargo run --manifest-path stream_mecab/Cargo.toml --release \
   --example compile_dict -- dictionary.tsv dictionary.smd1
+
+cargo run --manifest-path stream_mecab/Cargo.toml --release \
+  --example compile_dict -- dictionary.tsv transitions.tsv dictionary.smd1
 ```
 
 `SMD1` stores this crate's entries, UTF-8 trie and transitions directly. It is not compatible with MeCab/IPADIC/UniDic formats.
@@ -98,7 +107,7 @@ The raw WASM API uses the same reusable input/output buffers as the native hot p
 
 ## Compiled dictionary
 
-`Model::to_compiled()` emits the project-specific `SMD1` format. `Model::from_compiled()` validates and loads it. This format is intentionally unrelated to MeCab/IPADIC/UniDic formats. The `compile_dict` example converts this crate's TSV format to SMD1; WASM can load SMD1 directly with `StreamMecab.loadCompiled(bytes)`, avoiding runtime TSV parsing.
+`Model::to_compiled()` emits the project-specific `SMD1` format. `Model::from_compiled()` validates and loads it. This format is intentionally unrelated to MeCab/IPADIC/UniDic formats. The `compile_dict` example accepts entry TSV plus an optional transition TSV and emits one SMD1 file; WASM can load SMD1 directly with `StreamMecab.loadCompiled(bytes)`, avoiding runtime TSV parsing.
 
 ## Measured performance
 
@@ -112,6 +121,8 @@ Environment: Intel Core i7-12700, release build, CPU affinity fixed to logical C
 These numbers measure the included synthetic dictionary, not a production Japanese dictionary. Dictionary size, ambiguity and transition density materially affect throughput.
 
 A separate 100,000-entry synthetic CJK lexicon benchmark (`bench_large_dict`) exercises trie fan-out. High-fan-out nodes automatically promote to a 256-way byte dispatch table while ordinary nodes remain compact linear edge lists. When a streaming analyzer starts, the mutable builder trie is frozen into contiguous 16-byte node metadata plus packed edge/entry arrays and the builder storage is released. In the synthetic 100k model this changes estimated trie storage from about 100.0 MiB to 18.5 MiB while improving pinned-CPU streaming throughput from roughly 1.205 M append/s to roughly 1.257 M append/s. The model contains about 706k trie nodes; only about 2.1k need dense dispatch tables (~2 MiB).
+
+Connection costs are also frozen adaptively. Small/dense tag spaces become a contiguous `i32` matrix (capped at 8 MiB); sparse high-ID tag spaces keep the hash table to avoid pathological allocation. The included 16-tag transition-heavy benchmark improves from roughly 0.065 M append/s with hash lookup to roughly 0.201 M append/s with the dense runtime matrix (~3.1x), while the ordinary stream benchmark is unchanged.
 
 ## Licensing boundary
 
