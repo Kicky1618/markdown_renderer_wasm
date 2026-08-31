@@ -9,6 +9,7 @@ use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, KeyboardEvent, MouseE
 use super::{
     code, content_gutter,
     math::{self, MathImage},
+    palette as colors,
     search::SearchTrie,
 };
 
@@ -569,8 +570,9 @@ impl State {
             return;
         };
         self.context.save();
-        self.context.set_global_alpha(0.38);
-        self.context.set_fill_style_str("#347ac7");
+        self.context
+            .set_global_alpha(colors::SELECTION.rgba[3] as f64);
+        self.context.set_fill_style_str(colors::SELECTION.css);
         for line in &self.hit_lines {
             if end <= line.start || start >= line.end || line.boundaries.is_empty() {
                 continue;
@@ -611,18 +613,13 @@ impl State {
                 .partition_point(|(start, _)| *start < line.end);
             for index in first..last {
                 let (start, end) = self.search_matches[index];
-                self.context
-                    .set_global_alpha(if index == self.search_active {
-                        0.72
-                    } else {
-                        0.38
-                    });
-                self.context
-                    .set_fill_style_str(if index == self.search_active {
-                        "#fa8c33"
-                    } else {
-                        "#ead33c"
-                    });
+                let color = if index == self.search_active {
+                    colors::SEARCH_ACTIVE
+                } else {
+                    colors::SEARCH_INACTIVE
+                };
+                self.context.set_global_alpha(color.rgba[3] as f64);
+                self.context.set_fill_style_str(color.css);
                 let from = start.max(line.start);
                 let to = end.min(line.end);
                 let x1 = line
@@ -739,7 +736,7 @@ impl State {
         self.hit_lines.clear();
         self.search_lines.clear();
         self.context.set_global_alpha(1.0);
-        self.context.set_fill_style_str("#090c12");
+        self.context.set_fill_style_str(colors::BG.css);
         self.context.fill_rect(0.0, 0.0, width, height);
         let parser = std::mem::replace(&mut self.parser, Parser::new());
         let mut y = 104.0 - self.scroll;
@@ -758,10 +755,10 @@ impl State {
         self.draw_selection();
         self.parser = parser;
         self.context.set_global_alpha(1.0);
-        self.context.set_fill_style_str("#0e1a25");
+        self.context.set_fill_style_str(colors::PANEL.css);
         self.context.fill_rect(0.0, 0.0, width, 68.0);
         self.set_font(16.0, "\"Streamdown Noto Sans\"");
-        self.context.set_fill_style_str("#40dcdf");
+        self.context.set_fill_style_str(colors::CYAN.css);
         let title = if width < 480.0 {
             "STREAMDOWN"
         } else if self.paused {
@@ -776,7 +773,7 @@ impl State {
             let thumb = (track * height / self.content_height).clamp(28.0, track);
             let max_scroll = (self.content_height - height).max(1.0);
             let thumb_y = 76.0 + (track - thumb) * self.scroll / max_scroll;
-            self.context.set_fill_style_str("#24454e");
+            self.context.set_fill_style_str(colors::SCROLLBAR_THUMB.css);
             self.context.fill_rect(width - 14.0, thumb_y, 8.0, thumb);
         }
     }
@@ -792,7 +789,7 @@ impl State {
                     _ => (18.0, 18.0 / 16.0, 30.0),
                 };
                 self.set_font(font_size, "\"Streamdown Noto Sans\"");
-                self.context.set_fill_style_str("#40dcdf");
+                self.context.set_fill_style_str(colors::CYAN.css);
                 self.draw_lines(
                     &plain(content),
                     gutter,
@@ -822,7 +819,7 @@ impl State {
                     return self.draw_display_math(source, gutter, y, viewport_height) + 12.0;
                 }
                 self.set_font(16.0, "\"Streamdown Noto Sans\"");
-                self.context.set_fill_style_str("#d1dbe8");
+                self.context.set_fill_style_str(colors::FG.css);
                 self.draw_lines(
                     &plain(content),
                     gutter,
@@ -833,12 +830,12 @@ impl State {
                 ) + 8.0 * font_scale
             }
             Block::BlockQuote(content) => {
-                self.context.set_fill_style_str("#40dcdf");
+                self.context.set_fill_style_str(colors::CYAN.css);
                 if y + 36.0 > 68.0 && y < viewport_height {
                     self.context.fill_rect(gutter, y - 16.0, 4.0, 36.0);
                 }
                 self.set_font(16.0, "\"Streamdown Noto Sans\"");
-                self.context.set_fill_style_str("#78879e");
+                self.context.set_fill_style_str(colors::MUTED.css);
                 self.draw_lines(
                     &plain(content),
                     gutter + 18.0,
@@ -854,7 +851,7 @@ impl State {
             Block::UnorderedList(items) => {
                 let mut used = 0.0;
                 self.set_font(16.0, "\"Streamdown Noto Sans\"");
-                self.context.set_fill_style_str("#d1dbe8");
+                self.context.set_fill_style_str(colors::FG.css);
                 for item in items {
                     used += self.draw_lines(
                         &format!("• {}", plain(item)),
@@ -870,7 +867,7 @@ impl State {
             Block::OrderedList { start, items } => {
                 let mut used = 0.0;
                 self.set_font(16.0, "\"Streamdown Noto Sans\"");
-                self.context.set_fill_style_str("#d1dbe8");
+                self.context.set_fill_style_str(colors::FG.css);
                 for (index, item) in items.iter().enumerate() {
                     used += self.draw_lines(
                         &format!("{}. {}", *start as usize + index, plain(item)),
@@ -885,7 +882,7 @@ impl State {
             }
             Block::ThematicBreak => {
                 if y > 68.0 && y < viewport_height {
-                    self.context.set_fill_style_str("#4c5868");
+                    self.context.set_fill_style_str(colors::THEMATIC_BREAK.css);
                     self.context
                         .fill_rect(gutter, y, (width - gutter * 2.0).max(0.0), 1.0);
                 }
@@ -924,7 +921,7 @@ impl State {
             row_top,
             table_width,
             painted_row_height,
-            "#1a3040",
+            colors::TABLE_HEADER.css,
             viewport_height,
         );
         self.draw_table_row(
@@ -933,7 +930,7 @@ impl State {
             row_top,
             column_width,
             painted_row_height,
-            "#d1dbe8",
+            colors::FG.css,
             viewport_height,
         );
         row_top += painted_row_height;
@@ -946,7 +943,7 @@ impl State {
                     row_top,
                     table_width,
                     painted_row_height,
-                    "#0e161f",
+                    colors::TABLE_STRIPE.css,
                     viewport_height,
                 );
             }
@@ -956,7 +953,7 @@ impl State {
                 row_top,
                 column_width,
                 painted_row_height,
-                "#d1dbe8",
+                colors::FG.css,
                 viewport_height,
             );
             row_top += painted_row_height;
@@ -965,7 +962,7 @@ impl State {
 
         let table_top = y - 18.0 * scale;
         let table_bottom = row_top;
-        self.context.set_fill_style_str("#78879e");
+        self.context.set_fill_style_str(colors::MUTED.css);
         if table_bottom > 68.0 && table_top < viewport_height {
             for column in 0..=columns {
                 self.context.fill_rect(
@@ -1040,7 +1037,7 @@ impl State {
         if y < 68.0 || y > viewport_height {
             return;
         }
-        self.context.set_fill_style_str("#78879e");
+        self.context.set_fill_style_str(colors::MUTED.css);
         self.context.fill_rect(x, y, width, 1.0);
     }
 
@@ -1081,7 +1078,7 @@ impl State {
         let lines = source.bytes().filter(|byte| *byte == b'\n').count() + 1;
         let total_height = 38.0 * self.font_scale + lines as f64 * line_height;
         if y + total_height > 68.0 && y < viewport_height {
-            self.context.set_fill_style_str("#0e1a25");
+            self.context.set_fill_style_str(colors::PANEL.css);
             self.context.fill_rect(
                 gutter,
                 y - 14.0,
@@ -1097,7 +1094,7 @@ impl State {
             && y > 62.0
             && y < viewport_height
         {
-            self.context.set_fill_style_str("#73e09e");
+            self.context.set_fill_style_str(colors::GREEN.css);
             let _ = self
                 .context
                 .fill_text(language, code_x, y + 4.0 * self.font_scale);
@@ -1118,15 +1115,15 @@ impl State {
         }
         code::highlight(source, language, |span, kind| {
             let color = match kind {
-                code::TokenKind::Plain => "#d1dbe8",
-                code::TokenKind::Keyword => "#c79ef2",
-                code::TokenKind::Type => "#40dcdf",
-                code::TokenKind::Function => "#73b8fa",
-                code::TokenKind::String => "#73e09e",
-                code::TokenKind::Number => "#f2ab61",
-                code::TokenKind::Comment => "#78879e",
-                code::TokenKind::Macro => "#ead67a",
-                code::TokenKind::Operator => "#adbccc",
+                code::TokenKind::Plain => colors::FG.css,
+                code::TokenKind::Keyword => colors::PURPLE.css,
+                code::TokenKind::Type => colors::CYAN.css,
+                code::TokenKind::Function => colors::BLUE.css,
+                code::TokenKind::String => colors::GREEN.css,
+                code::TokenKind::Number => colors::ORANGE.css,
+                code::TokenKind::Comment => colors::MUTED.css,
+                code::TokenKind::Macro => colors::YELLOW.css,
+                code::TokenKind::Operator => colors::OPERATOR.css,
             };
             context.set_fill_style_str(color);
             for part in span.split_inclusive('\n') {
@@ -1181,7 +1178,7 @@ impl State {
     fn draw_display_math(&mut self, source: &str, x: f64, y: f64, viewport_height: f64) -> f64 {
         let Some(image) = self.cached_math(source, true, self.font_scale as f32) else {
             self.set_font(16.0, "\"Streamdown Noto Sans\"");
-            self.context.set_fill_style_str("#d1dbe8");
+            self.context.set_fill_style_str(colors::FG.css);
             let _ = self.context.fill_text(source, x, y + 18.0);
             return 32.0 * self.font_scale;
         };

@@ -5,6 +5,7 @@ mod code;
 mod compat;
 mod font;
 mod math;
+mod palette;
 mod search;
 
 use bytemuck::{Pod, Zeroable};
@@ -18,6 +19,7 @@ use futures_util::{
     future::{Either, select},
 };
 use js_sys::{Function, Promise, Reflect};
+use palette as colors;
 use search::SearchTrie;
 use std::{
     cell::RefCell,
@@ -48,22 +50,17 @@ const GPU_INIT_TIMEOUT_MS: i32 = 5_000;
 // ab_glyph PxScale renders the embedded Noto font smaller than CSS font-size.
 // Calibrated against the same H1 in Canvas2D and GPU screenshots.
 const GPU_DOCUMENT_FONT_SCALE: f32 = 1.436;
-const fn rgb(r: u8, g: u8, b: u8) -> [f32; 4] {
-    [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0]
-}
-
-// Exact Canvas2D CSS palette. Keeping these byte-authored values exact avoids
-// backend-specific one-LSB shifts after presentation.
-const BG: [f32; 4] = rgb(0x09, 0x0c, 0x12);
-const PANEL: [f32; 4] = rgb(0x0e, 0x1a, 0x25);
-const FG: [f32; 4] = rgb(0xd1, 0xdb, 0xe8);
-const MUTED: [f32; 4] = rgb(0x78, 0x87, 0x9e);
-const CYAN: [f32; 4] = rgb(0x40, 0xdc, 0xdf);
-const GREEN: [f32; 4] = rgb(0x73, 0xe0, 0x9e);
-const ORANGE: [f32; 4] = rgb(0xf2, 0xab, 0x61);
-const PURPLE: [f32; 4] = rgb(0xc7, 0x9e, 0xf2);
-const BLUE: [f32; 4] = rgb(0x73, 0xb8, 0xfa);
-const YELLOW: [f32; 4] = rgb(0xea, 0xd6, 0x7a);
+// Renderer colors are shared with Canvas2D so backend palettes cannot drift.
+const BG: [f32; 4] = colors::BG.rgba;
+const PANEL: [f32; 4] = colors::PANEL.rgba;
+const FG: [f32; 4] = colors::FG.rgba;
+const MUTED: [f32; 4] = colors::MUTED.rgba;
+const CYAN: [f32; 4] = colors::CYAN.rgba;
+const GREEN: [f32; 4] = colors::GREEN.rgba;
+const ORANGE: [f32; 4] = colors::ORANGE.rgba;
+const PURPLE: [f32; 4] = colors::PURPLE.rgba;
+const BLUE: [f32; 4] = colors::BLUE.rgba;
+const YELLOW: [f32; 4] = colors::YELLOW.rgba;
 
 #[derive(Debug)]
 struct BrowserDisplay;
@@ -1716,19 +1713,7 @@ impl Scene {
             .collect();
         for (x, y, width, height, scroll_x) in selected {
             self.math_mode = scroll_x;
-            self.rect(
-                x,
-                y,
-                width,
-                height,
-                [
-                    0x34 as f32 / 255.0,
-                    0x7a as f32 / 255.0,
-                    0xc7 as f32 / 255.0,
-                    0.38,
-                ],
-                0.0,
-            );
+            self.rect(x, y, width, height, colors::SELECTION.rgba, 0.0);
         }
         self.math_mode = false;
     }
@@ -1759,19 +1744,9 @@ impl Scene {
                 width,
                 height,
                 if is_active {
-                    [
-                        0xfa as f32 / 255.0,
-                        0x8c as f32 / 255.0,
-                        0x33 as f32 / 255.0,
-                        0.72,
-                    ]
+                    colors::SEARCH_ACTIVE.rgba
                 } else {
-                    [
-                        0xea as f32 / 255.0,
-                        0xd3 as f32 / 255.0,
-                        0x3c as f32 / 255.0,
-                        0.38,
-                    ]
+                    colors::SEARCH_INACTIVE.rgba
                 },
                 0.0,
             );
@@ -1958,7 +1933,7 @@ impl Scene {
                 code::TokenKind::Number => ORANGE,
                 code::TokenKind::Comment => MUTED,
                 code::TokenKind::Macro => YELLOW,
-                code::TokenKind::Operator => rgb(0xad, 0xbc, 0xcc),
+                code::TokenKind::Operator => colors::OPERATOR.rgba,
             };
             for c in span.chars() {
                 if baseline - line_height > clip_bottom {
@@ -2241,7 +2216,14 @@ impl Scene {
         thumb_y: f32,
         thumb_height: f32,
     ) {
-        self.rect(x, thumb_y, 8.0, thumb_height, rgb(0x24, 0x45, 0x4e), 1.0);
+        self.rect(
+            x,
+            thumb_y,
+            8.0,
+            thumb_height,
+            colors::SCROLLBAR_THUMB.rgba,
+            1.0,
+        );
     }
 
     fn math_image(
@@ -2387,7 +2369,7 @@ impl Scene {
                     self.y,
                     self.width - 2.0 * x,
                     1.0,
-                    rgb(0x4c, 0x58, 0x68),
+                    colors::THEMATIC_BREAK.rgba,
                     0.0,
                 );
             }
@@ -2414,7 +2396,7 @@ impl Scene {
             row_top,
             column_width * columns as f32,
             painted_row_height,
-            [0.10, 0.19, 0.25, 1.0],
+            colors::TABLE_HEADER.rgba,
             0.0,
         );
         self.table_row(
@@ -2436,7 +2418,7 @@ impl Scene {
                     row_top,
                     column_width * columns as f32,
                     painted_row_height,
-                    [0.055, 0.085, 0.12, 1.0],
+                    colors::TABLE_STRIPE.rgba,
                     0.0,
                 );
             }
