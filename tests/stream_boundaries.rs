@@ -301,6 +301,22 @@ fn list_tail_deltas_are_character_stream_independent() {
 }
 
 #[test]
+fn long_rich_list_items_are_character_stream_independent() {
+    for marker in ["- ", "1. "] {
+        let markdown = format!("{marker}{}", "*x* [y](u) `z` **q** 日本語 ".repeat(16));
+        let expected = parse_whole(&markdown);
+        let boundaries = utf8_boundaries(&markdown);
+        let actual = parse_chunks(
+            boundaries
+                .windows(2)
+                .map(|window| &markdown[window[0]..window[1]]),
+        );
+        assert_eq!(actual, expected, "character stream changed long rich list");
+        assert_every_single_split(&markdown);
+    }
+}
+
+#[test]
 fn rich_list_item_syntax_is_character_stream_independent() {
     for markdown in [
         "- *x*\n- **y**\n- `z`",

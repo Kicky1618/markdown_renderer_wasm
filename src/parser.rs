@@ -162,6 +162,14 @@ enum PendingLineBreak {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ListInlineBoundary {
+    kind: PendingKind,
+    raw_offset: usize,
+    node: usize,
+    text_prefix: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LinkTailPending {
     Label {
         opener: usize,
@@ -229,6 +237,7 @@ pub struct Parser {
     live_tail_pending: Option<TailPending>,
     live_multiline_plain_safe: bool,
     live_pending_line_break: Option<PendingLineBreak>,
+    live_list_inline_boundary: Option<ListInlineBoundary>,
 }
 
 impl Default for Parser {
@@ -272,6 +281,7 @@ impl Parser {
             live_tail_pending: None,
             live_multiline_plain_safe: false,
             live_pending_line_break: None,
+            live_list_inline_boundary: None,
         }
     }
 
@@ -330,6 +340,7 @@ impl Parser {
                 self.live_link_fast_ambiguous = false;
                 self.live_thematic_marker = 0;
                 self.live_tail_pending = None;
+                self.live_list_inline_boundary = None;
                 self.line.clear();
                 self.pending.clear();
                 self.pending_kind = None;
@@ -1129,6 +1140,7 @@ impl Parser {
             self.trailing_backslash_odd = false;
             self.reset_delimiter_runs();
             self.live_tail_pending = None;
+            self.live_list_inline_boundary = None;
             return true;
         }
         if input.contains('\n') {
@@ -1211,8 +1223,10 @@ impl Parser {
             self.trailing_backslash_odd = false;
             self.reset_delimiter_runs();
             self.live_tail_pending = None;
+            self.live_list_inline_boundary = None;
         } else {
             self.line.push_str(raw);
+            self.live_list_inline_boundary = None;
         }
         true
     }
@@ -1233,6 +1247,7 @@ impl Parser {
             };
             items.push(item.clone());
             self.line.push_str(input);
+            self.live_list_inline_boundary = None;
             delta.ops.push(Op::AppendListItem {
                 block: block_index as u32,
                 item,
@@ -1248,7 +1263,11 @@ impl Parser {
         if !(trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("+ ")) {
             return false;
         }
-        if !input.bytes().all(is_plain_stream_byte) {
+        let plain = input.bytes().all(is_plain_stream_byte);
+        let has_unstable_suffix = self.live_list_inline_boundary.is_some_and(|boundary| {
+            boundary.kind == PendingKind::Unordered && boundary.raw_offset < self.line.len()
+        });
+        if !plain || has_unstable_suffix {
             return self.replace_rich_list_item_tail(
                 block_index,
                 PendingKind::Unordered,
@@ -1256,11 +1275,22 @@ impl Parser {
                 delta,
             );
         }
+        let old_line_len = self.line.len();
         let Some(Block::UnorderedList(items)) = self.blocks.get_mut(block_index) else {
             return false;
         };
         splice_list_item_tail(items, 0, 0, &[Inline::Text(input.to_owned())]);
         self.line.push_str(input);
+        if self.live_list_inline_boundary.is_some_and(|boundary| {
+            boundary.kind == PendingKind::Unordered && boundary.raw_offset == old_line_len
+        }) {
+            let item = items.last().expect("live unordered list has no item");
+            self.live_list_inline_boundary = Some(list_inline_boundary_at_end(
+                PendingKind::Unordered,
+                self.line.len(),
+                item,
+            ));
+        }
         delta.ops.push(Op::SpliceListItemTail {
             block: block_index as u32,
             remove_nodes: 0,
@@ -1286,6 +1316,7 @@ impl Parser {
             };
             items.push(item.clone());
             self.line.push_str(input);
+            self.live_list_inline_boundary = None;
             delta.ops.push(Op::AppendListItem {
                 block: block_index as u32,
                 item,
@@ -1332,7 +1363,11 @@ impl Parser {
         if ordered_item(trimmed).is_none() {
             return false;
         }
-        if !input.bytes().all(is_plain_stream_byte) {
+        let plain = input.bytes().all(is_plain_stream_byte);
+        let has_unstable_suffix = self.live_list_inline_boundary.is_some_and(|boundary| {
+            boundary.kind == PendingKind::Ordered && boundary.raw_offset < self.line.len()
+        });
+        if !plain || has_unstable_suffix {
             return self.replace_rich_list_item_tail(
                 block_index,
                 PendingKind::Ordered,
@@ -1354,6 +1389,107 @@ impl Parser {
             return false;
         }
 
+        let boundary = match self.live_list_inline_boundary {
+            Some(boundary) if boundary.kind == kind && boundary.raw_offset <= self.line.len() => {
+                boundary
+            }
+            _ => {
+                let item = match self.blocks.get(block_index) {
+                    Some(Block::UnorderedList(items)) if kind == PendingKind::Unordered => {
+                        items.last()
+                    }
+                    Some(Block::OrderedList { items, .. }) if kind == PendingKind::Ordered => {
+                        items.last()
+                    }
+                    _ => return false,
+                };
+                let Some(item) = item else {
+                    return false;
+                };
+                if !quote_line_inlines_are_self_contained(item) {
+                    return self.replace_entire_rich_list_item_tail(
+                        block_index,
+                        kind,
+                        input,
+                        delta,
+                    );
+                }
+                list_inline_boundary_at_end(kind, self.line.len(), item)
+            }
+        };
+
+        let mut suffix = String::with_capacity(self.line.len() - boundary.raw_offset + input.len());
+        suffix.push_str(&self.line[boundary.raw_offset..]);
+        suffix.push_str(input);
+        let replacement = parse_inlines(&suffix);
+        let suffix_is_stable = quote_line_inlines_are_self_contained(&replacement);
+
+        let item = match self.blocks.get_mut(block_index) {
+            Some(Block::UnorderedList(items)) if kind == PendingKind::Unordered => items.last_mut(),
+            Some(Block::OrderedList { items, .. }) if kind == PendingKind::Ordered => {
+                items.last_mut()
+            }
+            _ => return false,
+        };
+        let Some(item) = item else {
+            return false;
+        };
+        if boundary.node > item.len() {
+            return false;
+        }
+        if boundary.node < item.len()
+            && !matches!(item.get(boundary.node), Some(Inline::Text(text)) if text.len() >= boundary.text_prefix)
+        {
+            return false;
+        }
+
+        let nodes_after_boundary = if boundary.node < item.len() {
+            item.len() - boundary.node - 1
+        } else {
+            0
+        };
+        if nodes_after_boundary != 0 {
+            splice_inline_tail(item, 0, nodes_after_boundary, &[]);
+            delta.ops.push(Op::SpliceListItemTail {
+                block: block_index as u32,
+                remove_nodes: nodes_after_boundary as u32,
+                truncate_bytes: 0,
+                append: Vec::new(),
+            });
+        }
+
+        let truncate_bytes = if boundary.node < item.len() {
+            match item.last() {
+                Some(Inline::Text(text)) => text.len() - boundary.text_prefix,
+                _ => return false,
+            }
+        } else {
+            0
+        };
+        splice_inline_tail(item, truncate_bytes, 0, &replacement);
+        delta.ops.push(Op::SpliceListItemTail {
+            block: block_index as u32,
+            remove_nodes: 0,
+            truncate_bytes: truncate_bytes as u32,
+            append: replacement,
+        });
+
+        self.line.push_str(input);
+        self.live_list_inline_boundary = Some(if suffix_is_stable {
+            list_inline_boundary_at_end(kind, self.line.len(), item)
+        } else {
+            boundary
+        });
+        true
+    }
+
+    fn replace_entire_rich_list_item_tail(
+        &mut self,
+        block_index: usize,
+        kind: PendingKind,
+        input: &str,
+        delta: &mut Delta,
+    ) -> bool {
         let mut candidate = self.line.clone();
         candidate.push_str(input);
         let trimmed = candidate.trim_start();
@@ -1374,6 +1510,7 @@ impl Parser {
             _ => return false,
         };
         let replacement = parse_inlines(body);
+        let stable = quote_line_inlines_are_self_contained(&replacement);
 
         let item = match self.blocks.get_mut(block_index) {
             Some(Block::UnorderedList(items)) if kind == PendingKind::Unordered => items.last_mut(),
@@ -1390,13 +1527,15 @@ impl Parser {
             _ => (0, item.len()),
         };
         splice_inline_tail(item, truncate_bytes, remove_nodes, &replacement);
-        self.line = candidate;
         delta.ops.push(Op::SpliceListItemTail {
             block: block_index as u32,
             remove_nodes: remove_nodes as u32,
             truncate_bytes: truncate_bytes as u32,
             append: replacement,
         });
+        self.line = candidate;
+        self.live_list_inline_boundary =
+            stable.then(|| list_inline_boundary_at_end(kind, self.line.len(), item));
         true
     }
 
@@ -1406,11 +1545,22 @@ impl Parser {
         input: &str,
         delta: &mut Delta,
     ) -> bool {
+        let old_line_len = self.line.len();
         let Some(Block::OrderedList { items, .. }) = self.blocks.get_mut(block_index) else {
             return false;
         };
         splice_list_item_tail(items, 0, 0, &[Inline::Text(input.to_owned())]);
         self.line.push_str(input);
+        if self.live_list_inline_boundary.is_some_and(|boundary| {
+            boundary.kind == PendingKind::Ordered && boundary.raw_offset == old_line_len
+        }) {
+            let item = items.last().expect("live ordered list has no item");
+            self.live_list_inline_boundary = Some(list_inline_boundary_at_end(
+                PendingKind::Ordered,
+                self.line.len(),
+                item,
+            ));
+        }
         delta.ops.push(Op::SpliceListItemTail {
             block: block_index as u32,
             remove_nodes: 0,
@@ -2310,6 +2460,7 @@ impl Parser {
             self.live_tail_pending = None;
             self.live_multiline_plain_safe = false;
             self.live_pending_line_break = None;
+            self.live_list_inline_boundary = None;
         }
     }
 
@@ -2408,6 +2559,9 @@ impl Parser {
     }
 
     fn publish_live(&mut self, delta: &mut Delta) {
+        // A full live-block rebuild invalidates any AST boundary cached for a
+        // list-item suffix. Fast list updates recreate it lazily.
+        self.live_list_inline_boundary = None;
         // A pending list ends once the unfinished next line can no longer
         // become another item of that same list kind. Marker prefixes such as
         // `3.` remain live until the following space arrives.
@@ -2691,6 +2845,27 @@ fn splice_list_item_tail(
         unreachable!("list tail splice requires a final item")
     };
     splice_inline_tail(item, truncate_bytes, remove_nodes, append);
+}
+
+fn list_inline_boundary_at_end(
+    kind: PendingKind,
+    raw_offset: usize,
+    item: &[Inline],
+) -> ListInlineBoundary {
+    match item.last() {
+        Some(Inline::Text(text)) => ListInlineBoundary {
+            kind,
+            raw_offset,
+            node: item.len() - 1,
+            text_prefix: text.len(),
+        },
+        _ => ListInlineBoundary {
+            kind,
+            raw_offset,
+            node: item.len(),
+            text_prefix: 0,
+        },
+    }
 }
 
 fn emphasis_run_splice(
@@ -5193,6 +5368,37 @@ $$
             let mut whole = Parser::new();
             whole.append(markdown);
             assert_eq!(parser.blocks(), whole.blocks());
+        }
+    }
+
+    #[test]
+    fn long_rich_list_item_advances_local_inline_boundary() {
+        for marker in ["- ", "1. "] {
+            let mut parser = Parser::new();
+            let mut mirror = Vec::new();
+            let delta = parser.append(marker);
+            apply(&mut mirror, &delta);
+
+            let body = "*x* [y](u) `z` **q** 日本語 ".repeat(64);
+            for ch in body.chars() {
+                let mut buf = [0; 4];
+                let chunk = ch.encode_utf8(&mut buf);
+                let delta = parser.append(chunk);
+                assert!(
+                    delta
+                        .ops
+                        .iter()
+                        .all(|op| matches!(op, Op::SpliceListItemTail { .. })),
+                    "long rich list tail republished for {marker:?} chunk={chunk:?}: {:?}",
+                    delta.ops
+                );
+                apply(&mut mirror, &delta);
+                assert_eq!(mirror, parser.blocks(), "mirror diverged at {chunk:?}");
+            }
+
+            let mut whole = Parser::new();
+            whole.append(&format!("{marker}{body}"));
+            assert_eq!(parser.blocks(), whole.blocks(), "marker={marker:?}");
         }
     }
 
