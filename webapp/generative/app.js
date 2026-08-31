@@ -269,6 +269,28 @@ function semanticReplaySnapshot(startBlock = 0) {
   return result;
 }
 
+function buildReplayDeterminismCheck(replay, startBlock) {
+  if (!replay?.expected) return null;
+  return {
+    expectedSource: expectedReplaySource(replay),
+    expectedSemantic: replay.expected.semantic,
+    expectedState: replay.expected.state,
+    startBlock: Math.max(0, Number(startBlock) || 0),
+  };
+}
+
+function compareCurrentReplayDeterminism(check) {
+  if (!check) return null;
+  return compareReplayDeterminism({
+    expectedSource: check.expectedSource,
+    actualSource: source.value,
+    expectedSemantic: check.expectedSemantic,
+    actualSemantic: semanticReplaySnapshot(check.startBlock),
+    expectedState: check.expectedState,
+    actualState: snapshotLocalState(),
+  });
+}
+
 function renderReplayDeterminism(result) {
   if (!result) {
     replayDeterminism.hidden = true;
@@ -606,8 +628,9 @@ async function replayLastModelStream() {
     if (replay.kind === "append") source.value = replay.before.source + replay.prefix + received;
     else source.value = received;
     const meta = { responseText: received, format: "replay", chunks: result.chunks, firstUiMs: firstUiAt };
+    const determinismCheck = buildReplayDeterminismCheck(replay, responseStartBlock);
     if (responseNeedsHumanReview(received)) {
-      pendingModelReview = { before: currentBeforeReplay, meta, startBlock: responseStartBlock };
+      pendingModelReview = { before: currentBeforeReplay, meta, startBlock: responseStartBlock, determinismCheck };
       endSemanticCommitBarrier({ review: true });
       setRuntimeState("REVIEW");
     } else {
@@ -615,14 +638,7 @@ async function replayLastModelStream() {
       recordModelHistory(currentBeforeReplay, meta);
       setRuntimeState("LIVE");
     }
-    const determinism = replay.expected ? compareReplayDeterminism({
-      expectedSource: expectedReplaySource(replay),
-      actualSource: source.value,
-      expectedSemantic: replay.expected.semantic,
-      actualSemantic: semanticReplaySnapshot(responseStartBlock),
-      expectedState: replay.expected.state,
-      actualState: snapshotLocalState(),
-    }) : null;
+    const determinism = compareCurrentReplayDeterminism(determinismCheck);
     renderStreamTimeline(timeline.finish(timelineRuntimePoint()), "REPLAY");
     renderReplayDeterminism(determinism);
     document.documentElement.dataset.replayState = "done";
@@ -1782,6 +1798,11 @@ function applyPendingModelReview() {
   const changed = applySemanticSideEffects({ force: true });
   document.documentElement.dataset.semanticCommit = changed ? "committed" : "clean";
   recordModelHistory(pending.before, pending.meta);
+  if (pending.determinismCheck) {
+    const reconciled = compareCurrentReplayDeterminism(pending.determinismCheck);
+    renderReplayDeterminism(reconciled);
+    document.documentElement.dataset.replayDeterminismReconciled = reconciled?.verified ? "verified" : "diverged";
+  }
   setRuntimeState("LIVE");
   deltaStatus.textContent = changed ? "Applied staged model effects" : "Accepted model response (no semantic effects)";
   updatePolicyAudit();
@@ -2300,16 +2321,32 @@ async function runDeterminismDivergenceSmoke() {
   }
 
   const slider = preview.querySelector('input[data-state-input="temperature"]');
-  const passed = root.dataset.replayDeterminism === "diverged"
+  const divergencePassed = root.dataset.replayDeterminism === "diverged"
     && determinismStatus.textContent === "DIVERGED"
     && determinismDetails.textContent.includes("source ✓")
     && determinismDetails.textContent.includes("semantic ✓")
     && determinismDetails.textContent.includes("state ✗")
     && determinismDetails.textContent.includes("temperature")
+    && determinismDiff.textContent.includes("state temperature: 58 → 42")
     && root.dataset.semanticCommit === "review"
     && semanticReview.hidden === false
     && slider?.value === "42";
-  root.dataset.determinismDivergenceSmoke = passed ? "pass" : "fail";
+  root.dataset.determinismDivergenceSmoke = divergencePassed ? "pass" : "fail";
+  if (!divergencePassed) return;
+
+  applyReviewButton.click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const appliedSlider = preview.querySelector('input[data-state-input="temperature"]');
+  const reconciled = root.dataset.replayDeterminismReconciled === "verified"
+    && root.dataset.replayDeterminism === "verified"
+    && determinismStatus.textContent === "VERIFIED"
+    && determinismDetails.textContent.includes("source ✓")
+    && determinismDetails.textContent.includes("semantic ✓")
+    && determinismDetails.textContent.includes("state ✓")
+    && determinismDiff.children.length === 0
+    && root.dataset.semanticCommit === "committed"
+    && appliedSlider?.value === "58";
+  root.dataset.determinismReconcileSmoke = reconciled ? "pass" : "fail";
 }
 
 async function runReviewSmoke() {
