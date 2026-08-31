@@ -97,6 +97,13 @@ pub enum Op {
         truncate_bytes: u32,
         append: Vec<Inline>,
     },
+    /// Edit only the inline tail of a live heading.
+    SpliceHeadingTail {
+        block: u32,
+        remove_nodes: u32,
+        truncate_bytes: u32,
+        append: Vec<Inline>,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -394,6 +401,9 @@ impl Parser {
                 return;
             }
             if self.try_append_plain(input, delta) {
+                return;
+            }
+            if self.try_append_heading_tail(input, delta) {
                 return;
             }
             if self.try_append_complete_semantic_chunk(input, delta) {
@@ -818,6 +828,51 @@ impl Parser {
         append.push(Inline::Text(append_text.to_owned()));
         splice_inline_tail(nodes, 0, 0, &append);
         delta.ops.push(Op::SpliceQuoteTail {
+            block: block_index as u32,
+            remove_nodes: 0,
+            truncate_bytes: 0,
+            append,
+        });
+        true
+    }
+
+    fn try_append_heading_tail(&mut self, input: &str, delta: &mut Delta) -> bool {
+        if input.is_empty()
+            || !matches!(self.mode, Mode::Normal)
+            || !self.has_live
+            || self.pending_kind.is_some()
+            || !input.bytes().all(is_plain_stream_byte)
+        {
+            return false;
+        }
+        let Some(block_index) = self.blocks.len().checked_sub(1) else {
+            return false;
+        };
+        let Some(Block::Heading { content, .. }) = self.blocks.get(block_index) else {
+            return false;
+        };
+        if !matches!(content.as_slice(), [] | [Inline::Text(_)]) {
+            return false;
+        }
+        let Some((_, old_end)) = heading_content_range(&self.line) else {
+            return false;
+        };
+
+        self.line.push_str(input);
+        let Some((_, new_end)) = heading_content_range(&self.line) else {
+            unreachable!("plain append cannot change an established heading prefix");
+        };
+        debug_assert!(new_end >= old_end);
+        if new_end == old_end {
+            return true;
+        }
+
+        let append = vec![Inline::Text(self.line[old_end..new_end].to_owned())];
+        let Some(Block::Heading { content, .. }) = self.blocks.get_mut(block_index) else {
+            unreachable!();
+        };
+        splice_inline_tail(content, 0, 0, &append);
+        delta.ops.push(Op::SpliceHeadingTail {
             block: block_index as u32,
             remove_nodes: 0,
             truncate_bytes: 0,
@@ -3182,12 +3237,22 @@ fn parse_multiline(source: &str) -> Vec<Inline> {
 }
 
 fn heading(line: &str) -> Option<(u8, &str)> {
+    let (start, end) = heading_content_range(line)?;
     let t = line.trim_start();
+    let count = t.as_bytes().iter().take_while(|&&b| b == b'#').count();
+    Some((count as u8, &line[start..end]))
+}
+
+fn heading_content_range(line: &str) -> Option<(usize, usize)> {
+    let t = line.trim_start();
+    let leading = line.len() - t.len();
     let count = t.as_bytes().iter().take_while(|&&b| b == b'#').count();
     if !(1..=6).contains(&count) || t.as_bytes().get(count) != Some(&b' ') {
         return None;
     }
-    Some((count as u8, t[count + 1..].trim_end_matches('#').trim_end()))
+    let start = leading + count + 1;
+    let visible = line[start..].trim_end_matches('#').trim_end();
+    Some((start, start + visible.len()))
 }
 
 fn llm_fence_open(line: &str) -> Option<(usize, String)> {
@@ -4403,6 +4468,29 @@ $$
     }
 
     #[test]
+    fn heading_tail_deltas_preserve_hidden_space_and_closing_hashes() {
+        let mut parser = Parser::new();
+        let mut mirror = Vec::new();
+        for chunk in ["## ", "title", " ", "#", "x"] {
+            let delta = parser.append(chunk);
+            apply(&mut mirror, &delta);
+            assert_eq!(
+                mirror,
+                parser.blocks(),
+                "heading mirror diverged after {chunk:?}"
+            );
+        }
+        let mut whole = Parser::new();
+        whole.append("## title #x");
+        assert_eq!(parser.blocks(), whole.blocks());
+        assert!(matches!(
+            parser.blocks(),
+            [Block::Heading { level: 2, content }]
+                if content == &vec![Inline::Text("title #x".to_owned())]
+        ));
+    }
+
+    #[test]
     fn table_tail_deltas_match_streamed_rows() {
         let markdown = "a|b\n---|---\nx|y\nz|日本語";
         let mut parser = Parser::new();
@@ -4658,6 +4746,22 @@ $$
                     };
                     splice_inline_tail(
                         nodes,
+                        *truncate_bytes as usize,
+                        *remove_nodes as usize,
+                        append,
+                    );
+                }
+                Op::SpliceHeadingTail {
+                    block,
+                    remove_nodes,
+                    truncate_bytes,
+                    append,
+                } => {
+                    let Block::Heading { content, .. } = &mut document[*block as usize] else {
+                        panic!("not heading")
+                    };
+                    splice_inline_tail(
+                        content,
                         *truncate_bytes as usize,
                         *remove_nodes as usize,
                         append,

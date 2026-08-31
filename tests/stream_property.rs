@@ -284,6 +284,37 @@ fn apply(document: &mut Vec<Block>, delta: &Delta) {
                     }
                 }
             }
+            Op::SpliceHeadingTail {
+                block,
+                remove_nodes,
+                truncate_bytes,
+                append,
+            } => {
+                let Block::Heading { content, .. } = &mut document[*block as usize] else {
+                    panic!("SpliceHeadingTail target is not a heading")
+                };
+                if *truncate_bytes != 0 {
+                    let Some(Inline::Text(text)) = content.last_mut() else {
+                        panic!("SpliceHeadingTail target has no trailing text")
+                    };
+                    text.truncate(text.len() - *truncate_bytes as usize);
+                    if text.is_empty() {
+                        content.pop();
+                    }
+                }
+                if *remove_nodes != 0 {
+                    content.truncate(content.len() - *remove_nodes as usize);
+                }
+                for incoming in append {
+                    if let Inline::Text(value) = incoming
+                        && let Some(Inline::Text(text)) = content.last_mut()
+                    {
+                        text.push_str(value);
+                    } else {
+                        content.push(incoming.clone());
+                    }
+                }
+            }
             Op::AppendListItem { block, item } => match &mut document[*block as usize] {
                 Block::UnorderedList(items) | Block::OrderedList { items, .. } => {
                     items.push(item.clone())

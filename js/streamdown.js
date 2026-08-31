@@ -145,6 +145,7 @@ export function decodeDelta(bytes) {
       case 11: return { op: "appendTableRow", block: u32(), row: Array.from({ length: u32() }, inlines) };
       case 12: return { op: "appendTableCell", block: u32(), cell: inlines() };
       case 13: return { op: "spliceTableCellTail", block: u32(), removeNodes: u32(), truncateBytes: u32(), append: inlines() };
+      case 14: return { op: "spliceHeadingTail", block: u32(), removeNodes: u32(), truncateBytes: u32(), append: inlines() };
       default: throw new Error("unknown delta operation");
     }
   });
@@ -235,6 +236,26 @@ export function applyDelta(document, ops) {
       }
       if (change.removeNodes) {
         if (change.removeNodes > children.length) throw new Error("spliceQuoteTail removes too many nodes");
+        children.length -= change.removeNodes;
+      }
+      for (const incoming of change.append) {
+        const tail = children[children.length - 1];
+        if (incoming.type === "text" && tail?.type === "text") tail.value += incoming.value;
+        else children.push(incoming);
+      }
+    }
+    else if (change.op === "spliceHeadingTail") {
+      const node = document[change.block];
+      if (node.type !== "heading") throw new Error("spliceHeadingTail target is not a heading");
+      const children = node.children;
+      if (change.truncateBytes) {
+        const tail = children[children.length - 1];
+        if (tail?.type !== "text") throw new Error("spliceHeadingTail target has no trailing text");
+        tail.value = removeUtf8Tail(tail.value, change.truncateBytes);
+        if (!tail.value) children.pop();
+      }
+      if (change.removeNodes) {
+        if (change.removeNodes > children.length) throw new Error("spliceHeadingTail removes too many nodes");
         children.length -= change.removeNodes;
       }
       for (const incoming of change.append) {

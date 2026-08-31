@@ -64,6 +64,11 @@ fn long_llm_fence_with_short_colons_is_chunk_boundary_independent() {
 }
 
 #[test]
+fn heading_tail_delta_is_chunk_boundary_independent() {
+    assert_every_single_split("## 日本語 heading title #x");
+}
+
+#[test]
 fn multiline_inline_tail_fast_path_is_chunk_boundary_independent() {
     assert_every_single_split(
         "First **bold** line\ncontinuation token token [[cite:doc-1|source]] and more text.",
@@ -436,6 +441,37 @@ fn apply(document: &mut Vec<Block>, delta: &Delta) {
                         text.push_str(value);
                     } else {
                         nodes.push(incoming.clone());
+                    }
+                }
+            }
+            Op::SpliceHeadingTail {
+                block,
+                remove_nodes,
+                truncate_bytes,
+                append,
+            } => {
+                let Block::Heading { content, .. } = &mut document[*block as usize] else {
+                    panic!("SpliceHeadingTail target is not a heading")
+                };
+                if *truncate_bytes != 0 {
+                    let Some(Inline::Text(text)) = content.last_mut() else {
+                        panic!("SpliceHeadingTail target has no trailing text")
+                    };
+                    text.truncate(text.len() - *truncate_bytes as usize);
+                    if text.is_empty() {
+                        content.pop();
+                    }
+                }
+                if *remove_nodes != 0 {
+                    content.truncate(content.len() - *remove_nodes as usize);
+                }
+                for incoming in append {
+                    if let Inline::Text(value) = incoming
+                        && let Some(Inline::Text(text)) = content.last_mut()
+                    {
+                        text.push_str(value);
+                    } else {
+                        content.push(incoming.clone());
                     }
                 }
             }

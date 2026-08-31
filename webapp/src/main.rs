@@ -1411,7 +1411,8 @@ impl App {
                 | Op::SpliceQuoteTail { block, .. }
                 | Op::AppendTableRow { block, .. }
                 | Op::AppendTableCell { block, .. }
-                | Op::SpliceTableCellTail { block, .. } => *block as usize,
+                | Op::SpliceTableCellTail { block, .. }
+                | Op::SpliceHeadingTail { block, .. } => *block as usize,
                 Op::Push(_) => self.layouts.len(),
             })
             .min()

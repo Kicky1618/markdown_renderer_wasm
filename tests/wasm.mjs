@@ -203,6 +203,32 @@ assert.deepEqual(apiParser.document[0], {
 });
 
 apiParser.reset();
+apiParser.append("## ");
+const headingText = apiParser.append("title");
+assert.deepEqual(headingText, [{
+  op: "spliceHeadingTail",
+  block: 0,
+  removeNodes: 0,
+  truncateBytes: 0,
+  append: [{ type: "text", value: "title" }],
+}]);
+assert.deepEqual(apiParser.append(" "), []);
+assert.deepEqual(apiParser.append("#"), []);
+const headingReveal = apiParser.append("x");
+assert.deepEqual(headingReveal, [{
+  op: "spliceHeadingTail",
+  block: 0,
+  removeNodes: 0,
+  truncateBytes: 0,
+  append: [{ type: "text", value: " #x" }],
+}]);
+assert.deepEqual(apiParser.document[0], {
+  type: "heading",
+  level: 2,
+  children: [{ type: "text", value: "title #x" }],
+});
+
+apiParser.reset();
 apiParser.append(':::llm tool name="web search" id=q1\n');
 apiParser.append('{"query":"rust wasm"}');
 apiParser.append('\n:::\n');
