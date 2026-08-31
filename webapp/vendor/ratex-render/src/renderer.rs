@@ -9,8 +9,11 @@ use ratex_font_loader::FontSet;
 use ratex_types::color::Color;
 use ratex_types::display_item::{DisplayItem, DisplayList};
 use tiny_skia::{
-    FillRule, FilterQuality, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform,
+    FillRule, FilterQuality, IntSize, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform,
 };
+
+const INCREMENTAL_GUARD_PIXELS: u32 = 64;
+const TINY_SKIA_MAX_UNTILED_DIMENSION: u32 = 8191;
 
 /// Options controlling PNG output.
 pub struct RenderOptions {
@@ -42,8 +45,11 @@ impl Default for RenderOptions {
 /// representation. This avoids PNG encode/decode round-trips for in-memory
 /// consumers such as the Streamdown Web renderer.
 pub struct PremultipliedRgbaImage {
+    /// Active image width. Pixels to the right of this are capacity only.
     pub width: u32,
     pub height: u32,
+    /// Pixel stride of each row. `stride >= width`; normal full renders use equality.
+    pub stride: u32,
     pub pixels: Vec<u8>,
 }
 
@@ -57,8 +63,105 @@ pub fn render_to_rgba_premultiplied(
     Ok(PremultipliedRgbaImage {
         width,
         height,
+        stride: width,
         pixels: pixmap.take(),
     })
+}
+
+fn tiny_skia_tiled(width: u32, height: u32) -> bool {
+    width > TINY_SKIA_MAX_UNTILED_DIMENSION || height > TINY_SKIA_MAX_UNTILED_DIMENSION
+}
+
+fn incremental_capacity(width: u32, height: u32) -> u32 {
+    let guarded = width.saturating_add(INCREMENTAL_GUARD_PIXELS);
+    let desired = guarded.checked_next_power_of_two().unwrap_or(guarded);
+    if !tiny_skia_tiled(width, height) {
+        desired.min(TINY_SKIA_MAX_UNTILED_DIMENSION)
+    } else {
+        desired.max(width)
+    }
+}
+
+/// Reuse an earlier transparent raster when `display_list` only appends drawing
+/// items. Returns `Ok(None)` whenever exact incremental reuse is not safe.
+///
+/// With unchanged capacity, only appended DisplayItems are rendered in-place.
+/// If the backing surface must grow, the previous prefix is first re-rendered
+/// into the larger surface so clipped edge coverage cannot leak across updates.
+pub fn render_to_rgba_premultiplied_append(
+    previous_display_list: &DisplayList,
+    mut previous_image: PremultipliedRgbaImage,
+    display_list: &DisplayList,
+    options: &RenderOptions,
+) -> Result<Option<PremultipliedRgbaImage>, String> {
+    if options.background_color.a != 0.0
+        || display_list.items.len() < previous_display_list.items.len()
+        || display_list.items[..previous_display_list.items.len()]
+            != previous_display_list.items[..]
+    {
+        return Ok(None);
+    }
+
+    let (em_px, pad_px, dpr, previous_width, previous_height) =
+        raster_metrics(previous_display_list, options);
+    let (_, _, _, width, height) = raster_metrics(display_list, options);
+    if previous_image.width != previous_width
+        || previous_image.height != previous_height
+        || previous_image.stride < previous_image.width
+        || previous_image.pixels.len()
+            != previous_image.stride as usize * previous_image.height as usize * 4
+        || height != previous_height
+        || width < previous_width
+    {
+        return Ok(None);
+    }
+
+    // tiny-skia changes fill_rect from its scan converter to tiled fill_path
+    // above 8191px. Reusing pixels across that boundary would preserve the old
+    // algorithm's coverage, so force a full reraster exactly at the transition.
+    if tiny_skia_tiled(previous_width, previous_height) != tiny_skia_tiled(width, height) {
+        return Ok(None);
+    }
+
+    let desired_stride = incremental_capacity(width, height);
+    let stride = if width <= previous_image.stride && desired_stride <= previous_image.stride {
+        previous_image.stride
+    } else {
+        desired_stride
+    };
+    let mut pixmap = if stride == previous_image.stride {
+        let size = IntSize::from_wh(stride, height)
+            .ok_or_else(|| format!("Invalid pixmap size {}x{}", stride, height))?;
+        Pixmap::from_vec(std::mem::take(&mut previous_image.pixels), size)
+            .ok_or_else(|| format!("Failed to reuse pixmap {}x{}", stride, height))?
+    } else {
+        // Re-render the previous prefix when capacity grows instead of copying the
+        // old rows. The exact-width/capacity edge may have clipped an existing
+        // glyph or rule just beyond the old stride; rebuilding restores those
+        // hidden pixels before the appended items are composited.
+        let mut grown = Pixmap::new(stride, height)
+            .ok_or_else(|| format!("Failed to create pixmap {}x{}", stride, height))?;
+        render_with_fonts(
+            &mut grown,
+            previous_display_list,
+            options,
+            em_px,
+            pad_px,
+            dpr,
+        )?;
+        grown
+    };
+
+    let suffix = &display_list.items[previous_display_list.items.len()..];
+    if !suffix.is_empty() {
+        render_items_with_fonts(&mut pixmap, suffix, options, em_px, pad_px, dpr)?;
+    }
+    Ok(Some(PremultipliedRgbaImage {
+        width,
+        height,
+        stride,
+        pixels: pixmap.take(),
+    }))
 }
 
 pub fn render_to_png(
@@ -69,19 +172,23 @@ pub fn render_to_png(
     encode_png(&pixmap)
 }
 
-fn render_to_pixmap(display_list: &DisplayList, options: &RenderOptions) -> Result<Pixmap, String> {
-    let em = options.font_size;
-    let pad = options.padding;
+fn raster_metrics(
+    display_list: &DisplayList,
+    options: &RenderOptions,
+) -> (f32, f32, f32, u32, u32) {
     let dpr = options.device_pixel_ratio.clamp(0.01, 16.0);
-    let em_px = em * dpr;
-    let pad_px = pad * dpr;
-
+    let em_px = options.font_size * dpr;
+    let pad_px = options.padding * dpr;
     let total_h = display_list.height + display_list.depth;
-    let img_w = (display_list.width as f32 * em_px + 2.0 * pad_px).ceil() as u32;
-    let img_h = (total_h as f32 * em_px + 2.0 * pad_px).ceil() as u32;
+    let width = (display_list.width as f32 * em_px + 2.0 * pad_px)
+        .ceil()
+        .max(1.0) as u32;
+    let height = (total_h as f32 * em_px + 2.0 * pad_px).ceil().max(1.0) as u32;
+    (em_px, pad_px, dpr, width, height)
+}
 
-    let img_w = img_w.max(1);
-    let img_h = img_h.max(1);
+fn render_to_pixmap(display_list: &DisplayList, options: &RenderOptions) -> Result<Pixmap, String> {
+    let (em_px, pad_px, dpr, img_w, img_h) = raster_metrics(display_list, options);
 
     let mut pixmap = Pixmap::new(img_w, img_h)
         .ok_or_else(|| format!("Failed to create pixmap {}x{}", img_w, img_h))?;
@@ -106,9 +213,20 @@ fn render_with_fonts(
     pad_px: f32,
     dpr: f32,
 ) -> Result<(), String> {
-    let fonts = ratex_font_loader::load_fonts_for_items(&options.font_dir, &display_list.items)?;
+    render_items_with_fonts(pixmap, &display_list.items, options, em_px, pad_px, dpr)
+}
+
+fn render_items_with_fonts(
+    pixmap: &mut Pixmap,
+    items: &[DisplayItem],
+    options: &RenderOptions,
+    em_px: f32,
+    pad_px: f32,
+    dpr: f32,
+) -> Result<(), String> {
+    let fonts = ratex_font_loader::load_fonts_for_items(&options.font_dir, items)?;
     let font_refs = build_font_refs(&fonts)?;
-    render_display_list(pixmap, display_list, &font_refs, em_px, pad_px, dpr);
+    render_items(pixmap, items, &font_refs, em_px, pad_px, dpr);
     Ok(())
 }
 
@@ -163,16 +281,16 @@ fn build_font_refs(data: &FontSet) -> Result<HashMap<FontId, FontRef<'_>>, Strin
 }
 
 /// Render all items in the DisplayList using the given font cache.
-fn render_display_list(
+fn render_items(
     pixmap: &mut Pixmap,
-    display_list: &DisplayList,
+    items: &[DisplayItem],
     font_cache: &HashMap<FontId, FontRef<'_>>,
     em_px: f32,
     pad_px: f32,
     dpr: f32,
 ) {
     let mut font_id_cache: HashMap<&str, FontId> = HashMap::new();
-    for item in &display_list.items {
+    for item in items {
         match item {
             DisplayItem::GlyphPath {
                 x,

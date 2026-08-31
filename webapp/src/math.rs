@@ -2,14 +2,18 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use ratex_layout::{layout, to_display_list, LayoutOptions};
 use ratex_parser::parse;
-use ratex_render::{render_to_rgba_premultiplied, PremultipliedRgbaImage, RenderOptions};
-use ratex_types::{color::Color, math_style::MathStyle};
+use ratex_render::{
+    render_to_rgba_premultiplied, render_to_rgba_premultiplied_append, PremultipliedRgbaImage,
+    RenderOptions,
+};
+use ratex_types::{color::Color, display_item::DisplayList, math_style::MathStyle};
 
 const INLINE_FONT_SIZE: f32 = 16.0;
 const DISPLAY_FONT_SIZE: f32 = 16.0;
 const PADDING: f32 = 2.0;
 const SUPERSAMPLE: u32 = 2;
 const MAX_CACHE_ENTRIES: usize = 256;
+const MAX_INCREMENTAL_RASTER_BYTES: usize = 4 * 1024 * 1024;
 
 pub struct MathImage {
     pub width: u32,
@@ -49,8 +53,14 @@ impl MathRun {
     }
 }
 
+struct IncrementalRasterState {
+    display_list: DisplayList,
+    image: PremultipliedRgbaImage,
+}
+
 thread_local! {
     static CACHE: RefCell<HashMap<(String, bool, u16), Rc<MathImage>>> = RefCell::new(HashMap::new());
+    static INCREMENTAL_RASTER: RefCell<HashMap<(bool, u16), IncrementalRasterState>> = RefCell::new(HashMap::new());
 }
 
 /// Typesets LaTeX with RaTeX and keeps the raster in memory as RGBA. The
@@ -67,6 +77,7 @@ pub fn rasterize(source: &str, display: bool, text_scale: f32) -> Result<Rc<Math
         source,
         display,
         scale_key as f32 / 64.0,
+        scale_key,
     )?);
     CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
@@ -78,7 +89,12 @@ pub fn rasterize(source: &str, display: bool, text_scale: f32) -> Result<Rc<Math
     Ok(image)
 }
 
-fn rasterize_uncached(source: &str, display: bool, text_scale: f32) -> Result<MathImage, String> {
+fn rasterize_uncached(
+    source: &str,
+    display: bool,
+    text_scale: f32,
+    scale_key: u16,
+) -> Result<MathImage, String> {
     let nodes = parse(source).map_err(|error| format!("RaTeX parse error: {error}"))?;
     let foreground = Color::new(0.92, 0.96, 1.0, 1.0);
     let mut layout_options = LayoutOptions::default().with_color(foreground);
@@ -95,22 +111,50 @@ fn rasterize_uncached(source: &str, display: bool, text_scale: f32) -> Result<Ma
     let baseline = (display_list.height as f32 * font_size + PADDING)
         .round()
         .max(0.0) as u32;
-    let high_resolution = render_to_rgba_premultiplied(
-        &display_list,
-        &RenderOptions {
-            font_size,
-            padding: PADDING,
-            background_color: Color::new(0.0, 0.0, 0.0, 0.0),
-            font_dir: String::new(),
-            device_pixel_ratio: SUPERSAMPLE as f32,
-        },
-    )
-    .map_err(|error| format!("RaTeX render error: {error}"))?;
-    Ok(downsample_premultiplied_rgba(
-        high_resolution,
-        SUPERSAMPLE,
-        baseline,
-    ))
+    let render_options = RenderOptions {
+        font_size,
+        padding: PADDING,
+        background_color: Color::new(0.0, 0.0, 0.0, 0.0),
+        font_dir: String::new(),
+        device_pixel_ratio: SUPERSAMPLE as f32,
+    };
+    let stream_key = (display, scale_key);
+    let previous = INCREMENTAL_RASTER.with(|states| states.borrow_mut().remove(&stream_key));
+    let high_resolution = if let Some(previous) = previous {
+        let IncrementalRasterState {
+            display_list: previous_display_list,
+            image: previous_image,
+        } = previous;
+        match render_to_rgba_premultiplied_append(
+            &previous_display_list,
+            previous_image,
+            &display_list,
+            &render_options,
+        )
+        .map_err(|error| format!("RaTeX render error: {error}"))?
+        {
+            Some(image) => image,
+            None => render_to_rgba_premultiplied(&display_list, &render_options)
+                .map_err(|error| format!("RaTeX render error: {error}"))?,
+        }
+    } else {
+        render_to_rgba_premultiplied(&display_list, &render_options)
+            .map_err(|error| format!("RaTeX render error: {error}"))?
+    };
+
+    let image = downsample_premultiplied_rgba(&high_resolution, SUPERSAMPLE, baseline);
+    if high_resolution.pixels.len() <= MAX_INCREMENTAL_RASTER_BYTES {
+        INCREMENTAL_RASTER.with(|states| {
+            states.borrow_mut().insert(
+                stream_key,
+                IncrementalRasterState {
+                    display_list,
+                    image: high_resolution,
+                },
+            );
+        });
+    }
+    Ok(image)
 }
 
 /// Box-filter tiny-skia's native premultiplied RGBA directly. The old path
@@ -118,7 +162,7 @@ fn rasterize_uncached(source: &str, display: bool, text_scale: f32) -> Result<Ma
 /// then premultiplied it again here. Summing premultiplied bytes preserves the
 /// same coverage model while requiring only one final demultiply per output pixel.
 fn downsample_premultiplied_rgba(
-    source: PremultipliedRgbaImage,
+    source: &PremultipliedRgbaImage,
     factor: u32,
     baseline: u32,
 ) -> MathImage {
@@ -129,7 +173,7 @@ fn downsample_premultiplied_rgba(
 }
 
 fn downsample_premultiplied_rgba_generic(
-    source: PremultipliedRgbaImage,
+    source: &PremultipliedRgbaImage,
     factor: u32,
     baseline: u32,
 ) -> MathImage {
@@ -148,7 +192,7 @@ fn downsample_premultiplied_rgba_generic(
                     if source_x >= source.width || source_y >= source.height {
                         continue;
                     }
-                    let index = ((source_y * source.width + source_x) * 4) as usize;
+                    let index = ((source_y * source.stride + source_x) * 4) as usize;
                     alpha_sum += source.pixels[index + 3] as u32;
                     for (channel, sum) in premultiplied.iter_mut().enumerate() {
                         *sum += source.pixels[index + channel] as u32;
@@ -242,10 +286,10 @@ fn finish_run_row(runs: &mut Vec<MathRun>, y: u32, width: u32, run_start: u32, r
 /// Fast path for the fixed 2× supersampling used by the web renderer. Runtime
 /// builds fuse box filtering and horizontal-run construction, so the temporary
 /// low-resolution RGBA surface exists only in tests that compare pixel output.
-fn downsample_premultiplied_rgba_2x(source: PremultipliedRgbaImage, baseline: u32) -> MathImage {
+fn downsample_premultiplied_rgba_2x(source: &PremultipliedRgbaImage, baseline: u32) -> MathImage {
     let width = source.width.div_ceil(2);
     let height = source.height.div_ceil(2);
-    let source_stride = source.width as usize * 4;
+    let source_stride = source.stride as usize * 4;
     let full_width = source.width / 2;
     let full_height = source.height / 2;
     let estimate = (width as usize)
@@ -457,6 +501,7 @@ mod tests {
         PremultipliedRgbaImage {
             width,
             height,
+            stride: width,
             pixels,
         }
     }
@@ -515,6 +560,7 @@ mod tests {
         let source = PremultipliedRgbaImage {
             width: 4,
             height: 2,
+            stride: 4,
             pixels: vec![
                 0, 0, 0, 0, 0, 0, 0, 0,
                 64, 32, 16, 128, 128, 64, 32, 255,
@@ -523,14 +569,15 @@ mod tests {
             ],
         };
         let fast = downsample_premultiplied_rgba_2x(
-            PremultipliedRgbaImage {
+            &PremultipliedRgbaImage {
                 width: source.width,
                 height: source.height,
+                stride: source.stride,
                 pixels: source.pixels.clone(),
             },
             1,
         );
-        let generic = downsample_premultiplied_rgba_generic(source, 2, 1);
+        let generic = downsample_premultiplied_rgba_generic(&source, 2, 1);
         assert_eq!(fast.pixels, generic.pixels);
         assert_eq!(fast.runs.len(), generic.runs.len());
         for (a, b) in fast.runs.iter().zip(&generic.runs) {
@@ -541,8 +588,8 @@ mod tests {
     #[test]
     fn two_x_downsample_matches_generic_for_odd_and_even_edges() {
         for (width, height) in [(1, 1), (2, 2), (3, 2), (2, 3), (3, 3), (8, 7), (9, 10)] {
-            let fast = downsample_premultiplied_rgba_2x(synthetic(width, height), 3);
-            let generic = downsample_premultiplied_rgba_generic(synthetic(width, height), 2, 3);
+            let fast = downsample_premultiplied_rgba_2x(&synthetic(width, height), 3);
+            let generic = downsample_premultiplied_rgba_generic(&synthetic(width, height), 2, 3);
             assert_eq!(
                 (fast.width, fast.height, fast.baseline),
                 (generic.width, generic.height, generic.baseline)
