@@ -56,21 +56,20 @@ async function responseBytes(response, maxBytes, label) {
 
 function readAliasIndex(bytes) {
   const index = JSON.parse(decoder.decode(bytes));
-  if (!index || !SAFE_VERSION.test(index.v) || !index.m || typeof index.m !== "object" || Array.isArray(index.m)) {
+  if (!index || !SAFE_VERSION.test(index.v) || !Array.isArray(index.p) || index.p.length === 0) {
     throw new Error("invalid langpack index");
   }
   const packByAlias = new Map();
-  for (const [rawAlias, rawPack] of Object.entries(index.m)) {
-    const alias = normalizeLanguage(rawAlias);
-    const pack = normalizeLanguage(rawPack);
-    if (!alias || alias !== rawAlias || !pack || pack !== rawPack || packByAlias.has(alias)) {
-      throw new Error("invalid langpack index entry");
+  for (const row of index.p) {
+    if (!Array.isArray(row) || row.length === 0) throw new Error("invalid langpack index row");
+    const pack = normalizeLanguage(row[0]);
+    if (!pack || pack !== row[0] || packByAlias.has(pack)) throw new Error("invalid canonical langpack index entry");
+    packByAlias.set(pack, pack);
+    for (let i = 1; i < row.length; i += 1) {
+      const alias = normalizeLanguage(row[i]);
+      if (!alias || alias !== row[i] || packByAlias.has(alias)) throw new Error("invalid langpack index alias");
+      packByAlias.set(alias, pack);
     }
-    packByAlias.set(alias, pack);
-  }
-  if (packByAlias.size === 0) throw new Error("empty langpack index");
-  for (const pack of new Set(packByAlias.values())) {
-    if (packByAlias.get(pack) !== pack) throw new Error(`langpack index missing canonical alias: ${pack}`);
   }
   return { packByAlias, version: index.v };
 }

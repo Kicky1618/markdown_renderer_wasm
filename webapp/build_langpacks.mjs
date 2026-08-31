@@ -149,8 +149,16 @@ export function buildAll({ check = false } = {}) {
   const aliasCount = aliasToPack.size;
   const emittedBytes = [...outputs.values()].reduce((sum, binary) => sum + binary.byteLength, 0);
   const version = versionHash.digest("hex").slice(0, 16);
-  const aliasMap = Object.fromEntries([...aliasToPack.entries()].sort(([left], [right]) => left.localeCompare(right)));
-  const index = encoder.encode(JSON.stringify({ v: version, m: aliasMap }));
+  const aliasesByPack = new Map();
+  for (const [alias, pack] of aliasToPack) {
+    const aliases = aliasesByPack.get(pack) ?? [];
+    if (alias !== pack) aliases.push(alias);
+    aliasesByPack.set(pack, aliases);
+  }
+  const packRows = [...aliasesByPack.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([pack, aliases]) => [pack, ...aliases.sort()]);
+  const index = encoder.encode(JSON.stringify({ v: version, p: packRows }));
   outputs.set(INDEX_NAME, index);
 
   const stale = [];

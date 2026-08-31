@@ -4,7 +4,7 @@
 <body>
 <script type="module">
   import init from "../pkg/streamdown_web.js";
-  import { loadLanguagePack } from "../language-loader.js";
+  import { loadLanguagePack, __test } from "../language-loader.js";
 
   const root = document.documentElement;
   root.dataset.userLanguageProbe = "running";
@@ -27,12 +27,11 @@
       });
     if (rows.length !== 100) throw new Error(`expected 100 requested languages, got ${rows.length}`);
 
-    const index = JSON.parse(await indexResponse.text());
-    if (!index || !index.m || typeof index.m !== "object") throw new Error("invalid langpack index");
+    const index = __test.readAliasIndex(new Uint8Array(await indexResponse.arrayBuffer()));
 
     const expected = new Set();
     for (const [label, fence] of rows) {
-      const canonical = index.m[fence];
+      const canonical = index.packByAlias.get(fence);
       if (typeof canonical !== "string" || canonical.length === 0) {
         throw new Error(`${label} fence ${fence} is absent from browser alias index`);
       }
