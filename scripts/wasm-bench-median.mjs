@@ -39,17 +39,27 @@ async function benchScenario(wasm, scenario, method) {
     const append = method === "appendInPlace" && typeof parser.appendInPlace === "function"
       ? (value) => parser.appendInPlace(value)
       : (value) => parser.append(value);
+    const chunks = scenario.chunks ?? [scenario.chunk];
+    const scenarioRounds = scenario.rounds ?? rounds;
+    if (!chunks.length || chunks.some((chunk) => typeof chunk !== "string")) {
+      throw new Error(`scenario ${scenario.name} must define chunk or non-empty chunks`);
+    }
+    const runRound = () => {
+      for (const chunk of chunks) append(chunk);
+    };
     if (scenario.setup) append(scenario.setup);
-    for (let i = 0; i < Math.min(warmup, rounds); i++) append(scenario.chunk);
+    for (let i = 0; i < Math.min(warmup, scenarioRounds); i++) runRound();
     parser.reset();
     if (scenario.setup) append(scenario.setup);
 
     const start = performance.now();
-    for (let i = 0; i < rounds; i++) append(scenario.chunk);
+    for (let i = 0; i < scenarioRounds; i++) runRound();
     const elapsedMs = performance.now() - start;
-    const bytes = rounds * Buffer.byteLength(scenario.chunk, "utf8");
+    const appendCount = scenarioRounds * chunks.length;
+    const roundBytes = chunks.reduce((sum, chunk) => sum + Buffer.byteLength(chunk, "utf8"), 0);
+    const bytes = scenarioRounds * roundBytes;
     return {
-      appendsPerSecond: rounds / (elapsedMs / 1000),
+      appendsPerSecond: appendCount / (elapsedMs / 1000),
       mibPerSecond: bytes / 1_048_576 / (elapsedMs / 1000),
     };
   } finally {
@@ -62,6 +72,7 @@ const scenarios = [
   { name: "plain-token", chunk: "token " },
   { name: "markdown-boundary", chunk: " **fast**\n\n" },
   { name: "markdown-link", chunk: "[x](url) " },
+  { name: "formatted-link-char-stream", chunks: ["[", "*", "x", "*", "]", "(", "u", ")", " "], rounds: 20000 },
   { name: "unordered-list-line", setup: "- seed\n", chunk: "- item\n" },
   { name: "ordered-list-line", setup: "1. seed\n", chunk: "2. item\n" },
   { name: "table-row", setup: "a|b\n---|---\n", chunk: "x|y\n" },
@@ -90,7 +101,7 @@ for (let run = 0; run < repeats; run++) {
   }
 }
 
-console.log(`wasm-bench median (${repeats} runs, ${rounds} appends/scenario)`);
+console.log(`wasm-bench median (${repeats} runs, default ${rounds} rounds/scenario)`);
 for (const [name, values] of samples) {
   console.log(
     `${name.padEnd(27)} ${Math.round(median(values.appends)).toLocaleString("en-US").padStart(10)} append/s  ` +
