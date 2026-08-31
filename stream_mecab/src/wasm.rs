@@ -75,7 +75,7 @@ pub unsafe extern "C" fn sm_add_tsv_input(handle: *mut Handle, len: usize) -> u3
     let Some(model) = handle.model.as_mut() else {
         return handle.fail("model is unavailable after sm_start");
     };
-    match model.add_tsv(text) {
+    match model.add_tsv_after_compiled_load(text) {
         Ok(_) => {
             handle.clear_error();
             1
@@ -121,7 +121,7 @@ pub unsafe extern "C" fn sm_load_compiled_input(handle: *mut Handle, len: usize)
     if len > handle.input.len() {
         return handle.fail("input length exceeds reserved buffer");
     }
-    match Model::from_compiled(&handle.input[..len]) {
+    match Model::from_compiled_for_stream(&handle.input[..len]) {
         Ok(model) => {
             handle.model = Some(model);
             handle.clear_error();

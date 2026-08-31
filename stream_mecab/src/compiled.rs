@@ -1,3 +1,5 @@
+#[cfg(any(target_arch = "wasm32", test))]
+use crate::{FrozenNode, FrozenTrie};
 use crate::{LexiconEntry, Model, ModelError, TrieNode};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -67,24 +69,7 @@ impl Model {
         let entry_count = reader.u32()? as usize;
         let node_count = reader.u32()? as usize;
         let transition_count = reader.u32()? as usize;
-        // Validate all top-level counts against the input size before using
-        // them as allocation capacities. An entry needs at least three u32
-        // string lengths, one non-empty surface byte, a tag and a cost (19B);
-        // a trie node needs two counts (8B); a transition is 8B.
-        let minimum_payload = entry_count
-            .checked_mul(19)
-            .and_then(|value| node_count.checked_mul(8).and_then(|nodes| value.checked_add(nodes)))
-            .and_then(|value| {
-                transition_count
-                    .checked_mul(8)
-                    .and_then(|transitions| value.checked_add(transitions))
-            })
-            .ok_or_else(|| ModelError::InvalidCompiled("SMD1 count overflow".to_owned()))?;
-        if minimum_payload > reader.remaining() {
-            return Err(ModelError::InvalidCompiled(
-                "SMD1 counts exceed input size".to_owned(),
-            ));
-        }
+        validate_top_level_counts(&reader, entry_count, node_count, transition_count)?;
         if node_count == 0 {
             return Err(ModelError::InvalidCompiled(
                 "SMD1 trie has no root node".to_owned(),
@@ -112,19 +97,7 @@ impl Model {
         for _ in 0..node_count {
             let edge_count = reader.u32()? as usize;
             let terminal_count = reader.u32()? as usize;
-            let node_payload = edge_count
-                .checked_mul(5)
-                .and_then(|edges| {
-                    terminal_count
-                        .checked_mul(4)
-                        .and_then(|terminals| edges.checked_add(terminals))
-                })
-                .ok_or_else(|| ModelError::InvalidCompiled("SMD1 node count overflow".to_owned()))?;
-            if node_payload > reader.remaining() {
-                return Err(ModelError::InvalidCompiled(
-                    "SMD1 node counts exceed input size".to_owned(),
-                ));
-            }
+            validate_node_counts(&reader, edge_count, terminal_count)?;
             let mut next = Vec::with_capacity(edge_count);
             let mut previous_byte = None;
             for _ in 0..edge_count {
@@ -194,6 +167,257 @@ impl Model {
             empty: Arc::from(""),
         })
     }
+
+    /// Load SMD1 directly into the compact streaming trie, avoiding the
+    /// allocation-heavy mutable builder trie. This is crate-internal because a
+    /// frozen model cannot accept additional lexicon entries; the public
+    /// `from_compiled` API intentionally keeps its mutable semantics.
+    #[cfg(any(target_arch = "wasm32", test))]
+    pub(crate) fn from_compiled_for_stream(bytes: &[u8]) -> Result<Self, ModelError> {
+        let mut reader = Reader::new(bytes);
+        if reader.take(4)? != MAGIC {
+            return Err(ModelError::InvalidCompiled("invalid SMD1 magic".to_owned()));
+        }
+        if reader.u32()? != VERSION {
+            return Err(ModelError::InvalidCompiled(
+                "unsupported SMD1 version".to_owned(),
+            ));
+        }
+        let max_unknown_chars = reader.u32()? as usize;
+        let entry_count = reader.u32()? as usize;
+        let node_count = reader.u32()? as usize;
+        let transition_count = reader.u32()? as usize;
+        validate_top_level_counts(&reader, entry_count, node_count, transition_count)?;
+        if node_count == 0 {
+            return Err(ModelError::InvalidCompiled(
+                "SMD1 trie has no root node".to_owned(),
+            ));
+        }
+
+        let mut entries = Vec::with_capacity(entry_count);
+        let mut max_lexicon_bytes = 0usize;
+        for _ in 0..entry_count {
+            let surface: Arc<str> = Arc::from(reader.string()?);
+            if surface.is_empty() {
+                return Err(ModelError::InvalidCompiled(
+                    "SMD1 contains empty surface".to_owned(),
+                ));
+            }
+            max_lexicon_bytes = max_lexicon_bytes.max(surface.len());
+            entries.push(LexiconEntry {
+                surface,
+                lemma: Arc::from(reader.string()?),
+                reading: Arc::from(reader.string()?),
+                tag: reader.u16()?,
+                cost: reader.i32()?,
+            });
+        }
+
+        // SMD1 already stores trie nodes in the same byte-edge order the
+        // runtime needs. Pack them in one pass instead of constructing hundreds
+        // of thousands of per-node Vec allocations and freezing them later.
+        let mut frozen = FrozenTrie {
+            nodes: Vec::with_capacity(node_count),
+            edge_bytes: Vec::new(),
+            edge_targets: Vec::new(),
+            entries: Vec::new(),
+            dense: Vec::new(),
+        };
+        for _ in 0..node_count {
+            let edge_count = reader.u32()? as usize;
+            let terminal_count = reader.u32()? as usize;
+            validate_node_counts(&reader, edge_count, terminal_count)?;
+            if edge_count > 256 {
+                return Err(ModelError::InvalidCompiled(
+                    "SMD1 trie node has more than 256 byte edges".to_owned(),
+                ));
+            }
+            if terminal_count > u16::MAX as usize {
+                return Err(ModelError::InvalidCompiled(
+                    "SMD1 trie node has too many terminal entries for streaming runtime".to_owned(),
+                ));
+            }
+            if frozen.edge_bytes.len() > u32::MAX as usize
+                || frozen.entries.len() > u32::MAX as usize
+            {
+                return Err(ModelError::InvalidCompiled(
+                    "SMD1 streaming trie exceeds u32 address space".to_owned(),
+                ));
+            }
+
+            let edge_start = frozen.edge_bytes.len() as u32;
+            let entry_start = frozen.entries.len() as u32;
+            let mut previous_byte = None;
+            let mut dense = (edge_count >= TrieNode::DENSE_THRESHOLD).then_some([0u32; 256]);
+            for _ in 0..edge_count {
+                let byte = reader.u8()?;
+                if previous_byte.is_some_and(|previous| byte <= previous) {
+                    return Err(ModelError::InvalidCompiled(
+                        "SMD1 trie edges are not strictly sorted".to_owned(),
+                    ));
+                }
+                previous_byte = Some(byte);
+                let target = reader.u32()? as usize;
+                if target >= node_count {
+                    return Err(ModelError::InvalidCompiled(
+                        "SMD1 trie target out of range".to_owned(),
+                    ));
+                }
+                frozen.edge_bytes.push(byte);
+                frozen.edge_targets.push(target as u32);
+                if let Some(table) = &mut dense {
+                    table[byte as usize] = target as u32 + 1;
+                }
+            }
+            for _ in 0..terminal_count {
+                let entry = reader.u32()? as usize;
+                if entry >= entry_count {
+                    return Err(ModelError::InvalidCompiled(
+                        "SMD1 entry index out of range".to_owned(),
+                    ));
+                }
+                frozen.entries.push(entry as u32);
+            }
+            let dense_index = if let Some(table) = dense {
+                if frozen.dense.len() >= u32::MAX as usize {
+                    return Err(ModelError::InvalidCompiled(
+                        "SMD1 has too many dense trie nodes".to_owned(),
+                    ));
+                }
+                let index = frozen.dense.len() as u32;
+                frozen.dense.push(table);
+                index
+            } else {
+                FrozenTrie::NO_DENSE
+            };
+            frozen.nodes.push(FrozenNode {
+                edge_start,
+                entry_start,
+                dense_index,
+                edge_len: edge_count as u16,
+                entry_len: terminal_count as u16,
+            });
+        }
+
+        let mut transitions = HashMap::with_capacity(transition_count);
+        for _ in 0..transition_count {
+            let previous = reader.u16()?;
+            let next = reader.u16()?;
+            let cost = reader.i32()?;
+            if transitions.insert((previous, next), cost).is_some() {
+                return Err(ModelError::InvalidCompiled(
+                    "duplicate SMD1 transition".to_owned(),
+                ));
+            }
+        }
+        if !reader.is_empty() {
+            return Err(ModelError::InvalidCompiled(
+                "trailing bytes after SMD1 dictionary".to_owned(),
+            ));
+        }
+        Ok(Self {
+            entries,
+            trie: Vec::new(),
+            frozen_trie: Some(frozen),
+            transitions,
+            dense_transitions: None,
+            max_lexicon_bytes,
+            max_unknown_chars: max_unknown_chars.clamp(1, 1024),
+            empty: Arc::from(""),
+        })
+    }
+
+    /// Preserve the WASM API's historical ability to append source TSV after
+    /// `loadCompiled()`. The common compiled-dictionary path stays frozen; only
+    /// an actual mutation pays the cost of rebuilding mutable trie nodes.
+    #[cfg(any(target_arch = "wasm32", test))]
+    pub(crate) fn add_tsv_after_compiled_load(&mut self, tsv: &str) -> Result<usize, ModelError> {
+        if self.trie.is_empty()
+            && let Some(frozen) = self.frozen_trie.take()
+        {
+            let mut trie = Vec::with_capacity(frozen.nodes.len());
+            for meta in &frozen.nodes {
+                let edge_start = meta.edge_start as usize;
+                let edge_end = edge_start + meta.edge_len as usize;
+                let entry_start = meta.entry_start as usize;
+                let entry_end = entry_start + meta.entry_len as usize;
+                let mut next = Vec::with_capacity(meta.edge_len as usize);
+                for (&byte, &target) in frozen.edge_bytes[edge_start..edge_end]
+                    .iter()
+                    .zip(&frozen.edge_targets[edge_start..edge_end])
+                {
+                    next.push((byte, target as usize));
+                }
+                let entries = frozen.entries[entry_start..entry_end]
+                    .iter()
+                    .map(|&entry| entry as usize)
+                    .collect();
+                let dense = if meta.dense_index != FrozenTrie::NO_DENSE {
+                    Some(Box::new(frozen.dense[meta.dense_index as usize]))
+                } else {
+                    None
+                };
+                trie.push(TrieNode {
+                    next,
+                    entries,
+                    dense,
+                });
+            }
+            self.trie = trie;
+        }
+        self.add_tsv(tsv)
+    }
+}
+
+fn validate_top_level_counts(
+    reader: &Reader<'_>,
+    entry_count: usize,
+    node_count: usize,
+    transition_count: usize,
+) -> Result<(), ModelError> {
+    // An entry needs at least three u32 string lengths, one non-empty surface
+    // byte, a tag and a cost (19B); a trie node needs two counts (8B); a
+    // transition is 8B. Check before capacities are allocated.
+    let minimum_payload = entry_count
+        .checked_mul(19)
+        .and_then(|value| {
+            node_count
+                .checked_mul(8)
+                .and_then(|nodes| value.checked_add(nodes))
+        })
+        .and_then(|value| {
+            transition_count
+                .checked_mul(8)
+                .and_then(|transitions| value.checked_add(transitions))
+        })
+        .ok_or_else(|| ModelError::InvalidCompiled("SMD1 count overflow".to_owned()))?;
+    if minimum_payload > reader.remaining() {
+        return Err(ModelError::InvalidCompiled(
+            "SMD1 counts exceed input size".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_node_counts(
+    reader: &Reader<'_>,
+    edge_count: usize,
+    terminal_count: usize,
+) -> Result<(), ModelError> {
+    let node_payload = edge_count
+        .checked_mul(5)
+        .and_then(|edges| {
+            terminal_count
+                .checked_mul(4)
+                .and_then(|terminals| edges.checked_add(terminals))
+        })
+        .ok_or_else(|| ModelError::InvalidCompiled("SMD1 node count overflow".to_owned()))?;
+    if node_payload > reader.remaining() {
+        return Err(ModelError::InvalidCompiled(
+            "SMD1 node counts exceed input size".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 struct Reader<'a> {
@@ -296,6 +520,61 @@ mod tests {
             model.tokenize("東京大学です")
         );
         assert_eq!(restored.to_compiled(), bytes);
+    }
+
+    #[test]
+    fn streaming_loader_matches_regular_compiled_model() {
+        let mut model = Model::new();
+        model.set_max_unknown_chars(5);
+        model
+            .add_entry("東京", "東京", "トウキョウ", FIRST_USER_TAG, 100)
+            .unwrap();
+        model
+            .add_entry("大学", "大学", "ダイガク", FIRST_USER_TAG, 100)
+            .unwrap();
+        model
+            .add_entry(
+                "東京大学",
+                "東京大学",
+                "トウキョウダイガク",
+                FIRST_USER_TAG,
+                20,
+            )
+            .unwrap();
+        model.set_transition(FIRST_USER_TAG, FIRST_USER_TAG, -3);
+        let bytes = model.to_compiled();
+        let regular = Model::from_compiled(&bytes).unwrap();
+        let direct = Model::from_compiled_for_stream(&bytes).unwrap();
+        assert_eq!(direct.max_token_bytes(), regular.max_token_bytes());
+        assert_eq!(
+            direct.tokenize("東京大学です"),
+            regular.tokenize("東京大学です")
+        );
+        let stats = direct.stats();
+        assert_eq!(stats.builder_trie_bytes, 0);
+        assert!(stats.runtime_trie_bytes > 0);
+    }
+
+    #[test]
+    fn streaming_loader_can_thaw_for_followup_tsv_mutation() {
+        let mut model = Model::new();
+        model
+            .add_entry("東京", "東京", "トウキョウ", FIRST_USER_TAG, 100)
+            .unwrap();
+        let bytes = model.to_compiled();
+        let mut direct = Model::from_compiled_for_stream(&bytes).unwrap();
+        direct
+            .add_tsv_after_compiled_load("大学\t大学\tダイガク\t9\t100\n")
+            .unwrap();
+        assert_eq!(
+            direct
+                .tokenize("東京大学")
+                .into_iter()
+                .map(|token| token.surface.to_string())
+                .collect::<Vec<_>>(),
+            ["東京", "大学"]
+        );
+        assert!(direct.stats().builder_trie_bytes > 0);
     }
 
     #[test]

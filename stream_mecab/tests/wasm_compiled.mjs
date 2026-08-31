@@ -15,4 +15,18 @@ for (const chunk of ["私は", "東京", "大学", "の", "学生", "です"]) {
 applyDelta(tokens, mecab.finish());
 assert.deepEqual(tokens.map((token) => token.surface), ["私", "は", "東京大学", "の", "学生", "です"]);
 mecab.destroy();
+
+const mutableAfterLoad = await StreamMecab.instantiate(wasm);
+mutableAfterLoad
+  .loadCompiled(dictionary)
+  .addTsv("猫\t猫\tネコ\t9\t10\n")
+  .setMaxUnknownChars(4)
+  .start();
+const extended = [];
+applyDelta(extended, mutableAfterLoad.append("猫"));
+applyDelta(extended, mutableAfterLoad.finish());
+assert.deepEqual(extended.map((token) => token.surface), ["猫"]);
+assert.equal(extended[0].reading, "ネコ");
+mutableAfterLoad.destroy();
+
 console.log("stream-mecab SMD1 -> raw WASM: ok");
