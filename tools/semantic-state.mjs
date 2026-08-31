@@ -137,7 +137,7 @@ export class SemanticStateStore {
     if (["merge", "merge-patch", "application/merge-patch+json"].includes(format)) {
       next = applyJsonMergePatch(this.values.get(target), patch);
     } else if (format === "replace") {
-      next = cloneJson(patch);
+      next = patch;
     } else {
       throw new Error(`${node.key}: unsupported patch format ${JSON.stringify(format)}`);
     }
@@ -145,18 +145,22 @@ export class SemanticStateStore {
       type: "patch",
       node: node.key,
       format,
-      patch: cloneJson(patch),
+      patch,
     });
   }
 
   #commit(key, value, metadata) {
     assertSafeJson(value);
-    const stored = cloneJson(value);
+    const stored = value;
     this.values.set(key, stored);
     const revision = (this.revisions.get(key) ?? 0) + 1;
     this.revisions.set(key, revision);
     const result = cloneJson(stored);
-    this.onChange?.({ key, revision, value: cloneJson(stored), ...metadata });
+    if (this.onChange) {
+      const change = { key, revision, value: cloneJson(stored), ...metadata };
+      if (Object.prototype.hasOwnProperty.call(metadata, "patch")) change.patch = cloneJson(metadata.patch);
+      this.onChange(change);
+    }
     return result;
   }
 }
