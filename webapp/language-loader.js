@@ -75,18 +75,21 @@ function readAliasIndex(bytes) {
   return { packByAlias, version: index.v };
 }
 
-function loadAliasIndex() {
+export function primeLanguageIndex(responsePromise) {
   if (!aliasIndexPromise) {
-    aliasIndexPromise = (async () => {
-      const response = await fetch(INDEX_URL, { cache: "no-cache" });
-      const bytes = await responseBytes(response, MAX_INDEX_BYTES, "langpack index");
-      return readAliasIndex(bytes);
-    })().catch(error => {
-      aliasIndexPromise = undefined;
-      throw error;
-    });
+    aliasIndexPromise = Promise.resolve(responsePromise)
+      .then(response => responseBytes(response, MAX_INDEX_BYTES, "langpack index"))
+      .then(readAliasIndex)
+      .catch(error => {
+        aliasIndexPromise = undefined;
+        throw error;
+      });
   }
   return aliasIndexPromise;
+}
+
+function loadAliasIndex() {
+  return aliasIndexPromise ?? primeLanguageIndex(fetch(INDEX_URL, { cache: "no-cache" }));
 }
 
 function acquirePackSlot() {

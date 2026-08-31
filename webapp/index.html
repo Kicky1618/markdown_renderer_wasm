@@ -144,11 +144,23 @@
   <script type="module">
     import init from "./pkg/streamdown_web.js";
     let languageLoader;
+    let languageIndexRequest;
     const languagePackProbe = new URLSearchParams(location.search).get("langpack_probe");
+    const startLanguageIndexRequest = () => {
+      languageIndexRequest ??= fetch("./langpacks/_index.slp", { cache: "no-cache" }).catch(error => {
+        languageIndexRequest = undefined;
+        throw error;
+      });
+      return languageIndexRequest;
+    };
     window.addEventListener("streamdown-language-request", event => {
       if (typeof event.detail !== "string") return;
+      const indexRequest = startLanguageIndexRequest();
       languageLoader ??= import("./language-loader.js");
-      languageLoader.then(module => module.loadLanguagePack(event.detail));
+      languageLoader.then(module => {
+        module.primeLanguageIndex(indexRequest);
+        return module.loadLanguagePack(event.detail);
+      });
     });
     const transcript = document.querySelector("#text-version");
     const transcriptToggle = transcript?.querySelector("summary");
