@@ -36,6 +36,7 @@ const COMMENT_STYLE_HASH_BRACKET: u16 = 1 << 4;
 const COMMENT_STYLE_SLASH_PLUS: u16 = 1 << 5;
 const COMMENT_STYLE_CMAKE_BRACKETS: u16 = 1 << 6;
 const COMMENT_STYLE_POWERSHELL_HERE_STRINGS: u16 = 1 << 7;
+const COMMENT_STYLE_SHELL_HEREDOCS: u16 = 1 << 8;
 #[cfg(target_arch = "wasm32")]
 const EXTENDED_SECTIONS_FLAG: u32 = 1 << 31;
 
@@ -317,6 +318,9 @@ impl Language {
     }
     pub(super) fn powershell_here_strings(self) -> bool {
         self.0.comment_styles & COMMENT_STYLE_POWERSHELL_HERE_STRINGS != 0
+    }
+    pub(super) fn shell_heredocs(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_SHELL_HEREDOCS != 0
     }
 
     pub(super) fn is_macro_identifier(self, word: &str) -> bool {
@@ -714,6 +718,7 @@ fn comment_style_bit(style: &str) -> Option<u16> {
         "slash_plus" => COMMENT_STYLE_SLASH_PLUS,
         "cmake_brackets" => COMMENT_STYLE_CMAKE_BRACKETS,
         "powershell_here_strings" => COMMENT_STYLE_POWERSHELL_HERE_STRINGS,
+        "shell_heredocs" => COMMENT_STYLE_SHELL_HEREDOCS,
         _ => return None,
     })
 }

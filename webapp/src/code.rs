@@ -41,12 +41,24 @@ struct Token {
 /// A small Tree-sitter-style scanner. It owns the lexical context (most
 /// importantly whether `/` can start a JavaScript regexp) and yields byte
 /// ranged tokens without allocating a token list.
+const MAX_PENDING_SHELL_HEREDOCS: usize = 8;
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ShellHeredoc {
+    delimiter_start: usize,
+    delimiter_end: usize,
+    body_start: usize,
+    strip_tabs: bool,
+}
+
 struct Scanner<'a> {
     source: &'a str,
     language: Language,
     cursor: usize,
     expression_expected: bool,
     preprocessor_header_expected: bool,
+    pending_shell_heredocs: [ShellHeredoc; MAX_PENDING_SHELL_HEREDOCS],
+    pending_shell_heredoc_count: usize,
 }
 
 impl<'a> Scanner<'a> {
@@ -57,6 +69,8 @@ impl<'a> Scanner<'a> {
             cursor: 0,
             expression_expected: true,
             preprocessor_header_expected: false,
+            pending_shell_heredocs: [ShellHeredoc::default(); MAX_PENDING_SHELL_HEREDOCS],
+            pending_shell_heredoc_count: 0,
         }
     }
 
@@ -65,6 +79,21 @@ impl<'a> Scanner<'a> {
         let start = self.cursor;
         if start == bytes.len() {
             return None;
+        }
+
+        if let Some(heredoc) = self.pending_shell_heredoc() {
+            if start >= heredoc.body_start {
+                let end = shell_heredoc_body_end(self.source, start, heredoc);
+                self.pop_shell_heredoc();
+                self.cursor = end;
+                let token = Token {
+                    start,
+                    end,
+                    kind: SyntaxKind::String,
+                };
+                self.update_lexical_context(token);
+                return Some(token);
+            }
         }
 
         let (end, kind) = if self.preprocessor_header_expected && bytes[start] == b'<' {
@@ -179,6 +208,9 @@ impl<'a> Scanner<'a> {
             }
             (end, SyntaxKind::Identifier)
         } else if is_operator(bytes[start]) {
+            if let Some(heredoc) = shell_heredoc_start(self.source, start, self.language) {
+                self.push_shell_heredoc(heredoc);
+            }
             let mut end = start + 1;
             while end < bytes.len() && is_operator(bytes[end]) {
                 end += 1;
@@ -191,9 +223,19 @@ impl<'a> Scanner<'a> {
         } else if matches!(bytes[start], b',' | b';') {
             (start + 1, SyntaxKind::Punctuation)
         } else {
+            let body_start = self
+                .pending_shell_heredoc()
+                .map(|heredoc| heredoc.body_start)
+                .filter(|body_start| *body_start > start);
             let mut end = start + self.source[start..].chars().next().unwrap().len_utf8();
-            while end < bytes.len() && !starts_token(bytes, end, self.language) {
+            while end < bytes.len()
+                && body_start.is_none_or(|body_start| end < body_start)
+                && !starts_token(bytes, end, self.language)
+            {
                 end += self.source[end..].chars().next().unwrap().len_utf8();
+            }
+            if let Some(body_start) = body_start {
+                end = end.min(body_start);
             }
             (end, SyntaxKind::Trivia)
         };
@@ -202,6 +244,26 @@ impl<'a> Scanner<'a> {
         let token = Token { start, end, kind };
         self.update_lexical_context(token);
         Some(token)
+    }
+
+    fn pending_shell_heredoc(&self) -> Option<ShellHeredoc> {
+        (self.pending_shell_heredoc_count != 0).then_some(self.pending_shell_heredocs[0])
+    }
+
+    fn push_shell_heredoc(&mut self, heredoc: ShellHeredoc) {
+        if self.pending_shell_heredoc_count < MAX_PENDING_SHELL_HEREDOCS {
+            self.pending_shell_heredocs[self.pending_shell_heredoc_count] = heredoc;
+            self.pending_shell_heredoc_count += 1;
+        }
+    }
+
+    fn pop_shell_heredoc(&mut self) {
+        if self.pending_shell_heredoc_count == 0 {
+            return;
+        }
+        self.pending_shell_heredoc_count -= 1;
+        self.pending_shell_heredocs
+            .copy_within(1..=self.pending_shell_heredoc_count, 0);
     }
 
     fn update_lexical_context(&mut self, token: Token) {
@@ -468,6 +530,111 @@ fn looks_like_macro_constant(word: &str) -> bool {
             byte.is_ascii_digit() || byte == b'_'
         }
     }) && has_letter
+}
+
+fn shell_heredoc_start(source: &str, start: usize, language: Language) -> Option<ShellHeredoc> {
+    if !language.shell_heredocs() {
+        return None;
+    }
+    let bytes = source.as_bytes();
+    if bytes.get(start..start + 2) != Some(b"<<") || bytes.get(start + 2) == Some(&b'<') {
+        return None;
+    }
+
+    let mut cursor = start + 2;
+    let strip_tabs = bytes.get(cursor) == Some(&b'-');
+    if strip_tabs {
+        cursor += 1;
+    }
+    while matches!(bytes.get(cursor), Some(b' ' | b'\t')) {
+        cursor += 1;
+    }
+
+    let (delimiter_start, delimiter_end, after_delimiter) = match bytes.get(cursor).copied()? {
+        quote @ (b'\'' | b'"') => {
+            let delimiter_start = cursor + 1;
+            let relative_end = bytes
+                .get(delimiter_start..)?
+                .iter()
+                .position(|byte| *byte == quote || *byte == b'\n')?;
+            let delimiter_end = delimiter_start + relative_end;
+            if bytes.get(delimiter_end) != Some(&quote) {
+                return None;
+            }
+            (delimiter_start, delimiter_end, delimiter_end + 1)
+        }
+        b'\\' => {
+            let delimiter_start = cursor + 1;
+            let delimiter_end = shell_heredoc_word_end(bytes, delimiter_start);
+            if delimiter_end == delimiter_start {
+                return None;
+            }
+            (delimiter_start, delimiter_end, delimiter_end)
+        }
+        _ => {
+            let delimiter_start = cursor;
+            let delimiter_end = shell_heredoc_word_end(bytes, delimiter_start);
+            if delimiter_end == delimiter_start {
+                return None;
+            }
+            (delimiter_start, delimiter_end, delimiter_end)
+        }
+    };
+
+    let newline = bytes
+        .get(after_delimiter..)?
+        .iter()
+        .position(|byte| *byte == b'\n')?
+        + after_delimiter;
+    Some(ShellHeredoc {
+        delimiter_start,
+        delimiter_end,
+        body_start: newline + 1,
+        strip_tabs,
+    })
+}
+
+fn shell_heredoc_word_end(bytes: &[u8], start: usize) -> usize {
+    let mut cursor = start;
+    while bytes.get(cursor).is_some_and(|byte| {
+        !byte.is_ascii_whitespace()
+            && !matches!(*byte, b';' | b'|' | b'&' | b'(' | b')' | b'<' | b'>')
+    }) {
+        cursor += 1;
+    }
+    cursor
+}
+
+fn shell_heredoc_body_end(source: &str, start: usize, heredoc: ShellHeredoc) -> usize {
+    let bytes = source.as_bytes();
+    let delimiter = &bytes[heredoc.delimiter_start..heredoc.delimiter_end];
+    let mut line_start = start;
+    while line_start <= bytes.len() {
+        let newline = bytes
+            .get(line_start..)
+            .and_then(|tail| tail.iter().position(|byte| *byte == b'\n'))
+            .map(|offset| line_start + offset);
+        let physical_end = newline.unwrap_or(bytes.len());
+        let line_end = if physical_end > line_start && bytes[physical_end - 1] == b'\r' {
+            physical_end - 1
+        } else {
+            physical_end
+        };
+        let mut compare_start = line_start;
+        if heredoc.strip_tabs {
+            while bytes.get(compare_start) == Some(&b'\t') && compare_start < line_end {
+                compare_start += 1;
+            }
+        }
+        if bytes.get(compare_start..line_end) == Some(delimiter) {
+            return newline.map_or(line_end, |newline| newline + 1);
+        }
+        let Some(newline) = newline else {
+            break;
+        };
+        line_start = newline + 1;
+    }
+    bytes.len()
 }
 
 fn block_comment_delimiters(
@@ -741,7 +908,11 @@ fn powershell_here_string_end(source: &str, start: usize, language: Language) ->
                 return Some(end);
             }
         }
-        let Some(relative_newline) = bytes.get(line_start..)?.iter().position(|byte| *byte == b'\n') else {
+        let Some(relative_newline) = bytes
+            .get(line_start..)?
+            .iter()
+            .position(|byte| *byte == b'\n')
+        else {
             break;
         };
         line_start += relative_newline + 1;
