@@ -79,6 +79,16 @@ export function applyJsonMergePatch(target, patch) {
   return output;
 }
 
+function applyOwnedJsonMergePatch(target, patch) {
+  if (!isJsonObject(patch)) return patch;
+  const output = isJsonObject(target) ? { ...target } : {};
+  for (const [key, patchValue] of Object.entries(patch)) {
+    if (patchValue === null) delete output[key];
+    else output[key] = applyOwnedJsonMergePatch(output[key], patchValue);
+  }
+  return output;
+}
+
 /**
  * Mutable state registry for `:::llm state` and `:::llm patch` runners.
  * Values crossing the public API are cloned so runner consumers cannot mutate
@@ -135,7 +145,7 @@ export class SemanticStateStore {
     const format = node.attributes?.format ?? node.attributes?.op ?? "merge";
     let next;
     if (["merge", "merge-patch", "application/merge-patch+json"].includes(format)) {
-      next = applyJsonMergePatch(this.values.get(target), patch);
+      next = applyOwnedJsonMergePatch(this.values.get(target), patch);
     } else if (format === "replace") {
       next = patch;
     } else {
