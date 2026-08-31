@@ -1,0 +1,18 @@
+[package]
+name = "stream-mecab"
+version = "0.1.0"
+edition = "2024"
+description = "Clean-room streaming Japanese morphological tokenizer with incremental Viterbi deltas"
+license = "MIT OR Apache-2.0"
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[example]]
+name = "demo"
+path = "examples/demo.rs"
+
+[[example]]
+name = "bench"
+path = "examples/bench.rs"
