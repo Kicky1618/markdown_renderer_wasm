@@ -269,7 +269,7 @@ impl DenseTransitions {
         }
         let mut costs = vec![0i32; cells];
         for (&(previous, next), &cost) in transitions {
-            costs[previous as usize * width + next as usize] = cost;
+            costs[next as usize * width + previous as usize] = cost;
         }
         Some(Self {
             width,
@@ -280,12 +280,20 @@ impl DenseTransitions {
 
     fn cost(&self, previous: TagId, next: TagId) -> i32 {
         let previous = previous as usize;
+        self.incoming(next)
+            .and_then(|row| row.get(previous))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    #[inline]
+    fn incoming(&self, next: TagId) -> Option<&[i32]> {
         let next = next as usize;
-        if previous >= self.width || next >= self.width {
-            0
-        } else {
-            self.costs[previous * self.width + next]
+        if next >= self.width {
+            return None;
         }
+        let start = next * self.width;
+        Some(&self.costs[start..start + self.width])
     }
 
     fn storage_bytes(&self) -> usize {
@@ -670,13 +678,30 @@ impl Model {
             for candidate in candidates.iter().copied() {
                 let (end, tag, word_cost) = candidate.meta(self);
                 let mut best_prev: Option<(i64, Option<usize>)> = None;
-                for state in &frontier[start] {
-                    let total = state
-                        .cost
-                        .saturating_add(self.transition_cost(state.tag, tag) as i64)
-                        .saturating_add(word_cost as i64);
-                    if best_prev.is_none_or(|(cost, _)| total < cost) {
-                        best_prev = Some((total, state.node));
+                if let Some(incoming) = self
+                    .dense_transitions
+                    .as_ref()
+                    .and_then(|dense| dense.incoming(tag))
+                {
+                    for state in &frontier[start] {
+                        let transition = incoming.get(state.tag as usize).copied().unwrap_or(0);
+                        let total = state
+                            .cost
+                            .saturating_add(transition as i64)
+                            .saturating_add(word_cost as i64);
+                        if best_prev.is_none_or(|(cost, _)| total < cost) {
+                            best_prev = Some((total, state.node));
+                        }
+                    }
+                } else {
+                    for state in &frontier[start] {
+                        let total = state
+                            .cost
+                            .saturating_add(self.transition_cost(state.tag, tag) as i64)
+                            .saturating_add(word_cost as i64);
+                        if best_prev.is_none_or(|(cost, _)| total < cost) {
+                            best_prev = Some((total, state.node));
+                        }
                     }
                 }
                 let Some((cost, prev)) = best_prev else {
