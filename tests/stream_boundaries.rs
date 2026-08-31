@@ -65,7 +65,34 @@ fn long_llm_fence_with_short_colons_is_chunk_boundary_independent() {
 
 #[test]
 fn heading_tail_delta_is_chunk_boundary_independent() {
-    assert_every_single_split("## 日本語 heading title #x");
+    for markdown in [
+        "## 日本語 heading title #x",
+        "## **bold** trailing 日本語✅",
+        "## [link](dest) trailing text",
+        "## `code` trailing text",
+        "## [[cite:doc|spec]] trailing #x",
+    ] {
+        assert_every_single_split(markdown);
+    }
+}
+
+#[test]
+fn rich_heading_tail_is_character_stream_independent() {
+    for markdown in [
+        "## **bold** trailing 日本語✅",
+        "## [link](dest) trailing text",
+        "## `code` trailing text",
+        "## [[cite:doc|spec]] trailing #x",
+    ] {
+        let expected = parse_whole(markdown);
+        let boundaries = utf8_boundaries(markdown);
+        let actual = parse_chunks(
+            boundaries
+                .windows(2)
+                .map(|window| &markdown[window[0]..window[1]]),
+        );
+        assert_eq!(actual, expected, "character stream changed {markdown:?}");
+    }
 }
 
 #[test]

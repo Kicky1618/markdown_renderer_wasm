@@ -881,12 +881,9 @@ impl Parser {
         let Some(block_index) = self.blocks.len().checked_sub(1) else {
             return false;
         };
-        let Some(Block::Heading { content, .. }) = self.blocks.get(block_index) else {
+        let Some(Block::Heading { .. }) = self.blocks.get(block_index) else {
             return false;
         };
-        if !matches!(content.as_slice(), [] | [Inline::Text(_)]) {
-            return false;
-        }
         let Some((_, old_end)) = heading_content_range(&self.line) else {
             return false;
         };
@@ -4619,6 +4616,39 @@ $$
             [Block::Heading { level: 2, content }]
                 if content == &vec![Inline::Text("title #x".to_owned())]
         ));
+    }
+
+    #[test]
+    fn rich_heading_tail_uses_heading_delta_without_republishing() {
+        for prefix in [
+            "## **bold** ",
+            "## [x](u) ",
+            "## `code` ",
+            "## [[cite:doc|spec]] ",
+        ] {
+            let mut parser = Parser::new();
+            parser.append(prefix);
+            let delta = parser.append("token");
+            assert!(matches!(
+                delta.ops.as_slice(),
+                [Op::SpliceHeadingTail { .. }]
+            ));
+
+            let mut whole = Parser::new();
+            whole.append(&format!("{prefix}token"));
+            assert_eq!(parser.blocks(), whole.blocks(), "prefix={prefix:?}");
+        }
+
+        let mut closing_hash = Parser::new();
+        closing_hash.append("## **bold** #");
+        assert!(closing_hash.append("x").ops.iter().any(|op| matches!(
+            op,
+            Op::SpliceHeadingTail { append, .. }
+                if append == &vec![Inline::Text(" #x".to_owned())]
+        )));
+        let mut whole = Parser::new();
+        whole.append("## **bold** #x");
+        assert_eq!(closing_hash.blocks(), whole.blocks());
     }
 
     #[test]
