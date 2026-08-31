@@ -845,7 +845,7 @@ impl Parser {
                 return false;
             }
             let parsed = parse_inlines(body);
-            if !quote_line_source_is_self_contained(body, &parsed) {
+            if !quote_line_inlines_are_self_contained(&parsed) {
                 return false;
             }
             parsed
@@ -3133,7 +3133,7 @@ fn quote_previous_line_can_append_break(pending: &str) -> bool {
         return true;
     }
     let parsed = parse_inlines(body);
-    quote_line_source_is_self_contained(body, &parsed)
+    quote_line_inlines_are_self_contained(&parsed)
 }
 
 fn quote_source_boundary_is_self_contained(source: &str) -> bool {
@@ -3145,52 +3145,21 @@ fn quote_source_boundary_is_self_contained(source: &str) -> bool {
         body.push_str(quote_line_body(line));
     }
     let parsed = parse_inlines(&body);
-    quote_line_source_is_self_contained(&body, &parsed)
-}
-
-fn quote_line_source_is_self_contained(source: &str, nodes: &[Inline]) -> bool {
-    quote_line_inlines_are_self_contained(nodes)
-        && quote_emphasis_runs_are_self_contained(source, b'*')
-        && quote_emphasis_runs_are_self_contained(source, b'_')
+    quote_line_inlines_are_self_contained(&parsed)
 }
 
 fn quote_line_inlines_are_self_contained(nodes: &[Inline]) -> bool {
     nodes.iter().all(|node| match node {
-        // A syntax byte that survives as top-level text may still pair with a
-        // delimiter on the next quote line. Structured nodes closed locally.
         Inline::Text(text) => text.bytes().all(is_plain_stream_byte),
-        _ => true,
+        // Empty emphasis/strong nodes are the parser's representation of raw
+        // delimiter runs such as `**open` / `close**`; those can pair across a
+        // later quote-line boundary and must remain ambiguous.
+        Inline::Emphasis(children) | Inline::Strong(children) => {
+            !children.is_empty() && quote_line_inlines_are_self_contained(children)
+        }
+        Inline::Link { .. } | Inline::Code(_) | Inline::Math { .. } => true,
+        Inline::SoftBreak | Inline::HardBreak => true,
     })
-}
-
-fn quote_emphasis_runs_are_self_contained(source: &str, delimiter: u8) -> bool {
-    let bytes = source.as_bytes();
-    let mut stack = Vec::with_capacity(4);
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] != delimiter {
-            i += 1;
-            continue;
-        }
-        let start = i;
-        while i < bytes.len() && bytes[i] == delimiter {
-            i += 1;
-        }
-        let run = i - start;
-        // Runs of three or more have multiple valid decompositions under the
-        // inline parser. They are uncommon in generated Markdown; reparse them
-        // rather than carrying ambiguous delimiter state across quote lines.
-        if run > 2 {
-            return false;
-        }
-        let kind = run as u8;
-        if stack.last() == Some(&kind) {
-            stack.pop();
-        } else {
-            stack.push(kind);
-        }
-    }
-    stack.is_empty()
 }
 
 fn line_can_continue_list_kind(kind: PendingKind, line: &str) -> bool {

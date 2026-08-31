@@ -73,3 +73,21 @@ fn quote_ambiguity_survives_plain_middle_lines_until_reparse() {
     let chunks = ["> *open\n", "> plain\n", "> *em*\n"];
     assert_eq!(chunked(&chunks), whole("> *open\n> plain\n> *em*\n"));
 }
+
+#[test]
+fn structured_delimiters_inside_closed_nodes_keep_fast_path() {
+    let mut parser = Parser::new();
+    parser.append("> seed\n");
+    for line in ["> `code * value`\n", "> $x*y$\n", "> [x](a*b)\n"] {
+        let delta = parser.append(line);
+        assert!(
+            matches!(delta.ops.as_slice(), [Op::SpliceQuoteTail { .. }]),
+            "line={line:?} ops={:?}",
+            delta.ops
+        );
+    }
+    assert_eq!(
+        parser.blocks(),
+        whole("> seed\n> `code * value`\n> $x*y$\n> [x](a*b)\n")
+    );
+}
