@@ -4,18 +4,29 @@
 <body>
 <canvas id="app" width="320" height="180"></canvas>
 <script type="module">
-  import init from "../pkg/streamdown_web.js";
+  import init, { register_language_pack_binary } from "../pkg/streamdown_web.js";
   import { loadLanguagePack } from "../language-loader.js";
 
   const root = document.documentElement;
   root.dataset.langpackProbe = "running";
   try {
     await init();
+    const oversizedRejected = !register_language_pack_binary(new Uint8Array(16 * 1024 + 1));
+    const malformed = new Uint8Array([
+      0x53, 0x4c, 0x50, 0x31, // SLP1
+      0, 0, 0, 0,             // flags
+      1, 0,                   // one alias
+      4, 0, 0x72, 0x75, 0x73, 0x74, // "rust"
+      // Deliberately truncated before the remaining 12 word sections.
+    ]);
+    const malformedRejected = !register_language_pack_binary(malformed);
     const flood = await Promise.all(
       Array.from({ length: 160 }, (_, i) => loadLanguagePack(`missing-${String(i).padStart(3, "0")}`))
     );
     const first = await loadLanguagePack("typescript");
     const duplicate = await loadLanguagePack("ts");
+    const duplicateBinary = new Uint8Array(await (await fetch("../langpacks/javascript.slp")).arrayBuffer());
+    const directDuplicateRejected = !register_language_pack_binary(duplicateBinary);
     delete root.dataset.languagePackError;
     const concurrentAliases = await Promise.all([loadLanguagePack("c++"), loadLanguagePack("cpp")]);
     const concurrentOk = concurrentAliases.filter(Boolean).length === 1 && !root.dataset.languagePackError;
@@ -26,7 +37,10 @@
     ];
     const queued = await Promise.all(queuedLanguages.map(loadLanguagePack));
     const queuedOk = queued.every(Boolean);
-    root.dataset.langpackProbe = flood.every(value => !value) && first && !duplicate && concurrentOk && !unsafe && queuedOk ? "pass" : "fail";
+    root.dataset.langpackProbe = oversizedRejected && malformedRejected && directDuplicateRejected && flood.every(value => !value) && first && !duplicate && concurrentOk && !unsafe && queuedOk ? "pass" : "fail";
+    root.dataset.langpackOversizedRejected = String(oversizedRejected);
+    root.dataset.langpackMalformedRejected = String(malformedRejected);
+    root.dataset.langpackDirectDuplicateRejected = String(directDuplicateRejected);
     root.dataset.langpackFloodSuccesses = String(flood.filter(Boolean).length);
     root.dataset.langpackFirst = String(first);
     root.dataset.langpackDuplicate = String(duplicate);

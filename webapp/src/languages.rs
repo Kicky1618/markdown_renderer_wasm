@@ -601,11 +601,24 @@ fn ensure_pack(pack: &str) {
 const BINARY_MAGIC: &[u8; 4] = b"SLP1";
 #[cfg(target_arch = "wasm32")]
 const MAX_BINARY_WORDS: usize = 4096;
+#[cfg(target_arch = "wasm32")]
+const MAX_BINARY_BYTES: usize = 16 * 1024;
+#[cfg(target_arch = "wasm32")]
+const BINARY_WORD_SECTIONS: usize = 13;
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn register_language_pack_binary(bytes: &[u8]) -> bool {
-    let Some(profile) = decode_binary_profile(bytes) else {
+    if bytes.len() > MAX_BINARY_BYTES {
+        return false;
+    }
+    let Some(flags) = validate_binary_profile(bytes) else {
+        return false;
+    };
+    if binary_aliases_conflict(bytes) {
+        return false;
+    }
+    let Some(profile) = decode_validated_binary_profile(bytes, flags) else {
         return false;
     };
     register_profile(profile)
@@ -659,6 +672,18 @@ impl<'a> BinaryCursor<'a> {
         Some(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
     }
 
+    fn skip_words(&mut self) -> Option<usize> {
+        let count = self.u16()?;
+        if count > MAX_BINARY_WORDS {
+            return None;
+        }
+        for _ in 0..count {
+            let len = self.u16()?;
+            std::str::from_utf8(self.take(len)?).ok()?;
+        }
+        Some(count)
+    }
+
     fn words(&mut self) -> Option<&'static [&'static str]> {
         let count = self.u16()?;
         if count > MAX_BINARY_WORDS {
@@ -676,12 +701,58 @@ impl<'a> BinaryCursor<'a> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn decode_binary_profile(bytes: &[u8]) -> Option<LanguageProfile> {
+fn validate_binary_profile(bytes: &[u8]) -> Option<u32> {
+    if bytes.len() > MAX_BINARY_BYTES {
+        return None;
+    }
     let mut cursor = BinaryCursor { bytes, at: 0 };
     if cursor.take(4)? != BINARY_MAGIC {
         return None;
     }
     let flags = cursor.u32()?;
+    if cursor.skip_words()? == 0 {
+        return None;
+    }
+    for _ in 1..BINARY_WORD_SECTIONS {
+        cursor.skip_words()?;
+    }
+    (cursor.at == bytes.len()).then_some(flags)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn binary_aliases_conflict(bytes: &[u8]) -> bool {
+    let mut cursor = BinaryCursor { bytes, at: 0 };
+    if cursor.take(4) != Some(BINARY_MAGIC) || cursor.u32().is_none() {
+        return true;
+    }
+    let Some(count) = cursor.u16() else {
+        return true;
+    };
+    for _ in 0..count {
+        let Some(len) = cursor.u16() else {
+            return true;
+        };
+        let Some(alias) = cursor
+            .take(len)
+            .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        else {
+            return true;
+        };
+        if find_loaded(alias).is_some() {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(target_arch = "wasm32")]
+fn decode_validated_binary_profile(bytes: &[u8], flags: u32) -> Option<LanguageProfile> {
+    // The complete binary and all aliases were checked before this allocation
+    // pass. Failed or duplicate external input therefore cannot retain decoded
+    // strings in the WASM heap.
+    let mut cursor = BinaryCursor { bytes, at: 0 };
+    cursor.take(4)?;
+    cursor.u32()?;
     let mut profile = empty_profile!(&[]);
     profile.aliases = cursor.words()?;
     profile.keywords = cursor.words()?;
