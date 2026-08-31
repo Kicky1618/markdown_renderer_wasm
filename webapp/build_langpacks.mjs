@@ -23,7 +23,7 @@ const sections = [
   "header_macro_identifiers",
   "expression_prefixes",
 ];
-const COMMENT_STYLES = new Set(["brace", "angle_hash", "hash_pipe"]);
+const COMMENT_STYLES = new Set(["brace", "angle_hash", "hash_pipe", "hash_equals", "hash_bracket", "slash_plus"]);
 const EXTENDED_SECTIONS_FLAG = 0x80000000;
 
 const flagBits = new Map([

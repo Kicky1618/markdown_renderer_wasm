@@ -4,4 +4,5 @@ keywords	addr	and	as	asm	bind	block	break	case	cast	concept	const	continue	conve
 builtin_types	bool	byte	char	cstring	float	float32	float64	int	int8	int16	int32	int64	string	uint	uint8	uint16	uint32	uint64	void	seq	array	openArray
 function_declarations	proc	func	method	iterator	converter	macro	template
 type_declarations	object	enum	tuple	type	concept	distinct
+comment_styles	hash_bracket
 flags	hash_comments	multiline_strings

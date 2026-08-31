@@ -71,23 +71,18 @@ impl<'a> Scanner<'a> {
             (header_string_end(self.source, start), SyntaxKind::String)
         } else if let Some(end) = lua_long_comment_end(self.source, start, self.language) {
             (end, SyntaxKind::Comment)
+        } else if let Some((opener, closer, nested)) =
+            block_comment_delimiters(bytes, start, self.language)
+        {
+            (
+                block_comment_end(self.source, start, opener, closer, nested),
+                SyntaxKind::Comment,
+            )
         } else if is_line_comment(bytes, start, self.language) {
             (
                 self.source[start..]
                     .find('\n')
                     .map_or(bytes.len(), |offset| start + offset),
-                SyntaxKind::Comment,
-            )
-        } else if let Some((opener, closer)) = block_comment_delimiters(bytes, start, self.language)
-        {
-            (
-                block_comment_end(
-                    self.source,
-                    start,
-                    opener,
-                    closer,
-                    self.language.nested_block_comments(),
-                ),
                 SyntaxKind::Comment,
             )
         } else if let Some(end) = preprocessor_end(bytes, start, self.language) {
@@ -473,21 +468,28 @@ fn block_comment_delimiters(
     bytes: &[u8],
     i: usize,
     language: Language,
-) -> Option<(&'static [u8], &'static [u8])> {
+) -> Option<(&'static [u8], &'static [u8], bool)> {
+    let nested = language.nested_block_comments();
     if bytes.get(i..i + 2) == Some(b"/*") && language.block_comments() {
-        Some((b"/*", b"*/"))
+        Some((b"/*", b"*/", nested))
     } else if bytes.get(i..i + 2) == Some(b"(*") && language.paren_star_comments() {
-        Some((b"(*", b"*)"))
+        Some((b"(*", b"*)", nested))
     } else if bytes.get(i..i + 2) == Some(b"{-") && language.brace_dash_comments() {
-        Some((b"{-", b"-}"))
+        Some((b"{-", b"-}", nested))
     } else if bytes.get(i..i + 2) == Some(b"(;") && language.paren_semicolon_comments() {
-        Some((b"(;", b";)"))
+        Some((b"(;", b";)", nested))
     } else if bytes.get(i) == Some(&b'{') && language.brace_comments() {
-        Some((b"{", b"}"))
+        Some((b"{", b"}", false))
     } else if bytes.get(i..i + 2) == Some(b"<#") && language.angle_hash_comments() {
-        Some((b"<#", b"#>"))
+        Some((b"<#", b"#>", false))
     } else if bytes.get(i..i + 2) == Some(b"#|") && language.hash_pipe_comments() {
-        Some((b"#|", b"|#"))
+        Some((b"#|", b"|#", true))
+    } else if bytes.get(i..i + 2) == Some(b"#=") && language.hash_equals_comments() {
+        Some((b"#=", b"=#", true))
+    } else if bytes.get(i..i + 2) == Some(b"#[") && language.hash_bracket_comments() {
+        Some((b"#[", b"]#", true))
+    } else if bytes.get(i..i + 2) == Some(b"/+") && language.slash_plus_comments() {
+        Some((b"/+", b"+/", true))
     } else {
         None
     }

@@ -4,4 +4,5 @@ keywords	abstract	alias	align	asm	assert	auto	body	bool	break	byte	case	cast	cat
 builtin_types	bool	byte	ubyte	short	ushort	int	uint	long	ulong	cent	ucent	float	double	real	ifloat	idouble	ireal	cfloat	cdouble	creal	char	wchar	dchar	void
 function_declarations	function	delegate
 type_declarations	class	struct	interface	enum	union	template	alias	typedef
+comment_styles	slash_plus
 flags	slash_comments	block_comments	multiline_strings

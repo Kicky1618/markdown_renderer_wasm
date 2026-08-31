@@ -31,6 +31,9 @@ pub(super) enum DeclarationKind {
 const COMMENT_STYLE_BRACE: u8 = 1 << 0;
 const COMMENT_STYLE_ANGLE_HASH: u8 = 1 << 1;
 const COMMENT_STYLE_HASH_PIPE: u8 = 1 << 2;
+const COMMENT_STYLE_HASH_EQUALS: u8 = 1 << 3;
+const COMMENT_STYLE_HASH_BRACKET: u8 = 1 << 4;
+const COMMENT_STYLE_SLASH_PLUS: u8 = 1 << 5;
 #[cfg(target_arch = "wasm32")]
 const EXTENDED_SECTIONS_FLAG: u32 = 1 << 31;
 
@@ -497,6 +500,15 @@ impl Language {
     pub(super) fn hash_pipe_comments(self) -> bool {
         self.0.comment_styles & COMMENT_STYLE_HASH_PIPE != 0
     }
+    pub(super) fn hash_equals_comments(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_HASH_EQUALS != 0
+    }
+    pub(super) fn hash_bracket_comments(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_HASH_BRACKET != 0
+    }
+    pub(super) fn slash_plus_comments(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_SLASH_PLUS != 0
+    }
 
     pub(super) fn is_macro_identifier(self, word: &str) -> bool {
         self.0.macro_identifiers.contains(&word)
@@ -928,6 +940,9 @@ fn comment_style_bit(style: &str) -> Option<u8> {
         "brace" => COMMENT_STYLE_BRACE,
         "angle_hash" => COMMENT_STYLE_ANGLE_HASH,
         "hash_pipe" => COMMENT_STYLE_HASH_PIPE,
+        "hash_equals" => COMMENT_STYLE_HASH_EQUALS,
+        "hash_bracket" => COMMENT_STYLE_HASH_BRACKET,
+        "slash_plus" => COMMENT_STYLE_SLASH_PLUS,
         _ => return None,
     })
 }

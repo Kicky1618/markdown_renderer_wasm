@@ -4,4 +4,5 @@ keywords	baremodule	begin	break	catch	const	continue	do	else	elseif	end	export	f
 builtin_types	Any	Bool	Char	Complex	Float16	Float32	Float64	Int	Int8	Int16	Int32	Int64	Integer	Nothing	Number	Real	String	Symbol	UInt	UInt8	UInt16	UInt32	UInt64	Vector	Matrix	Tuple	NamedTuple
 function_declarations	function	macro
 type_declarations	struct	primitive	abstract	type
+comment_styles	hash_equals
 flags	hash_comments	bang_identifiers	multiline_strings	triple_double_strings	triple_single_strings
