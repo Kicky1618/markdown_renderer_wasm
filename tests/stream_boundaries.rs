@@ -286,6 +286,30 @@ fn list_tail_deltas_are_character_stream_independent() {
 }
 
 #[test]
+fn rich_list_item_syntax_is_character_stream_independent() {
+    for markdown in [
+        "- *x*\n- **y**\n- `z`",
+        "- [x](u)\n- [**y**](v)",
+        "1. *x*\n2. **y**\n3. `z`",
+        "1. [x](u)\n2. [**日**](urn:a_b)",
+        r"- \* literal\n- _ok_",
+    ] {
+        let expected = parse_whole(markdown);
+        let boundaries = utf8_boundaries(markdown);
+        let actual = parse_chunks(
+            boundaries
+                .windows(2)
+                .map(|window| &markdown[window[0]..window[1]]),
+        );
+        assert_eq!(
+            actual, expected,
+            "character stream changed rich list AST for {markdown:?}"
+        );
+        assert_every_single_split(markdown);
+    }
+}
+
+#[test]
 fn quote_tail_delta_is_character_stream_independent() {
     for markdown in ["> one\n> two\n> three", "> 日本語\n> ✅ test"] {
         let expected = parse_whole(markdown);

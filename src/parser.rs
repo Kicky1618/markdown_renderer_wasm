@@ -1065,10 +1065,16 @@ impl Parser {
             self.line.push(' ');
             return true;
         }
-        if !(trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("+ "))
-            || !input.bytes().all(is_plain_stream_byte)
-        {
+        if !(trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("+ ")) {
             return false;
+        }
+        if !input.bytes().all(is_plain_stream_byte) {
+            return self.replace_rich_list_item_tail(
+                block_index,
+                PendingKind::Unordered,
+                input,
+                delta,
+            );
         }
         let Some(Block::UnorderedList(items)) = self.blocks.get_mut(block_index) else {
             return false;
@@ -1143,10 +1149,75 @@ impl Parser {
             });
             return true;
         }
-        if ordered_item(trimmed).is_none() || !input.bytes().all(is_plain_stream_byte) {
+        if ordered_item(trimmed).is_none() {
             return false;
         }
+        if !input.bytes().all(is_plain_stream_byte) {
+            return self.replace_rich_list_item_tail(
+                block_index,
+                PendingKind::Ordered,
+                input,
+                delta,
+            );
+        }
         self.append_ordered_raw_tail(block_index, input, delta)
+    }
+
+    fn replace_rich_list_item_tail(
+        &mut self,
+        block_index: usize,
+        kind: PendingKind,
+        input: &str,
+        delta: &mut Delta,
+    ) -> bool {
+        if input.is_empty() || input.contains('\n') || input.contains('\r') {
+            return false;
+        }
+
+        let mut candidate = self.line.clone();
+        candidate.push_str(input);
+        let trimmed = candidate.trim_start();
+        let body = match kind {
+            PendingKind::Unordered
+                if trimmed.starts_with("- ")
+                    || trimmed.starts_with("* ")
+                    || trimmed.starts_with("+ ") =>
+            {
+                trimmed.get(2..).unwrap_or("")
+            }
+            PendingKind::Ordered => {
+                let Some((_, body)) = ordered_item(trimmed) else {
+                    return false;
+                };
+                body
+            }
+            _ => return false,
+        };
+        let replacement = parse_inlines(body);
+
+        let item = match self.blocks.get_mut(block_index) {
+            Some(Block::UnorderedList(items)) if kind == PendingKind::Unordered => items.last_mut(),
+            Some(Block::OrderedList { items, .. }) if kind == PendingKind::Ordered => {
+                items.last_mut()
+            }
+            _ => return false,
+        };
+        let Some(item) = item else {
+            return false;
+        };
+        let (truncate_bytes, remove_nodes) = match item.last() {
+            Some(Inline::Text(text)) if !text.is_empty() => (text.len(), item.len() - 1),
+            _ => (0, item.len()),
+        };
+        splice_inline_tail(item, truncate_bytes, remove_nodes, &replacement);
+        self.line = candidate;
+        delta.ops.push(Op::SpliceListItemTail {
+            block: block_index as u32,
+            remove_nodes: remove_nodes as u32,
+            truncate_bytes: truncate_bytes as u32,
+            append: replacement,
+        });
+        true
     }
 
     fn append_ordered_raw_tail(
@@ -4792,6 +4863,37 @@ $$
             whole.append(markdown);
             assert_eq!(parser.blocks(), whole.blocks());
         }
+    }
+
+    #[test]
+    fn rich_list_item_syntax_replaces_only_the_final_item() {
+        let mut unordered = Parser::new();
+        unordered.append("- *x");
+        let close = unordered.append("*");
+        assert!(
+            !close.ops.is_empty()
+                && close
+                    .ops
+                    .iter()
+                    .all(|op| matches!(op, Op::SpliceListItemTail { .. }))
+        );
+        let mut whole = Parser::new();
+        whole.append("- *x*");
+        assert_eq!(unordered.blocks(), whole.blocks());
+
+        let mut ordered = Parser::new();
+        ordered.append("1. [x](u");
+        let close = ordered.append(")");
+        assert!(
+            !close.ops.is_empty()
+                && close
+                    .ops
+                    .iter()
+                    .all(|op| matches!(op, Op::SpliceListItemTail { .. }))
+        );
+        let mut whole = Parser::new();
+        whole.append("1. [x](u)");
+        assert_eq!(ordered.blocks(), whole.blocks());
     }
 
     fn apply(document: &mut Vec<Block>, delta: &Delta) {
