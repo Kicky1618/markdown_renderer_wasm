@@ -10,6 +10,10 @@ function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+const cloneStateValue = typeof globalThis.structuredClone === "function"
+  ? (value) => globalThis.structuredClone(value)
+  : cloneJson;
+
 function assertSafeJson(value, path = "$") {
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i += 1) assertSafeJson(value[i], `${path}[${i}]`);
@@ -106,7 +110,7 @@ export class SemanticStateStore {
   }
 
   get(key) {
-    return cloneJson(this.values.get(key));
+    return cloneStateValue(this.values.get(key));
   }
 
   revision(key) {
@@ -114,7 +118,7 @@ export class SemanticStateStore {
   }
 
   snapshot() {
-    return Object.fromEntries([...this.values].map(([key, value]) => [key, cloneJson(value)]));
+    return Object.fromEntries([...this.values].map(([key, value]) => [key, cloneStateValue(value)]));
   }
 
   revisionSnapshot() {
@@ -165,10 +169,10 @@ export class SemanticStateStore {
     this.values.set(key, stored);
     const revision = (this.revisions.get(key) ?? 0) + 1;
     this.revisions.set(key, revision);
-    const result = cloneJson(stored);
+    const result = cloneStateValue(stored);
     if (this.onChange) {
-      const change = { key, revision, value: cloneJson(stored), ...metadata };
-      if (Object.prototype.hasOwnProperty.call(metadata, "patch")) change.patch = cloneJson(metadata.patch);
+      const change = { key, revision, value: cloneStateValue(stored), ...metadata };
+      if (Object.prototype.hasOwnProperty.call(metadata, "patch")) change.patch = cloneStateValue(metadata.patch);
       this.onChange(change);
     }
     return result;
