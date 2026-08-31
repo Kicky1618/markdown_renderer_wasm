@@ -102,13 +102,13 @@ export class SemanticRuntime {
     this.parser.finish();
     const summary = this.semanticSummary.refreshTail(this.parser.document, previousBlockCount);
     this.#observe(summary);
-    await this.scheduler.idle();
+    await this.scheduler.idle({ snapshot: false });
     return this.snapshot(snapshotOptions);
   }
 
   async idle(snapshotOptions = undefined) {
     this.#assertActive();
-    await this.scheduler.idle();
+    await this.scheduler.idle({ snapshot: false });
     return this.snapshot(snapshotOptions);
   }
 

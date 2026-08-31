@@ -138,10 +138,11 @@ export class SemanticScheduler {
     return output;
   }
 
-  async idle() {
+  async idle({ snapshot = true } = {}) {
+    if (typeof snapshot !== "boolean") throw new TypeError("idle() snapshot must be a boolean");
     this.#pump();
-    if (this.running === 0) return this.snapshot();
-    return new Promise((resolve) => this.idleWaiters.push(resolve));
+    if (this.running === 0) return snapshot ? this.snapshot() : undefined;
+    return new Promise((resolve) => this.idleWaiters.push({ resolve, snapshot }));
   }
 
   #runnerFor(node) {
@@ -237,8 +238,8 @@ export class SemanticScheduler {
   #resolveIdleIfNeeded() {
     if (this.running !== 0 || this.idleWaiters.length === 0) return;
     const waiters = this.idleWaiters.splice(0);
-    const snapshot = this.snapshot();
-    for (const resolve of waiters) resolve(snapshot);
+    const output = waiters.some((waiter) => waiter.snapshot) ? this.snapshot() : undefined;
+    for (const waiter of waiters) waiter.resolve(waiter.snapshot ? output : undefined);
   }
 }
 
