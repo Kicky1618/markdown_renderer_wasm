@@ -14,6 +14,7 @@ import { summarizeModelCommit, summarizeStagedEffects } from "./commit_summary.j
 import { buildReviewDiff, formatReviewValue } from "./review_diff.js";
 import { ResponseBudget } from "./response_budget.js";
 import { StreamReplayRecorder, replayDecodedChunks } from "./stream_replay.js";
+import { StreamTimelineRecorder } from "./stream_timeline.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
 
@@ -189,6 +190,13 @@ const commitPatches = document.querySelector("#commit-patches");
 const commitUi = document.querySelector("#commit-ui");
 const commitLatency = document.querySelector("#commit-latency");
 const commitDetails = document.querySelector("#commit-details");
+const streamTimeline = document.querySelector("#stream-timeline");
+const timelineTitle = document.querySelector("#timeline-title");
+const timelineChunks = document.querySelector("#timeline-chunks");
+const timelineChars = document.querySelector("#timeline-chars");
+const timelineFirstUi = document.querySelector("#timeline-first-ui");
+const timelineDuration = document.querySelector("#timeline-duration");
+const timelineEvents = document.querySelector("#timeline-events");
 
 let parser;
 let blockElements = [];
@@ -209,6 +217,7 @@ let semanticReviewPending = false;
 let pendingModelReview = null;
 let lastStreamReplay = null;
 let replayController = null;
+let lastStreamTimeline = null;
 const modelHistoryPast = [];
 const modelHistoryFuture = [];
 const MODEL_HISTORY_LIMIT = 8;
@@ -229,6 +238,39 @@ syncRequestProtocol();
 
 function setRuntimeState(value) {
   streamState.textContent = value;
+}
+
+function timelineRuntimePoint() {
+  return {
+    blocks: parser?.blockCount || 0,
+    ui: Math.max(0, generatedUiCount() - sessionUiBaseline),
+    commit: document.documentElement.dataset.semanticCommit || "",
+  };
+}
+
+function renderStreamTimeline(timeline, label = "STREAM") {
+  lastStreamTimeline = timeline || null;
+  if (!timeline?.events?.length) {
+    streamTimeline.hidden = true;
+    timelineEvents.replaceChildren();
+    return;
+  }
+  streamTimeline.hidden = false;
+  streamTimeline.dataset.events = String(timeline.events.length);
+  timelineTitle.textContent = `${label} timeline`;
+  timelineChunks.textContent = String(timeline.chunks);
+  timelineChars.textContent = String(timeline.chars);
+  timelineFirstUi.textContent = timeline.firstUiChunk == null
+    ? "—"
+    : `#${timeline.firstUiChunk} / ${timeline.firstUiChars} chars`;
+  timelineDuration.textContent = `${timeline.durationMs.toFixed(1)}ms`;
+  timelineEvents.replaceChildren();
+  for (const event of timeline.events) {
+    const item = document.createElement("li");
+    item.dataset.kind = event.kind;
+    item.textContent = `#${event.chunk} · ${event.chars} chars · ${event.elapsedMs.toFixed(1)}ms · ${event.blocks} blocks · +${event.ui} UI · ${event.commit || "—"}`;
+    timelineEvents.append(item);
+  }
 }
 
 function snapshotLocalState(maxEntries = 128) {
@@ -362,6 +404,7 @@ function clearModelHistory() {
   modelHistoryPast.length = 0;
   modelHistoryFuture.length = 0;
   lastStreamReplay = null;
+  renderStreamTimeline(null);
   renderCommitSummary(null);
   updateHistoryControls();
 }
@@ -467,6 +510,7 @@ async function replayLastModelStream() {
       resetRuntime();
     }
     beginInputSession(generatedUiCount());
+    const timeline = new StreamTimelineRecorder();
     const responseStartBlock = parser.blockCount;
     beginSemanticCommitBarrier();
     let received = "";
@@ -478,6 +522,7 @@ async function replayLastModelStream() {
       onText(text) {
         received += text;
         appendChunk(text);
+        timeline.observe(text, timelineRuntimePoint());
         preview.scrollTop = preview.scrollHeight;
       },
     });
@@ -494,6 +539,7 @@ async function replayLastModelStream() {
       recordModelHistory(currentBeforeReplay, meta);
       setRuntimeState("LIVE");
     }
+    renderStreamTimeline(timeline.finish(timelineRuntimePoint()), "REPLAY");
     document.documentElement.dataset.replayState = "done";
     deltaStatus.textContent = `REPLAY · ${result.chunks} chunks · ${result.chars} chars`;
     return true;
@@ -905,6 +951,7 @@ async function runLlmInteraction(instruction) {
     if (!response.ok) throw new Error(`stream request failed: HTTP ${response.status}`);
     const budget = new ResponseBudget();
     const replayRecorder = new StreamReplayRecorder();
+    const timeline = new StreamTimelineRecorder();
     beginSemanticCommitBarrier();
     prefix = parser.blockCount ? "\n\n" : "";
     if (prefix) appendChunk(prefix);
@@ -917,6 +964,7 @@ async function runLlmInteraction(instruction) {
         replayRecorder.push(text);
         received += text;
         appendChunk(text);
+        timeline.observe(text, timelineRuntimePoint());
         preview.scrollTop = preview.scrollHeight;
       },
     });
@@ -939,6 +987,7 @@ async function runLlmInteraction(instruction) {
       setRuntimeState("LIVE");
       deltaStatus.textContent = `LLM ${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
     }
+    renderStreamTimeline(timeline.finish(timelineRuntimePoint()), `LLM ${result.format.toUpperCase()}`);
     return result;
   } catch (error) {
     cancelSemanticCommitBarrier("discarded");
@@ -1890,6 +1939,7 @@ remoteForm.addEventListener("submit", async event => {
     });
     const budget = new ResponseBudget();
     const replayRecorder = new StreamReplayRecorder();
+    const timeline = new StreamTimelineRecorder();
     beginSemanticCommitBarrier();
     setRuntimeState("REMOTE STREAM");
     const result = await consumeHttpResponse(response, {
@@ -1900,6 +1950,7 @@ remoteForm.addEventListener("submit", async event => {
         replayRecorder.push(text);
         received += text;
         appendChunk(text);
+        timeline.observe(text, timelineRuntimePoint());
         preview.scrollTop = preview.scrollHeight;
       },
     });
@@ -1922,6 +1973,7 @@ remoteForm.addEventListener("submit", async event => {
       setRuntimeState("LIVE");
       deltaStatus.textContent = `${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
     }
+    renderStreamTimeline(timeline.finish(timelineRuntimePoint()), result.format.toUpperCase());
   } catch (error) {
     cancelSemanticCommitBarrier("discarded");
     if (controller.signal.aborted || error?.name === "AbortError") {
@@ -2092,13 +2144,20 @@ async function runReplaySmoke() {
 
   const replaySlider = preview.querySelector('input[data-state-input="temperature"]');
   const replayThroughput = preview.querySelector('[data-ui-id="throughput"]');
+  const timelinePassed = streamTimeline.hidden === false
+    && timelineTitle.textContent.startsWith("REPLAY")
+    && timelineFirstUi.textContent !== "—"
+    && Number(streamTimeline.dataset.events || 0) >= 2
+    && timelineEvents.textContent.includes("+1 UI");
+  root.dataset.timelineSmoke = timelinePassed ? "pass" : "fail";
   const passed = root.dataset.replayState === "done"
     && streamState.textContent === "LIVE"
     && replaySlider?.value === "58"
     && replayThroughput?.querySelector("h3")?.textContent?.trim() === "Model-updated throughput"
     && replayThroughput?.querySelector(".metric-value")?.textContent?.trim() === "3.1M"
     && source.value === firstSource
-    && deltaStatus.textContent.startsWith("REPLAY ·");
+    && deltaStatus.textContent.startsWith("REPLAY ·")
+    && timelinePassed;
   root.dataset.replaySmoke = passed ? "pass" : "fail";
 }
 

@@ -147,6 +147,21 @@ edge llm ui stream
         </div>
         <p id="commit-details" class="commit-details"></p>
       </aside>
+      <aside id="stream-timeline" class="stream-timeline" hidden aria-live="polite">
+        <div class="timeline-head">
+          <div>
+            <p class="eyebrow">STREAM TIMELINE</p>
+            <strong id="timeline-title">No recorded timeline</strong>
+          </div>
+          <div class="timeline-metrics">
+            <span><b id="timeline-chunks">0</b> chunks</span>
+            <span><b id="timeline-chars">0</b> chars</span>
+            <span><b id="timeline-first-ui">—</b> first UI</span>
+            <span><b id="timeline-duration">—</b> duration</span>
+          </div>
+        </div>
+        <ol id="timeline-events" class="timeline-events"></ol>
+      </aside>
       <div id="preview" class="preview" aria-live="polite"></div>
     </section>
   </main>

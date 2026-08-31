@@ -16,6 +16,7 @@ import { buildReviewDiff, formatReviewValue } from "./review_diff.js";
 import { ResponseBudget, ResponseBudgetError } from "./response_budget.js";
 import { auditUiConfig, parseSafeAction, summarizePolicy } from "./policy.js";
 import { StreamReplayRecorder, replayDecodedChunks } from "./stream_replay.js";
+import { StreamTimelineRecorder } from "./stream_timeline.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
   id: "",
@@ -331,6 +332,35 @@ await assert.rejects(
   replayDecodedChunks(replaySnapshot, { signal: replayAbort.signal, onText() {} }),
   error => error?.name === "AbortError",
 );
+
+let timelineNow = 0;
+const timelineRecorder = new StreamTimelineRecorder({ now: () => timelineNow, maxEvents: 8 });
+timelineRecorder.observe("a", { blocks: 10, ui: 0, commit: "staging" });
+timelineNow = 5;
+timelineRecorder.observe("b", { blocks: 10, ui: 0, commit: "staging" });
+timelineNow = 11;
+timelineRecorder.observe("c", { blocks: 11, ui: 1, commit: "staging" });
+timelineNow = 15;
+const timelineSnapshot = timelineRecorder.finish({ blocks: 11, ui: 1, commit: "committed" });
+assert.equal(timelineSnapshot.chunks, 3);
+assert.equal(timelineSnapshot.chars, 3);
+assert.equal(timelineSnapshot.firstUiChunk, 3);
+assert.equal(timelineSnapshot.firstUiChars, 3);
+assert.equal(timelineSnapshot.firstUiMs, 11);
+assert.equal(timelineSnapshot.durationMs, 15);
+assert.deepEqual(timelineSnapshot.events.map(event => [event.kind, event.chunk, event.ui, event.commit]), [
+  ["chunk", 1, 0, "staging"],
+  ["chunk", 3, 1, "staging"],
+  ["finish", 3, 1, "committed"],
+]);
+const boundedTimeline = new StreamTimelineRecorder({ now: () => 0, maxEvents: 2 });
+boundedTimeline.observe("a", { blocks: 1, ui: 0 });
+boundedTimeline.observe("b", { blocks: 2, ui: 0 });
+boundedTimeline.observe("c", { blocks: 3, ui: 1 });
+const boundedTimelineSnapshot = boundedTimeline.finish({ blocks: 3, ui: 1, commit: "committed" });
+assert.equal(boundedTimelineSnapshot.events.length, 2);
+assert.equal(boundedTimelineSnapshot.events.at(-1).kind, "finish");
+assert.equal(boundedTimelineSnapshot.truncated, true);
 
 const securityHtml = await fs.readFile(new URL("./index.html", import.meta.url), "utf8");
 const securityApp = await fs.readFile(new URL("./app.js", import.meta.url), "utf8");

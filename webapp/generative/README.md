@@ -179,3 +179,9 @@ Network/model responses are checked before each decoded text chunk enters the WA
 `Replay stream` replays the most recently completed decoded model/HTTP stream entirely in memory, through the same `appendChunk()` → WASM incremental AST → Generative UI → Review path. The recorder stores only decoded Markdown chunks and bounded inter-chunk timing; it does not retain endpoint URLs, HTTP headers, credentials, provider envelopes, or API keys. Recordings are capped at 2 MiB / 8,192 chunks and are discarded when truncated.
 
 Replay first reconstructs the original response-start application state, then emits the recorded chunks with accelerated bounded delays. For `action=llm:` responses this reproduces append-after-finish behavior, state patches, component overlays, policy audit and Human Review without another network request. The browser smoke deliberately replaces the configured endpoint with `127.0.0.1:1` before replay and verifies the same `58°C` / patched throughput UI with `data-replay-smoke="pass"`. Replay recordings live only in page memory and are cleared when a new manual baseline is established.
+
+## Stream Timeline
+
+Completed network and replay sessions produce a bounded timeline of semantic milestones without retaining chunk text. The recorder keeps at most 64 change points containing chunk number, cumulative decoded characters, elapsed time, parser block count, newly generated UI count relative to the response-start baseline, and semantic commit state. DOM is rendered only once at session completion, so timeline diagnostics stay off the parser hot path.
+
+The panel reports both the first-UI chunk and cumulative character position (for example `#4 / 294 chars`) in addition to elapsed time. This makes the streaming property visible as both latency and token/output progress. The Chrome replay smoke verifies the timeline through the network-free replay path and exposes `data-timeline-smoke="pass"`.
