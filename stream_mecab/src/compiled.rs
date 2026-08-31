@@ -67,6 +67,24 @@ impl Model {
         let entry_count = reader.u32()? as usize;
         let node_count = reader.u32()? as usize;
         let transition_count = reader.u32()? as usize;
+        // Validate all top-level counts against the input size before using
+        // them as allocation capacities. An entry needs at least three u32
+        // string lengths, one non-empty surface byte, a tag and a cost (19B);
+        // a trie node needs two counts (8B); a transition is 8B.
+        let minimum_payload = entry_count
+            .checked_mul(19)
+            .and_then(|value| node_count.checked_mul(8).and_then(|nodes| value.checked_add(nodes)))
+            .and_then(|value| {
+                transition_count
+                    .checked_mul(8)
+                    .and_then(|transitions| value.checked_add(transitions))
+            })
+            .ok_or_else(|| ModelError::InvalidCompiled("SMD1 count overflow".to_owned()))?;
+        if minimum_payload > reader.remaining() {
+            return Err(ModelError::InvalidCompiled(
+                "SMD1 counts exceed input size".to_owned(),
+            ));
+        }
         if node_count == 0 {
             return Err(ModelError::InvalidCompiled(
                 "SMD1 trie has no root node".to_owned(),
@@ -94,6 +112,19 @@ impl Model {
         for _ in 0..node_count {
             let edge_count = reader.u32()? as usize;
             let terminal_count = reader.u32()? as usize;
+            let node_payload = edge_count
+                .checked_mul(5)
+                .and_then(|edges| {
+                    terminal_count
+                        .checked_mul(4)
+                        .and_then(|terminals| edges.checked_add(terminals))
+                })
+                .ok_or_else(|| ModelError::InvalidCompiled("SMD1 node count overflow".to_owned()))?;
+            if node_payload > reader.remaining() {
+                return Err(ModelError::InvalidCompiled(
+                    "SMD1 node counts exceed input size".to_owned(),
+                ));
+            }
             let mut next = Vec::with_capacity(edge_count);
             let mut previous_byte = None;
             for _ in 0..edge_count {
@@ -199,8 +230,12 @@ impl<'a> Reader<'a> {
             .map_err(|_| ModelError::InvalidCompiled("SMD1 string is not UTF-8".to_owned()))
     }
 
+    fn remaining(&self) -> usize {
+        self.bytes.len() - self.offset
+    }
+
     fn is_empty(&self) -> bool {
-        self.offset == self.bytes.len()
+        self.remaining() == 0
     }
 }
 
@@ -261,5 +296,18 @@ mod tests {
         let mut bytes = model.to_compiled();
         bytes.truncate(bytes.len() - 1);
         assert!(Model::from_compiled(&bytes).is_err());
+    }
+
+    #[test]
+    fn compiled_reader_rejects_impossible_counts_before_allocation() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"SMD1");
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&4u32.to_le_bytes());
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes()); // entries
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // root node
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes()); // transitions
+        let error = Model::from_compiled(&bytes).unwrap_err().to_string();
+        assert!(error.contains("counts exceed input size") || error.contains("count overflow"));
     }
 }

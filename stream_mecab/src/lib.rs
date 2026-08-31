@@ -995,6 +995,70 @@ mod tests {
     }
 
     #[test]
+    fn randomized_streaming_matches_batch_at_every_prefix() {
+        // Deterministic xorshift; no test-only dependency. The generated model
+        // deliberately contains overlapping surfaces and negative connection
+        // costs so locally suboptimal paths can become optimal later.
+        let mut seed = 0x6a09_e667_f3bc_c909u64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let alphabet = ["東", "京", "大", "学", "生", "の", "は", "。"];
+
+        for case in 0..64 {
+            let mut model = Model::new();
+            model.set_max_unknown_chars(3);
+            for entry_index in 0..32 {
+                let len = 1 + (next() as usize % 4);
+                let mut surface = String::new();
+                for _ in 0..len {
+                    surface.push_str(alphabet[next() as usize % alphabet.len()]);
+                }
+                let tag = FIRST_USER_TAG + (next() as TagId % 5);
+                let cost = (next() % 1200) as i32 - 400;
+                model
+                    .add_entry(
+                        surface.clone(),
+                        format!("lemma-{case}-{entry_index}"),
+                        "",
+                        tag,
+                        cost,
+                    )
+                    .unwrap();
+            }
+            for previous in TAG_BOS_EOS..FIRST_USER_TAG + 5 {
+                for following in TAG_BOS_EOS..FIRST_USER_TAG + 5 {
+                    if next() & 3 == 0 {
+                        model.set_transition(previous, following, (next() % 401) as i32 - 200);
+                    }
+                }
+            }
+
+            let mut text = String::new();
+            for _ in 0..48 {
+                text.push_str(alphabet[next() as usize % alphabet.len()]);
+            }
+            let mut stream = model.clone().stream_delta();
+            let mut mirror = Vec::new();
+            let mut prefix = String::new();
+            for ch in text.chars() {
+                prefix.push(ch);
+                stream.append(&ch.to_string()).apply(&mut mirror);
+                assert_eq!(
+                    mirror,
+                    model.tokenize(&prefix),
+                    "case={case} prefix={prefix:?}"
+                );
+            }
+            stream.finish().apply(&mut mirror);
+            assert_eq!(mirror, model.tokenize(&text), "case={case} final");
+        }
+    }
+
+    #[test]
     fn custom_tsv_is_not_mecab_dictionary_format() {
         let mut model = Model::new();
         assert_eq!(
