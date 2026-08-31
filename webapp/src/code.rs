@@ -94,6 +94,8 @@ impl<'a> Scanner<'a> {
                 hash_raw_string_end(self.source, start).unwrap(),
                 SyntaxKind::String,
             )
+        } else if let Some(end) = powershell_here_string_end(self.source, start, self.language) {
+            (end, SyntaxKind::String)
         } else if bytes[start] == b'@' && prefixed_quoted_string_start(bytes, start).is_some() {
             (
                 prefixed_quoted_string_end(self.source, start, self.language).unwrap(),
@@ -710,6 +712,41 @@ fn prefixed_quoted_string_end(source: &str, start: usize, language: Language) ->
             language.multiline_strings(),
         ))
     }
+}
+
+fn powershell_here_string_end(source: &str, start: usize, language: Language) -> Option<usize> {
+    if !language.powershell_here_strings() {
+        return None;
+    }
+    let bytes = source.as_bytes();
+    let quote = match bytes.get(start..start + 2) {
+        Some(b"@\"") => b'"',
+        Some(b"@'") => b'\'',
+        _ => return None,
+    };
+    let content_start = match bytes.get(start + 2..) {
+        Some(tail) if tail.starts_with(b"\r\n") => start + 4,
+        Some(tail) if tail.starts_with(b"\n") => start + 3,
+        _ => return None,
+    };
+
+    let mut line_start = content_start;
+    while line_start <= bytes.len() {
+        if bytes.get(line_start) == Some(&quote) && bytes.get(line_start + 1) == Some(&b'@') {
+            let end = line_start + 2;
+            if end == bytes.len()
+                || bytes.get(end) == Some(&b'\n')
+                || bytes.get(end..end + 2) == Some(b"\r\n")
+            {
+                return Some(end);
+            }
+        }
+        let Some(relative_newline) = bytes.get(line_start..)?.iter().position(|byte| *byte == b'\n') else {
+            break;
+        };
+        line_start += relative_newline + 1;
+    }
+    Some(bytes.len())
 }
 
 fn verbatim_quoted_string_end(source: &str, quote_at: usize, quote: u8) -> usize {

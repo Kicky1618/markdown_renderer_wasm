@@ -28,13 +28,14 @@ pub(super) enum DeclarationKind {
     Macro,
 }
 
-const COMMENT_STYLE_BRACE: u8 = 1 << 0;
-const COMMENT_STYLE_ANGLE_HASH: u8 = 1 << 1;
-const COMMENT_STYLE_HASH_PIPE: u8 = 1 << 2;
-const COMMENT_STYLE_HASH_EQUALS: u8 = 1 << 3;
-const COMMENT_STYLE_HASH_BRACKET: u8 = 1 << 4;
-const COMMENT_STYLE_SLASH_PLUS: u8 = 1 << 5;
-const COMMENT_STYLE_CMAKE_BRACKETS: u8 = 1 << 6;
+const COMMENT_STYLE_BRACE: u16 = 1 << 0;
+const COMMENT_STYLE_ANGLE_HASH: u16 = 1 << 1;
+const COMMENT_STYLE_HASH_PIPE: u16 = 1 << 2;
+const COMMENT_STYLE_HASH_EQUALS: u16 = 1 << 3;
+const COMMENT_STYLE_HASH_BRACKET: u16 = 1 << 4;
+const COMMENT_STYLE_SLASH_PLUS: u16 = 1 << 5;
+const COMMENT_STYLE_CMAKE_BRACKETS: u16 = 1 << 6;
+const COMMENT_STYLE_POWERSHELL_HERE_STRINGS: u16 = 1 << 7;
 #[cfg(target_arch = "wasm32")]
 const EXTENDED_SECTIONS_FLAG: u32 = 1 << 31;
 
@@ -84,7 +85,7 @@ struct LanguageProfile {
     double_semicolon_comments: bool,
     paren_semicolon_comments: bool,
     lua_long_brackets: bool,
-    comment_styles: u8,
+    comment_styles: u16,
 }
 
 macro_rules! empty_profile {
@@ -314,6 +315,9 @@ impl Language {
     pub(super) fn cmake_brackets(self) -> bool {
         self.0.comment_styles & COMMENT_STYLE_CMAKE_BRACKETS != 0
     }
+    pub(super) fn powershell_here_strings(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_POWERSHELL_HERE_STRINGS != 0
+    }
 
     pub(super) fn is_macro_identifier(self, word: &str) -> bool {
         self.0.macro_identifiers.contains(&word)
@@ -478,12 +482,12 @@ impl<'a> BinaryCursor<'a> {
         Some(count)
     }
 
-    fn comment_styles(&mut self) -> Option<u8> {
+    fn comment_styles(&mut self) -> Option<u16> {
         let count = self.u16()?;
         if count > 16 {
             return None;
         }
-        let mut styles = 0u8;
+        let mut styles = 0u16;
         for _ in 0..count {
             let len = self.u16()?;
             let style = std::str::from_utf8(self.take(len)?).ok()?;
@@ -700,7 +704,7 @@ fn leak_words(values: Vec<&str>) -> &'static [&'static str] {
     Box::leak(words.into_boxed_slice())
 }
 
-fn comment_style_bit(style: &str) -> Option<u8> {
+fn comment_style_bit(style: &str) -> Option<u16> {
     Some(match style {
         "brace" => COMMENT_STYLE_BRACE,
         "angle_hash" => COMMENT_STYLE_ANGLE_HASH,
@@ -709,13 +713,14 @@ fn comment_style_bit(style: &str) -> Option<u8> {
         "hash_bracket" => COMMENT_STYLE_HASH_BRACKET,
         "slash_plus" => COMMENT_STYLE_SLASH_PLUS,
         "cmake_brackets" => COMMENT_STYLE_CMAKE_BRACKETS,
+        "powershell_here_strings" => COMMENT_STYLE_POWERSHELL_HERE_STRINGS,
         _ => return None,
     })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn parse_comment_styles(values: &[&str]) -> Result<u8, String> {
-    values.iter().try_fold(0u8, |styles, style| {
+fn parse_comment_styles(values: &[&str]) -> Result<u16, String> {
+    values.iter().try_fold(0u16, |styles, style| {
         comment_style_bit(style)
             .map(|bit| styles | bit)
             .ok_or_else(|| format!("unknown comment style: {style}"))
