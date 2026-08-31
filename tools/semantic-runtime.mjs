@@ -53,7 +53,7 @@ export class SemanticRuntime {
     return this.#appendText(chunk);
   }
 
-  async consume(source, { finalize = true } = {}) {
+  async consume(source, { finalize = true, snapshotOptions = undefined } = {}) {
     this.#assertActive();
     const decoder = new TextDecoder();
     let decodingBytes = false;
@@ -93,36 +93,44 @@ export class SemanticRuntime {
       const tail = decoder.decode();
       if (tail) this.#appendText(tail, 0);
     }
-    return finalize ? this.finish() : this.snapshot();
+    return finalize ? this.finish(snapshotOptions) : this.snapshot(snapshotOptions);
   }
 
-  async finish() {
+  async finish(snapshotOptions = undefined) {
     this.#assertActive();
     const previousBlockCount = this.parser.blockCount;
     this.parser.finish();
     const summary = this.semanticSummary.refreshTail(this.parser.document, previousBlockCount);
     this.#observe(summary);
     await this.scheduler.idle();
-    return this.snapshot();
+    return this.snapshot(snapshotOptions);
   }
 
-  async idle() {
+  async idle(snapshotOptions = undefined) {
     this.#assertActive();
     await this.scheduler.idle();
-    return this.snapshot();
+    return this.snapshot(snapshotOptions);
   }
 
-  snapshot() {
+  snapshot({
+    document = true,
+    graph = true,
+    diagnostics = true,
+    scheduler = true,
+  } = {}) {
     this.#assertActive();
-    const graph = buildSemanticGraph(this.semanticSummary.current());
-    return {
-      document: this.parser.snapshot(),
-      graph,
-      diagnostics: graphDiagnostics(graph),
-      scheduler: this.scheduler.snapshot(),
+    const output = {
       blockCount: this.parser.blockCount,
       semanticScans: this.semanticScans,
     };
+    const graphSnapshot = graph || diagnostics
+      ? buildSemanticGraph(this.semanticSummary.current())
+      : null;
+    if (document) output.document = this.parser.snapshot();
+    if (graph) output.graph = graphSnapshot;
+    if (diagnostics) output.diagnostics = graphDiagnostics(graphSnapshot);
+    if (scheduler) output.scheduler = this.scheduler.snapshot();
+    return output;
   }
 
   dispose() {

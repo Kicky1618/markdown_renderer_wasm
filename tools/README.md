@@ -142,6 +142,20 @@ await runtime.consume(providerChunks);
 
 Semantic graph nodes expose the closed fence body as `node.value`, so runners receive the exact streamed payload without reparsing the Markdown source. `snapshot()` returns the final AST, graph diagnostics, and scheduler states.
 
+For execution-only or telemetry paths, snapshot components can be skipped independently. The default remains the full detached result, while `document: false` avoids the AST clone, `graph: false` / `diagnostics: false` avoid graph serialization, and `scheduler: false` avoids materializing scheduler records. `finish()` and `idle()` accept the same options; `consume()` forwards them through `snapshotOptions`.
+
+```js
+const result = await runtime.finish({
+  document: false,
+  graph: false,
+  diagnostics: false,
+  scheduler: false,
+});
+// { blockCount, semanticScans }
+```
+
+`node tools/semantic-runtime-snapshot-bench.mjs` measures these output costs. On the development host with 25k semantic blocks, the full snapshot took about 44.6 ms while the metadata-only form took about 0.07 ms.
+
 ```sh
 node tools/semantic-runtime.integration.mjs
 ```
