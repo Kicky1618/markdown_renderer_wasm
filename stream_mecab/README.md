@@ -111,6 +111,8 @@ Environment: Intel Core i7-12700, release build, CPU affinity fixed to logical C
 
 These numbers measure the included synthetic dictionary, not a production Japanese dictionary. Dictionary size, ambiguity and transition density materially affect throughput.
 
+A separate 100,000-entry synthetic CJK lexicon benchmark (`bench_large_dict`) exercises trie fan-out. High-fan-out nodes automatically promote to a 256-way byte dispatch table while ordinary nodes remain compact linear edge lists. On the same pinned CPU this improves streaming throughput by roughly 17% versus binary/linear-only fan-out experiments. The 100k synthetic model contains about 706k trie nodes; only about 2.1k promote, adding roughly 2 MiB of dispatch tables.
+
 ## Licensing boundary
 
 The engine source is dual-licensed under MIT or Apache-2.0; see `LICENSE-MIT` and `LICENSE-APACHE`. No MeCab source, MeCab dictionary binary, IPADIC, UniDic or JUMAN dictionary data is bundled. Dictionary data supplied by an application is a separate work and its license must be checked independently.

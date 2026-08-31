@@ -35,6 +35,17 @@ pub const TAG_UNKNOWN_PUNCT: TagId = 7;
 pub const TAG_UNKNOWN_OTHER: TagId = 8;
 pub const FIRST_USER_TAG: TagId = 9;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ModelStats {
+    pub entries: usize,
+    pub trie_nodes: usize,
+    pub trie_edges: usize,
+    pub dense_dispatch_nodes: usize,
+    pub dense_dispatch_bytes: usize,
+    pub transitions: usize,
+    pub max_token_bytes: usize,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TokenOrigin {
     Lexicon,
@@ -86,13 +97,36 @@ struct TrieNode {
     // children, where a HashMap is substantially larger and less cache-local.
     next: Vec<(u8, usize)>,
     entries: Vec<usize>,
+    // High-fan-out nodes optionally use a direct byte dispatch table. Zero is
+    // the missing sentinel; child indices are encoded as index + 1.
+    dense: Option<Box<[u32; 256]>>,
 }
 
+
 impl TrieNode {
+    const DENSE_THRESHOLD: usize = 24;
+
     fn child(&self, byte: u8) -> Option<usize> {
+        if let Some(dense) = &self.dense {
+            let encoded = dense[byte as usize];
+            return (encoded != 0).then_some(encoded as usize - 1);
+        }
         self.next
             .iter()
             .find_map(|&(edge, target)| (edge == byte).then_some(target))
+    }
+
+    fn insert_child(&mut self, index: usize, byte: u8, target: usize) {
+        self.next.insert(index, (byte, target));
+        if let Some(dense) = &mut self.dense {
+            dense[byte as usize] = target as u32 + 1;
+        } else if self.next.len() >= Self::DENSE_THRESHOLD {
+            let mut dense = Box::new([0u32; 256]);
+            for &(edge, child) in &self.next {
+                dense[edge as usize] = child as u32 + 1;
+            }
+            self.dense = Some(dense);
+        }
     }
 }
 
@@ -168,7 +202,7 @@ impl Model {
                 Err(index) => {
                     let next = self.trie.len();
                     self.trie.push(TrieNode::default());
-                    self.trie[node].next.insert(index, (byte, next));
+                    self.trie[node].insert_child(index, byte, next);
                     next
                 }
             };
@@ -222,6 +256,23 @@ impl Model {
         self.max_lexicon_bytes
             .max(self.max_unknown_chars.saturating_mul(4))
             .max(1)
+    }
+
+    pub fn stats(&self) -> ModelStats {
+        let dense_dispatch_nodes = self
+            .trie
+            .iter()
+            .filter(|node| node.dense.is_some())
+            .count();
+        ModelStats {
+            entries: self.entries.len(),
+            trie_nodes: self.trie.len(),
+            trie_edges: self.trie.iter().map(|node| node.next.len()).sum(),
+            dense_dispatch_nodes,
+            dense_dispatch_bytes: dense_dispatch_nodes * 256 * size_of::<u32>(),
+            transitions: self.transitions.len(),
+            max_token_bytes: self.max_token_bytes(),
+        }
     }
 
     pub fn tokenize(&self, text: &str) -> Vec<Token> {

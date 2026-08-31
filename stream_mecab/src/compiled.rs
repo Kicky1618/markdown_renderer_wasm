@@ -153,10 +153,19 @@ impl Model {
                 }
                 terminal_entries.push(entry);
             }
-            trie.push(TrieNode {
+            let mut node = TrieNode {
                 next,
                 entries: terminal_entries,
-            });
+                dense: None,
+            };
+            if node.next.len() >= TrieNode::DENSE_THRESHOLD {
+                let mut dense = Box::new([0u32; 256]);
+                for &(edge, child) in &node.next {
+                    dense[edge as usize] = child as u32 + 1;
+                }
+                node.dense = Some(dense);
+            }
+            trie.push(node);
         }
         let mut transitions = HashMap::with_capacity(transition_count);
         for _ in 0..transition_count {
