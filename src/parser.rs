@@ -999,7 +999,8 @@ impl Parser {
             || !matches!(self.mode, Mode::Normal)
             || !self.has_live
             || self.pending_kind.is_some()
-            || !input.bytes().all(is_plain_stream_byte)
+            || input.contains('\r')
+            || input.contains('\n')
         {
             return false;
         }
@@ -1013,6 +1014,10 @@ impl Parser {
             return false;
         };
 
+        if !input.bytes().all(is_plain_stream_byte) {
+            return self.try_append_heading_syntax_chunk(block_index, old_end, input, delta);
+        }
+
         self.line.push_str(input);
         let Some((_, new_end)) = heading_content_range(&self.line) else {
             unreachable!("plain append cannot change an established heading prefix");
@@ -1023,6 +1028,56 @@ impl Parser {
         }
 
         let append = vec![Inline::Text(self.line[old_end..new_end].to_owned())];
+        let Some(Block::Heading { content, .. }) = self.blocks.get_mut(block_index) else {
+            unreachable!();
+        };
+        splice_inline_tail(content, 0, 0, &append);
+        delta.ops.push(Op::SpliceHeadingTail {
+            block: block_index as u32,
+            remove_nodes: 0,
+            truncate_bytes: 0,
+            append,
+        });
+        true
+    }
+
+    fn try_append_heading_syntax_chunk(
+        &mut self,
+        block_index: usize,
+        old_end: usize,
+        input: &str,
+        delta: &mut Delta,
+    ) -> bool {
+        if input.contains('#') {
+            return false;
+        }
+
+        let old_len = self.line.len();
+        self.line.push_str(input);
+        let Some((_, new_end)) = heading_content_range(&self.line) else {
+            self.line.truncate(old_len);
+            return false;
+        };
+        if new_end <= old_end {
+            self.line.truncate(old_len);
+            return false;
+        }
+
+        let fragment = &self.line[old_end..new_end];
+        if fragment.contains('#')
+            || !fragment.chars().next().is_some_and(char::is_whitespace)
+            || !self.line[new_end..].chars().all(char::is_whitespace)
+        {
+            self.line.truncate(old_len);
+            return false;
+        }
+
+        let append = parse_inlines(fragment);
+        if append.is_empty() || !quote_line_inlines_are_self_contained(&append) {
+            self.line.truncate(old_len);
+            return false;
+        }
+
         let Some(Block::Heading { content, .. }) = self.blocks.get_mut(block_index) else {
             unreachable!();
         };
@@ -4957,6 +5012,45 @@ $$
         let mut whole = Parser::new();
         whole.append("a|b\n---|---\n*x*|[y](u)");
         assert_eq!(parser.blocks(), whole.blocks());
+    }
+
+    #[test]
+    fn self_contained_heading_syntax_chunks_splice_locally() {
+        let mut parser = Parser::new();
+        let mut source = "## seed ".to_owned();
+        parser.append(&source);
+        for chunk in ["**x** ", "[x](u) ", "`x` ", "[[cite:d|x]] "] {
+            let delta = parser.append(chunk);
+            assert!(matches!(
+                delta.ops.as_slice(),
+                [Op::SpliceHeadingTail { .. }]
+            ));
+            source.push_str(chunk);
+            let mut whole = Parser::new();
+            whole.append(&source);
+            assert_eq!(parser.blocks(), whole.blocks(), "chunk={chunk:?}");
+        }
+    }
+
+    #[test]
+    fn heading_syntax_chunk_requires_isolated_self_contained_fragment() {
+        for (prefix, chunk) in [
+            ("## seed", "**x** "),
+            ("## seed ", "**open "),
+            ("## seed #", "**x** "),
+        ] {
+            let mut parser = Parser::new();
+            parser.append(prefix);
+            let delta = parser.append(chunk);
+            assert!(
+                matches!(delta.ops.first(), Some(Op::Truncate { from: 0 })),
+                "expected fallback for {prefix:?} + {chunk:?}, got {:?}",
+                delta.ops
+            );
+            let mut whole = Parser::new();
+            whole.append(&format!("{prefix}{chunk}"));
+            assert_eq!(parser.blocks(), whole.blocks(), "{prefix:?} + {chunk:?}");
+        }
     }
 
     #[test]

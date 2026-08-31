@@ -96,6 +96,21 @@ fn rich_heading_tail_is_character_stream_independent() {
 }
 
 #[test]
+fn heading_syntax_token_chunks_match_whole_parse() {
+    let markdown = "## seed **x** [x](u) `x` [[cite:d|x]] trailing";
+    let expected = parse_whole(markdown);
+    let actual = parse_chunks([
+        "## seed ",
+        "**x** ",
+        "[x](u) ",
+        "`x` ",
+        "[[cite:d|x]] ",
+        "trailing",
+    ]);
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn multiline_inline_tail_fast_path_is_chunk_boundary_independent() {
     assert_every_single_split(
         "First **bold** line\ncontinuation token token [[cite:doc-1|source]] and more text.",
