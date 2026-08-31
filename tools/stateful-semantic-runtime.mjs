@@ -2,6 +2,13 @@ import { SemanticRuntime } from "./semantic-runtime.mjs";
 import { createStateRunners, SemanticStateStore } from "./semantic-state.mjs";
 import { createSemanticJournalHooks, SemanticJournal } from "./semantic-journal.mjs";
 
+const INTERNAL_LIGHT_SNAPSHOT = Object.freeze({
+  document: false,
+  graph: false,
+  diagnostics: false,
+  scheduler: false,
+});
+
 /**
  * Convenience wrapper that wires `:::llm state` / `:::llm patch` into the
  * streaming SemanticRuntime while preserving the base runtime API.
@@ -68,22 +75,26 @@ export class StatefulSemanticRuntime {
     return this.runtime.append(chunk);
   }
 
-  consume(source, options) {
-    return this.runtime.consume(source, options).then(() => this.snapshot());
+  consume(source, options = {}) {
+    const { snapshotOptions, ...consumeOptions } = options ?? {};
+    return this.runtime.consume(source, {
+      ...consumeOptions,
+      snapshotOptions: INTERNAL_LIGHT_SNAPSHOT,
+    }).then(() => this.snapshot(snapshotOptions));
   }
 
-  async finish() {
-    await this.runtime.finish();
-    return this.snapshot();
+  async finish(snapshotOptions = undefined) {
+    await this.runtime.finish(INTERNAL_LIGHT_SNAPSHOT);
+    return this.snapshot(snapshotOptions);
   }
 
-  async idle() {
-    await this.runtime.idle();
-    return this.snapshot();
+  async idle(snapshotOptions = undefined) {
+    await this.runtime.idle(INTERNAL_LIGHT_SNAPSHOT);
+    return this.snapshot(snapshotOptions);
   }
 
-  snapshot() {
-    const base = this.runtime.snapshot();
+  snapshot(snapshotOptions = undefined) {
+    const base = this.runtime.snapshot(snapshotOptions);
     return {
       ...base,
       state: {
