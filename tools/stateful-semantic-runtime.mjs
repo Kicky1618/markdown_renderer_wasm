@@ -95,6 +95,7 @@ export class StatefulSemanticRuntime {
 
   snapshot(snapshotOptions = undefined) {
     const base = this.runtime.snapshot(snapshotOptions);
+    if (snapshotOptions?.state === false) return base;
     return {
       ...base,
       state: {
