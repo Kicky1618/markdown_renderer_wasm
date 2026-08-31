@@ -27,6 +27,10 @@ assert.equal(tokens[2].origin, "lexicon");
 assert.equal(tokens[3].origin, "unknown");
 
 assert.throws(() => mecab.addTsv("猫\t猫\tネコ\t9\t10\n"), /after sm_start/);
+assert.throws(() => mecab.addTransitionTsv("9\t9\t0\n"), /after sm_start/);
+assert.throws(() => mecab.setTransition(9, 9, 0), /after sm_start/);
+assert.throws(() => mecab.setMaxUnknownChars(8), /after sm_start/);
+assert.throws(() => mecab.start(), /only be called once/);
 mecab.destroy();
 
 const surfaceOnly = await StreamMecab.instantiate(bytes);

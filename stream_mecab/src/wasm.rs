@@ -2,7 +2,7 @@ use crate::{DeltaStreamAnalyzer, Model, StreamDelta, encode_delta_into};
 use std::str;
 
 pub struct Handle {
-    model: Model,
+    model: Option<Model>,
     stream: Option<DeltaStreamAnalyzer>,
     delta: StreamDelta,
     input: Vec<u8>,
@@ -13,7 +13,7 @@ pub struct Handle {
 impl Handle {
     fn new() -> Self {
         Self {
-            model: Model::new(),
+            model: Some(Model::new()),
             stream: None,
             delta: StreamDelta::default(),
             input: Vec::new(),
@@ -72,7 +72,10 @@ pub unsafe extern "C" fn sm_add_tsv_input(handle: *mut Handle, len: usize) -> u3
     let Ok(text) = str::from_utf8(&handle.input[..len]) else {
         return handle.fail("dictionary input is not UTF-8");
     };
-    match handle.model.add_tsv(text) {
+    let Some(model) = handle.model.as_mut() else {
+        return handle.fail("model is unavailable after sm_start");
+    };
+    match model.add_tsv(text) {
         Ok(_) => {
             handle.clear_error();
             1
@@ -95,7 +98,10 @@ pub unsafe extern "C" fn sm_add_transition_tsv_input(handle: *mut Handle, len: u
     let Ok(text) = str::from_utf8(&handle.input[..len]) else {
         return handle.fail("transition input is not UTF-8");
     };
-    match handle.model.add_transition_tsv(text) {
+    let Some(model) = handle.model.as_mut() else {
+        return handle.fail("model is unavailable after sm_start");
+    };
+    match model.add_transition_tsv(text) {
         Ok(_) => {
             handle.clear_error();
             1
@@ -117,7 +123,7 @@ pub unsafe extern "C" fn sm_load_compiled_input(handle: *mut Handle, len: usize)
     }
     match Model::from_compiled(&handle.input[..len]) {
         Ok(model) => {
-            handle.model = model;
+            handle.model = Some(model);
             handle.clear_error();
             1
         }
@@ -141,7 +147,10 @@ pub unsafe extern "C" fn sm_set_transition(
     let (Ok(previous), Ok(next)) = (u16::try_from(previous), u16::try_from(next)) else {
         return handle.fail("tag id exceeds u16");
     };
-    handle.model.set_transition(previous, next, cost);
+    let Some(model) = handle.model.as_mut() else {
+        return handle.fail("model is unavailable after sm_start");
+    };
+    model.set_transition(previous, next, cost);
     handle.clear_error();
     1
 }
@@ -154,7 +163,10 @@ pub unsafe extern "C" fn sm_set_max_unknown_chars(handle: *mut Handle, chars: us
     if handle.stream.is_some() {
         return handle.fail("model cannot be changed after sm_start");
     }
-    handle.model.set_max_unknown_chars(chars);
+    let Some(model) = handle.model.as_mut() else {
+        return handle.fail("model is unavailable after sm_start");
+    };
+    model.set_max_unknown_chars(chars);
     handle.clear_error();
     1
 }
@@ -164,7 +176,10 @@ pub unsafe extern "C" fn sm_start(handle: *mut Handle) -> u32 {
     let Some(handle) = (unsafe { handle.as_mut() }) else {
         return 0;
     };
-    handle.stream = Some(handle.model.clone().stream_delta());
+    let Some(model) = handle.model.take() else {
+        return handle.fail("sm_start can only be called once");
+    };
+    handle.stream = Some(model.stream_delta());
     handle.delta.retract = 0;
     handle.delta.push.clear();
     encode_delta_into(&handle.delta, &mut handle.output);
