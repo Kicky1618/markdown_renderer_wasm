@@ -64,6 +64,17 @@ TMPDIR="$VERIFY_TMP" ./scripts/build_wasm.sh
 section "JavaScript / MDA1"
 npm test
 
+section "stream-mecab"
+mkdir -p stream_mecab/target/tmp
+TMPDIR="$ROOT/stream_mecab/target/tmp" cargo test --manifest-path stream_mecab/Cargo.toml --release
+cargo build --manifest-path stream_mecab/Cargo.toml --release --target wasm32-unknown-unknown
+cargo run --manifest-path stream_mecab/Cargo.toml --release --example compile_dict -- \
+  stream_mecab/tests/demo.tsv \
+  stream_mecab/tests/demo.transitions.tsv \
+  stream_mecab/target/demo.smd1
+node stream_mecab/tests/wasm.mjs
+node stream_mecab/tests/wasm_compiled.mjs
+
 section "semantic runtime"
 node tools/semantic-detector.test.mjs
 node tools/semantic-timeline-core.test.mjs
