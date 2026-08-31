@@ -91,3 +91,19 @@ fn structured_delimiters_inside_closed_nodes_keep_fast_path() {
         whole("> seed\n> `code * value`\n> $x*y$\n> [x](a*b)\n")
     );
 }
+
+#[test]
+fn empty_quote_line_publishes_break_when_next_marker_starts() {
+    for empty_line in [">\n", "> \n", ">  \n"] {
+        let mut parser = Parser::new();
+        parser.append("> seed\n");
+        parser.append(empty_line);
+        let before = format!("> seed\n{empty_line}");
+        assert_eq!(parser.blocks(), whole(&before));
+
+        let delta = parser.append(">");
+        assert!(matches!(delta.ops.first(), Some(Op::Truncate { from: 0 })));
+        let expected = format!("> seed\n{empty_line}>");
+        assert_eq!(parser.blocks(), whole(&expected));
+    }
+}

@@ -890,6 +890,7 @@ impl Parser {
         }
 
         let old_body_len = old_body.len();
+        let old_line_len = self.line.len();
         self.line.push_str(input);
         let new_body = quote_line_body(&self.line);
         if new_body.len() < old_body_len {
@@ -897,6 +898,13 @@ impl Parser {
         }
         let append_text = &new_body[old_body_len..];
         if append_text.is_empty() {
+            let starts_new_quote_marker = old_line_len == 0
+                && !self.pending.is_empty()
+                && self.line.trim_start().starts_with('>');
+            if starts_new_quote_marker && !quote_previous_line_can_append_break(&self.pending) {
+                self.line.truncate(old_line_len);
+                return false;
+            }
             return true;
         }
 
