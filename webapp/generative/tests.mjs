@@ -17,7 +17,7 @@ import { ResponseBudget, ResponseBudgetError } from "./response_budget.js";
 import { auditUiConfig, parseSafeAction, summarizePolicy } from "./policy.js";
 import { StreamReplayRecorder, replayDecodedChunks } from "./stream_replay.js";
 import { StreamTimelineRecorder } from "./stream_timeline.js";
-import { compareReplayDeterminism, expectedReplaySource, normalizeDeterminismState, normalizeSemanticBlocks } from "./determinism.js";
+import { compareReplayDeterminism, expectedReplaySource, normalizeDeterminismState, normalizeSemanticBlocks, normalizeTimelineShape } from "./determinism.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
   id: "",
@@ -381,7 +381,7 @@ const deterministic = compareReplayDeterminism({
   actualState: [["temperature", 58], ["api_token", "different"]],
 });
 assert.equal(deterministic.verified, true);
-assert.deepEqual(deterministic.mismatch, { sourceAt: null, sourceLengths: null, semanticAt: null, semanticExpected: null, semanticActual: null, stateKeys: [], stateChanges: [] });
+assert.deepEqual(deterministic.mismatch, { sourceAt: null, sourceLengths: null, semanticAt: null, semanticExpected: null, semanticActual: null, stateKeys: [], stateChanges: [], timelineAt: null, timelineExpected: null, timelineActual: null });
 const stateDivergence = compareReplayDeterminism({
   expectedSource: "same", actualSource: "same",
   expectedSemantic: semanticA, actualSemantic: semanticB,
@@ -400,6 +400,22 @@ assert.equal(semanticDivergence.mismatch.semanticExpected.label, "metric#x");
 assert.equal(semanticDivergence.mismatch.semanticActual.label, "metric#x");
 assert.equal(semanticDivergence.mismatch.semanticExpected.valueLength, 7);
 assert.equal(semanticDivergence.mismatch.semanticActual.valueLength, 7);
+
+const shapeA = { chunks: 3, chars: 30, firstUiChunk: 2, firstUiChars: 20, durationMs: 99, events: [
+  { kind: "chunk", chunk: 1, chars: 10, blocks: 2, ui: 0, commit: "staging", elapsedMs: 5 },
+  { kind: "chunk", chunk: 2, chars: 20, blocks: 3, ui: 1, commit: "staging", elapsedMs: 8 },
+  { kind: "finish", chunk: 3, chars: 30, blocks: 3, ui: 1, commit: "committed", elapsedMs: 99 },
+] };
+const shapeB = { ...shapeA, durationMs: 1, events: shapeA.events.map(event => ({ ...event, elapsedMs: 0, commit: event.kind === "finish" ? "review" : "other" })) };
+assert.deepEqual(normalizeTimelineShape(shapeA), normalizeTimelineShape(shapeB));
+const timelineDeterministic = compareReplayDeterminism({ expectedSource: "same", actualSource: "same", expectedSemantic: semanticA, actualSemantic: semanticB, expectedState: [], actualState: [], expectedTimeline: shapeA, actualTimeline: shapeB });
+assert.equal(timelineDeterministic.timeline, true);
+assert.equal(timelineDeterministic.verified, true);
+const shapeC = { ...shapeB, firstUiChunk: 3, events: shapeB.events.map((event, index) => index === 1 ? { ...event, ui: 0 } : event) };
+const timelineDivergence = compareReplayDeterminism({ expectedSource: "same", actualSource: "same", expectedSemantic: semanticA, actualSemantic: semanticB, expectedState: [], actualState: [], expectedTimeline: shapeA, actualTimeline: shapeC });
+assert.equal(timelineDivergence.timeline, false);
+assert.equal(timelineDivergence.verified, false);
+assert.equal(timelineDivergence.mismatch.timelineAt, 1);
 
 const securityHtml = await fs.readFile(new URL("./index.html", import.meta.url), "utf8");
 const securityApp = await fs.readFile(new URL("./app.js", import.meta.url), "utf8");

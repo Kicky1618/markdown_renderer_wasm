@@ -275,6 +275,8 @@ function buildReplayDeterminismCheck(replay, startBlock) {
     expectedSource: expectedReplaySource(replay),
     expectedSemantic: replay.expected.semantic,
     expectedState: replay.expected.state,
+    expectedTimeline: replay.expected.timeline || null,
+    actualTimeline: null,
     startBlock: Math.max(0, Number(startBlock) || 0),
   };
 }
@@ -288,6 +290,8 @@ function compareCurrentReplayDeterminism(check) {
     actualSemantic: semanticReplaySnapshot(check.startBlock),
     expectedState: check.expectedState,
     actualState: snapshotLocalState(),
+    expectedTimeline: check.expectedTimeline,
+    actualTimeline: check.actualTimeline,
   });
 }
 
@@ -310,10 +314,12 @@ function renderReplayDeterminism(result) {
     `source ${result.source ? "✓" : "✗"}`,
     `semantic ${result.semantic ? "✓" : "✗"}`,
     `state ${result.state ? "✓" : "✗"}`,
+    `timeline ${result.timeline ? "✓" : "✗"}`,
   ];
   if (!result.source && result.mismatch?.sourceAt !== null) details.push(`source mismatch @${result.mismatch.sourceAt}`);
   if (!result.semantic && result.mismatch?.semanticAt !== null) details.push(`semantic mismatch #${result.mismatch.semanticAt}`);
   if (!result.state && result.mismatch?.stateKeys?.length) details.push(`state mismatch: ${result.mismatch.stateKeys.join(", ")}`);
+  if (!result.timeline) details.push(`timeline mismatch${result.mismatch?.timelineAt == null ? "" : ` #${result.mismatch.timelineAt}`}`);
   determinismDetails.textContent = details.join(" · ");
 
   const formatValue = (value, present) => {
@@ -341,6 +347,15 @@ function renderReplayDeterminism(result) {
   for (const change of result.mismatch?.stateChanges || []) {
     const item = document.createElement("li");
     item.textContent = `state ${change.key}: ${formatValue(change.expected, change.expectedPresent)} → ${formatValue(change.actual, change.actualPresent)}`;
+    determinismDiff.append(item);
+  }
+  if (!result.timeline) {
+    const item = document.createElement("li");
+    const expected = result.mismatch?.timelineExpected;
+    const actual = result.mismatch?.timelineActual;
+    const at = result.mismatch?.timelineAt;
+    const prefix = at == null ? "timeline summary" : `timeline #${at}`;
+    item.textContent = `${prefix}: ${expected?.firstUiChunk ?? "—"}/${expected?.firstUiChars ?? "—"} first UI → ${actual?.firstUiChunk ?? "—"}/${actual?.firstUiChars ?? "—"}`;
     determinismDiff.append(item);
   }
 }
@@ -638,8 +653,10 @@ async function replayLastModelStream() {
       recordModelHistory(currentBeforeReplay, meta);
       setRuntimeState("LIVE");
     }
+    const replayTimeline = timeline.finish(timelineRuntimePoint());
+    if (determinismCheck) determinismCheck.actualTimeline = replayTimeline;
     const determinism = compareCurrentReplayDeterminism(determinismCheck);
-    renderStreamTimeline(timeline.finish(timelineRuntimePoint()), "REPLAY");
+    renderStreamTimeline(replayTimeline, "REPLAY");
     renderReplayDeterminism(determinism);
     document.documentElement.dataset.replayState = "done";
     deltaStatus.textContent = `REPLAY · ${result.chunks} chunks · ${result.chars} chars`;
@@ -1087,15 +1104,17 @@ async function runLlmInteraction(instruction) {
       setRuntimeState("LIVE");
       deltaStatus.textContent = `LLM ${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
     }
+    const timelineSnapshot = timeline.finish(timelineRuntimePoint());
     if (replayCandidate) {
       replayCandidate.expected = {
         semantic: semanticReplaySnapshot(responseStartBlock),
         state: snapshotLocalState(),
+        timeline: timelineSnapshot,
       };
       lastStreamReplay = replayCandidate;
       updateHistoryControls();
     }
-    renderStreamTimeline(timeline.finish(timelineRuntimePoint()), `LLM ${result.format.toUpperCase()}`);
+    renderStreamTimeline(timelineSnapshot, `LLM ${result.format.toUpperCase()}`);
     return result;
   } catch (error) {
     cancelSemanticCommitBarrier("discarded");
@@ -2085,15 +2104,17 @@ remoteForm.addEventListener("submit", async event => {
       setRuntimeState("LIVE");
       deltaStatus.textContent = `${result.format.toUpperCase()} · ${result.chunks} chunks · ${result.chars} chars`;
     }
+    const timelineSnapshot = timeline.finish(timelineRuntimePoint());
     if (replayCandidate) {
       replayCandidate.expected = {
         semantic: semanticReplaySnapshot(responseStartBlock),
         state: snapshotLocalState(),
+        timeline: timelineSnapshot,
       };
       lastStreamReplay = replayCandidate;
       updateHistoryControls();
     }
-    renderStreamTimeline(timeline.finish(timelineRuntimePoint()), result.format.toUpperCase());
+    renderStreamTimeline(timelineSnapshot, result.format.toUpperCase());
   } catch (error) {
     cancelSemanticCommitBarrier("discarded");
     if (controller.signal.aborted || error?.name === "AbortError") {
@@ -2275,7 +2296,8 @@ async function runReplaySmoke() {
     && determinismStatus.textContent === "VERIFIED"
     && determinismDetails.textContent.includes("source ✓")
     && determinismDetails.textContent.includes("semantic ✓")
-    && determinismDetails.textContent.includes("state ✓");
+    && determinismDetails.textContent.includes("state ✓")
+    && determinismDetails.textContent.includes("timeline ✓");
   root.dataset.determinismSmoke = determinismPassed ? "pass" : "fail";
   const passed = root.dataset.replayState === "done"
     && streamState.textContent === "LIVE"
@@ -2326,6 +2348,7 @@ async function runDeterminismDivergenceSmoke() {
     && determinismDetails.textContent.includes("source ✓")
     && determinismDetails.textContent.includes("semantic ✓")
     && determinismDetails.textContent.includes("state ✗")
+    && determinismDetails.textContent.includes("timeline ✓")
     && determinismDetails.textContent.includes("temperature")
     && determinismDiff.textContent.includes("state temperature: 58 → 42")
     && root.dataset.semanticCommit === "review"
@@ -2343,6 +2366,7 @@ async function runDeterminismDivergenceSmoke() {
     && determinismDetails.textContent.includes("source ✓")
     && determinismDetails.textContent.includes("semantic ✓")
     && determinismDetails.textContent.includes("state ✓")
+    && determinismDetails.textContent.includes("timeline ✓")
     && determinismDiff.children.length === 0
     && root.dataset.semanticCommit === "committed"
     && appliedSlider?.value === "58";

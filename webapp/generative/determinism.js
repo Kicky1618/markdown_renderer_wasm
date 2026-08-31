@@ -35,6 +35,27 @@ export function normalizeSemanticBlocks(blocks = [], maxBlocks = 512) {
   return result;
 }
 
+export function normalizeTimelineShape(timeline = {}, maxEvents = 64) {
+  const events = [];
+  for (const event of timeline?.events || []) {
+    events.push({
+      kind: String(event?.kind || "").slice(0, 16),
+      chunk: Math.max(0, Number(event?.chunk) || 0),
+      chars: Math.max(0, Number(event?.chars) || 0),
+      blocks: Math.max(0, Number(event?.blocks) || 0),
+      ui: Math.max(0, Number(event?.ui) || 0),
+    });
+    if (events.length >= maxEvents) break;
+  }
+  return {
+    chunks: Math.max(0, Number(timeline?.chunks) || 0),
+    chars: Math.max(0, Number(timeline?.chars) || 0),
+    firstUiChunk: timeline?.firstUiChunk == null ? null : Math.max(0, Number(timeline.firstUiChunk) || 0),
+    firstUiChars: timeline?.firstUiChars == null ? null : Math.max(0, Number(timeline.firstUiChars) || 0),
+    events,
+  };
+}
+
 export function expectedReplaySource(replay) {
   const body = (replay?.recording?.chunks || []).map(chunk => String(chunk?.text || "")).join("");
   if (replay?.kind === "append") return String(replay?.before?.source || "") + String(replay?.prefix || "") + body;
@@ -98,21 +119,26 @@ function semanticBlockSummary(block) {
   };
 }
 
-export function compareReplayDeterminism({ expectedSource = "", actualSource = "", expectedSemantic = [], actualSemantic = [], expectedState = [], actualState = [] } = {}) {
+export function compareReplayDeterminism({ expectedSource = "", actualSource = "", expectedSemantic = [], actualSemantic = [], expectedState = [], actualState = [], expectedTimeline = null, actualTimeline = null } = {}) {
   const normalizedExpectedSemantic = normalizeSemanticBlocks(expectedSemantic);
   const normalizedActualSemantic = normalizeSemanticBlocks(actualSemantic);
   const normalizedExpectedState = normalizeDeterminismState(expectedState);
   const normalizedActualState = normalizeDeterminismState(actualState);
+  const normalizedExpectedTimeline = expectedTimeline == null ? null : normalizeTimelineShape(expectedTimeline);
+  const normalizedActualTimeline = actualTimeline == null ? null : normalizeTimelineShape(actualTimeline);
   const source = String(expectedSource) === String(actualSource);
   const semantic = sameJson(normalizedExpectedSemantic, normalizedActualSemantic);
   const state = sameJson(normalizedExpectedState, normalizedActualState);
+  const timeline = normalizedExpectedTimeline == null ? true : sameJson(normalizedExpectedTimeline, normalizedActualTimeline);
   const semanticAt = semantic ? null : firstSemanticMismatch(normalizedExpectedSemantic, normalizedActualSemantic);
   const stateChanges = state ? [] : stateMismatchDetails(normalizedExpectedState, normalizedActualState);
+  const timelineAt = timeline ? null : firstSemanticMismatch(normalizedExpectedTimeline?.events || [], normalizedActualTimeline?.events || []);
   return {
-    verified: source && semantic && state,
+    verified: source && semantic && state && timeline,
     source,
     semantic,
     state,
+    timeline,
     mismatch: {
       sourceAt: source ? null : firstStringMismatch(expectedSource, actualSource),
       sourceLengths: source ? null : [String(expectedSource).length, String(actualSource).length],
@@ -121,6 +147,9 @@ export function compareReplayDeterminism({ expectedSource = "", actualSource = "
       semanticActual: semanticAt === null ? null : semanticBlockSummary(normalizedActualSemantic[semanticAt]),
       stateKeys: stateChanges.map(change => change.key),
       stateChanges,
+      timelineAt,
+      timelineExpected: timeline ? null : normalizedExpectedTimeline,
+      timelineActual: timeline ? null : normalizedActualTimeline,
     },
   };
 }
