@@ -49,11 +49,12 @@ export class SemanticJournal {
     this.sequence = this.entries.reduce((max, entry) => Math.max(max, Number(entry?.seq) || 0), 0);
   }
 
-  recordStateChange(change, { encoding = "snapshot" } = {}) {
+  recordStateChange(change, { encoding = "snapshot", returnEntry = true } = {}) {
     if (!change || typeof change !== "object") throw new TypeError("state change must be an object");
     if (typeof change.key !== "string" || change.key.length === 0) throw new TypeError("state change requires key");
     if (!Number.isSafeInteger(change.revision) || change.revision <= 0) throw new TypeError("state change requires a positive integer revision");
     if (encoding !== "snapshot" && encoding !== "delta") throw new TypeError(`state journal encoding must be "snapshot" or "delta", got ${JSON.stringify(encoding)}`);
+    if (typeof returnEntry !== "boolean") throw new TypeError("returnEntry must be a boolean");
     const action = change.type ?? "update";
     const entry = {
       seq: ++this.sequence,
@@ -75,13 +76,14 @@ export class SemanticJournal {
       entry.value = cloneJson(change.value);
     }
     this.entries.push(entry);
-    return cloneJson(entry);
+    return returnEntry ? cloneJson(entry) : undefined;
   }
 
-  recordSchedulerTransition(transition) {
+  recordSchedulerTransition(transition, { returnEntry = true } = {}) {
     if (!transition || typeof transition !== "object") throw new TypeError("scheduler transition must be an object");
     if (typeof transition.key !== "string" || transition.key.length === 0) throw new TypeError("scheduler transition requires key");
     if (typeof transition.status !== "string" || transition.status.length === 0) throw new TypeError("scheduler transition requires status");
+    if (typeof returnEntry !== "boolean") throw new TypeError("returnEntry must be a boolean");
 
     const entry = {
       seq: ++this.sequence,
@@ -103,7 +105,7 @@ export class SemanticJournal {
       else entry.resultOmitted = true;
     }
     this.entries.push(entry);
-    return cloneJson(entry);
+    return returnEntry ? cloneJson(entry) : undefined;
   }
 
   snapshot() {
@@ -228,12 +230,12 @@ export function createSemanticJournalHooks(journal, {
   return {
     onTransition(transition) {
       if (scheduler === "all" || (scheduler === "terminal" && TERMINAL_SCHEDULER_STATUSES.has(transition?.status))) {
-        journal.recordSchedulerTransition(transition);
+        journal.recordSchedulerTransition(transition, { returnEntry: false });
       }
       onTransition?.(transition);
     },
     onStateChange(change) {
-      journal.recordStateChange(change, { encoding: stateEncoding });
+      journal.recordStateChange(change, { encoding: stateEncoding, returnEntry: false });
       onStateChange?.(change);
     },
   };
