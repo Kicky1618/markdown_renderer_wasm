@@ -207,6 +207,8 @@ pub struct Parser {
     live_plain: bool,
     live_inline_appendable: bool,
     live_quote_ambiguous: bool,
+    live_table_row: bool,
+    live_table_cell_safe: bool,
     trailing_backslash_odd: bool,
     trailing_backtick_mod2: u8,
     trailing_backtick_fast: bool,
@@ -248,6 +250,8 @@ impl Parser {
             live_plain: false,
             live_inline_appendable: false,
             live_quote_ambiguous: false,
+            live_table_row: false,
+            live_table_cell_safe: false,
             trailing_backslash_odd: false,
             trailing_backtick_mod2: 0,
             trailing_backtick_fast: true,
@@ -313,6 +317,8 @@ impl Parser {
                 self.live_plain = false;
                 self.live_inline_appendable = false;
                 self.live_quote_ambiguous = false;
+                self.live_table_row = false;
+                self.live_table_cell_safe = false;
                 self.trailing_backslash_odd = false;
                 self.reset_delimiter_runs();
                 self.live_special_bracket = SpecialBracketKind::None;
@@ -575,6 +581,9 @@ impl Parser {
         if self.try_append_complete_table_row(block_index, input, delta) {
             return true;
         }
+        if self.try_append_table_cell_token(block_index, input, delta) {
+            return true;
+        }
 
         if input == "\n" {
             if self.line.is_empty() {
@@ -583,6 +592,8 @@ impl Parser {
             self.pending.push_str(&self.line);
             self.pending.push('\n');
             self.line.clear();
+            self.live_table_row = false;
+            self.live_table_cell_safe = false;
             return true;
         }
         if input.contains('\n') || input.chars().count() != 1 {
@@ -596,6 +607,8 @@ impl Parser {
 
         let Some(new_row) = new_row else {
             self.line = candidate;
+            self.live_table_row = false;
+            self.live_table_cell_safe = false;
             return true;
         };
         if !table_stream_row_is_plain(&new_row)
@@ -679,6 +692,76 @@ impl Parser {
             }
         }
         self.line = candidate;
+        self.live_table_row = !self.line.trim_end().ends_with('|');
+        self.live_table_cell_safe = self.live_table_row;
+        true
+    }
+
+    fn try_append_table_cell_token(
+        &mut self,
+        block_index: usize,
+        input: &str,
+        delta: &mut Delta,
+    ) -> bool {
+        if !self.live_table_row
+            || input.is_empty()
+            || input.contains('|')
+            || input.contains('\n')
+            || !input.bytes().all(is_plain_stream_byte)
+        {
+            return false;
+        }
+
+        if !self.live_table_cell_safe {
+            return false;
+        }
+        let Some(cell) = self.blocks.get(block_index).and_then(|block| match block {
+            Block::Table { rows, .. } => rows.last().and_then(|row| row.last()),
+            _ => None,
+        }) else {
+            return false;
+        };
+        let cell_is_empty = cell.is_empty();
+
+        if input.chars().all(char::is_whitespace) {
+            self.line.push_str(input);
+            return true;
+        }
+
+        let append_text = if cell_is_empty {
+            input.trim().to_owned()
+        } else {
+            let visible_input = input.trim_end();
+            let old_visible_end = self.line.trim_end().len();
+            let old_trailing = &self.line[old_visible_end..];
+            let mut append = String::with_capacity(old_trailing.len() + visible_input.len());
+            append.push_str(old_trailing);
+            append.push_str(visible_input);
+            append
+        };
+        self.line.push_str(input);
+        if append_text.is_empty() {
+            return true;
+        }
+
+        let append = vec![Inline::Text(append_text)];
+        let Some(cell) = self
+            .blocks
+            .get_mut(block_index)
+            .and_then(|block| match block {
+                Block::Table { rows, .. } => rows.last_mut().and_then(|row| row.last_mut()),
+                _ => None,
+            })
+        else {
+            unreachable!("live table row lost its final cell");
+        };
+        splice_inline_tail(cell, 0, 0, &append);
+        delta.ops.push(Op::SpliceTableCellTail {
+            block: block_index as u32,
+            remove_nodes: 0,
+            truncate_bytes: 0,
+            append,
+        });
         true
     }
 
@@ -717,6 +800,9 @@ impl Parser {
             .iter()
             .map(|cell| parse_inlines(cell))
             .collect::<Vec<_>>();
+        let cell_safe = row
+            .last()
+            .is_some_and(|cell| quote_line_inlines_are_self_contained(cell));
         let Some(Block::Table { rows, .. }) = self.blocks.get_mut(block_index) else {
             return false;
         };
@@ -729,8 +815,12 @@ impl Parser {
             self.pending.push_str(raw);
             self.pending.push('\n');
             self.line.clear();
+            self.live_table_row = false;
+            self.live_table_cell_safe = false;
         } else {
             self.line.push_str(raw);
+            self.live_table_row = !self.line.trim_end().ends_with('|');
+            self.live_table_cell_safe = self.live_table_row && cell_safe;
         }
         true
     }
@@ -2117,6 +2207,8 @@ impl Parser {
             self.live_plain = false;
             self.live_inline_appendable = false;
             self.live_quote_ambiguous = false;
+            self.live_table_row = false;
+            self.live_table_cell_safe = false;
             self.trailing_backslash_odd = false;
             self.reset_delimiter_runs();
             self.live_special_bracket = SpecialBracketKind::None;
@@ -2241,6 +2333,8 @@ impl Parser {
         source.push_str(&self.line);
         if source.is_empty() {
             self.live_quote_ambiguous = false;
+            self.live_table_row = false;
+            self.live_table_cell_safe = false;
             self.trailing_backslash_odd = false;
             self.reset_delimiter_runs();
             self.live_special_bracket = SpecialBracketKind::None;
@@ -2257,6 +2351,8 @@ impl Parser {
         if self.pending_kind.is_none() && is_thematic(&self.line) {
             self.live_plain = false;
             self.live_quote_ambiguous = false;
+            self.live_table_row = false;
+            self.live_table_cell_safe = false;
             self.trailing_backslash_odd = false;
             self.reset_delimiter_runs();
             self.live_special_bracket = SpecialBracketKind::None;
@@ -2278,6 +2374,18 @@ impl Parser {
         let block = block_from_complete(normalized_source, kind);
         self.live_quote_ambiguous = kind == PendingKind::Quote
             && !quote_source_boundary_is_self_contained(normalized_source);
+        self.live_table_row = matches!(block, Block::Table { .. })
+            && !self.line.is_empty()
+            && !self.line.trim_end().ends_with('|')
+            && split_table_row(&self.line).is_some();
+        self.live_table_cell_safe = self.live_table_row
+            && match &block {
+                Block::Table { rows, .. } => rows
+                    .last()
+                    .and_then(|row| row.last())
+                    .is_some_and(|cell| quote_line_inlines_are_self_contained(cell)),
+                _ => false,
+            };
         let literal_link_openers = paragraph_literal_link_opener_count(&block);
         let is_paragraph = matches!(block, Block::Paragraph(_));
         let stable_single_line_paragraph = is_paragraph
@@ -4720,6 +4828,66 @@ $$
         let mut whole = Parser::new();
         whole.append("## **bold** #x");
         assert_eq!(closing_hash.blocks(), whole.blocks());
+    }
+
+    #[test]
+    fn table_token_tail_preserves_trim_and_rich_cell_semantics() {
+        for prefix in ["x | ", "**x** | ", "[x](u) | "] {
+            let mut parser = Parser::new();
+            parser.append("a|b\n---|---\n");
+            parser.append(prefix);
+
+            // A trailing pipe is still an outer-border candidate. The first
+            // non-space token changes row structure and must reparse once.
+            let first = parser.append("token ");
+            assert!(matches!(first.ops.first(), Some(Op::Truncate { from: 0 })));
+
+            // Once the final cell exists, plain suffix tokens splice directly.
+            let fast = parser.append("  more  ");
+            assert!(matches!(
+                fast.ops.as_slice(),
+                [Op::SpliceTableCellTail { .. }]
+            ));
+
+            let mut whole = Parser::new();
+            whole.append(&format!("a|b\n---|---\n{prefix}token   more  "));
+            assert_eq!(parser.blocks(), whole.blocks(), "prefix={prefix:?}");
+        }
+
+        // A row whose final cell is already established can use the fast path
+        // immediately, including whitespace that becomes internal text.
+        let mut rich_last = Parser::new();
+        rich_last.append("a|b\n---|---\na | **x**   ");
+        let delta = rich_last.append("token ");
+        assert!(matches!(
+            delta.ops.as_slice(),
+            [Op::SpliceTableCellTail { .. }]
+        ));
+        let mut whole = Parser::new();
+        whole.append("a|b\n---|---\na | **x**   token ");
+        assert_eq!(rich_last.blocks(), whole.blocks());
+    }
+
+    #[test]
+    fn table_token_tail_rechecks_safety_after_inline_reparse() {
+        let mut parser = Parser::new();
+        parser.append("a|b\n---|---\na | **open");
+        let ambiguous = parser.append(" token");
+        assert!(matches!(
+            ambiguous.ops.first(),
+            Some(Op::Truncate { from: 0 })
+        ));
+
+        parser.append("**");
+        let fast = parser.append(" tail");
+        assert!(matches!(
+            fast.ops.as_slice(),
+            [Op::SpliceTableCellTail { .. }]
+        ));
+
+        let mut whole = Parser::new();
+        whole.append("a|b\n---|---\na | **open token** tail");
+        assert_eq!(parser.blocks(), whole.blocks());
     }
 
     #[test]

@@ -327,6 +327,19 @@ fn quote_tail_delta_is_character_stream_independent() {
 }
 
 #[test]
+fn table_token_tail_is_chunk_boundary_independent() {
+    let markdown = "a|b\n---|---\n**x** | token 日本語✅ tail";
+    let expected = parse_whole(markdown);
+    for chunks in [
+        vec!["a|b\n---|---\n", "**x** | ", "token ", "日本語✅ ", "tail"],
+        vec!["a|b\n---|---\n**x** | ", "token 日本語✅ ", "tail"],
+    ] {
+        assert_eq!(parse_chunks(chunks), expected);
+    }
+    assert_every_single_split(markdown);
+}
+
+#[test]
 fn table_rows_are_character_stream_independent() {
     for markdown in ["a|b\n---|---\nx|y\nz|w", "a|b\n---|---\n日|本\n✅|42"] {
         let expected = parse_whole(markdown);
