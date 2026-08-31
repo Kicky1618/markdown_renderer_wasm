@@ -282,11 +282,15 @@ function renderReplayDeterminism(result) {
   replayDeterminism.dataset.status = status;
   document.documentElement.dataset.replayDeterminism = status;
   determinismStatus.textContent = result.verified ? "VERIFIED" : "DIVERGED";
-  determinismDetails.textContent = [
+  const details = [
     `source ${result.source ? "✓" : "✗"}`,
     `semantic ${result.semantic ? "✓" : "✗"}`,
     `state ${result.state ? "✓" : "✗"}`,
-  ].join(" · ");
+  ];
+  if (!result.source && result.mismatch?.sourceAt !== null) details.push(`source mismatch @${result.mismatch.sourceAt}`);
+  if (!result.semantic && result.mismatch?.semanticAt !== null) details.push(`semantic mismatch #${result.mismatch.semanticAt}`);
+  if (!result.state && result.mismatch?.stateKeys?.length) details.push(`state mismatch: ${result.mismatch.stateKeys.join(", ")}`);
+  determinismDetails.textContent = details.join(" · ");
 }
 
 function renderStreamTimeline(timeline, label = "STREAM") {
@@ -2234,6 +2238,50 @@ async function runReplaySmoke() {
   root.dataset.replaySmoke = passed ? "pass" : "fail";
 }
 
+async function runDeterminismDivergenceSmoke() {
+  if (new URLSearchParams(location.search).get("determinism_divergence_smoke") !== "1") return;
+  const root = document.documentElement;
+  root.dataset.determinismDivergenceSmoke = "waiting";
+  streamUrl.value = new URL("/v1/chat/completions", location.origin).href;
+  requestProtocol.value = "chat";
+  streamFormat.value = "sse";
+  streamModel.value = "fixture-model";
+  reviewMode.checked = false;
+  requestProtocol.dispatchEvent(new Event("change", { bubbles: true }));
+
+  const button = preview.querySelector('[data-ui-id="ask-model"] button');
+  if (!button) { root.dataset.determinismDivergenceSmoke = "fail"; return; }
+  button.click();
+  for (let attempt = 0; attempt < 300; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    if (streamState.textContent === "ERROR" || streamState.textContent === "LIMIT") break;
+    if (!remoteController && streamState.textContent === "LIVE" && !replayModelButton.disabled) break;
+  }
+  if (replayModelButton.disabled) { root.dataset.determinismDivergenceSmoke = "fail"; return; }
+
+  // Same decoded stream + same parser path, but deliberately change side-effect policy.
+  reviewMode.checked = true;
+  streamUrl.value = "http://127.0.0.1:1/unreachable";
+  replayModelButton.click();
+  for (let attempt = 0; attempt < 400; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    if (root.dataset.replayState === "error") break;
+    if (!replayController && root.dataset.replayState === "done") break;
+  }
+
+  const slider = preview.querySelector('input[data-state-input="temperature"]');
+  const passed = root.dataset.replayDeterminism === "diverged"
+    && determinismStatus.textContent === "DIVERGED"
+    && determinismDetails.textContent.includes("source ✓")
+    && determinismDetails.textContent.includes("semantic ✓")
+    && determinismDetails.textContent.includes("state ✗")
+    && determinismDetails.textContent.includes("temperature")
+    && root.dataset.semanticCommit === "review"
+    && semanticReview.hidden === false
+    && slider?.value === "42";
+  root.dataset.determinismDivergenceSmoke = passed ? "pass" : "fail";
+}
+
 async function runReviewSmoke() {
   if (new URLSearchParams(location.search).get("review_smoke") !== "1") return;
   const root = document.documentElement;
@@ -2423,6 +2471,7 @@ try {
   runInteractionSmoke();
   runReviewSmoke();
   runReplaySmoke();
+  runDeterminismDivergenceSmoke();
   runBudgetSmoke();
 } catch (error) {
   setRuntimeState("ERROR");

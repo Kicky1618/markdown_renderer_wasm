@@ -45,9 +45,54 @@ function sameJson(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+function firstStringMismatch(expected, actual) {
+  const a = String(expected);
+  const b = String(actual);
+  const limit = Math.min(a.length, b.length);
+  for (let index = 0; index < limit; index++) {
+    if (a[index] !== b[index]) return index;
+  }
+  return a.length === b.length ? null : limit;
+}
+
+function firstSemanticMismatch(expected, actual) {
+  const limit = Math.min(expected.length, actual.length);
+  for (let index = 0; index < limit; index++) {
+    if (!sameJson(expected[index], actual[index])) return index;
+  }
+  return expected.length === actual.length ? null : limit;
+}
+
+function stateMismatchKeys(expected, actual, maxKeys = 16) {
+  const a = new Map(expected);
+  const b = new Map(actual);
+  const keys = [...new Set([...a.keys(), ...b.keys()])].sort();
+  const result = [];
+  for (const key of keys) {
+    if (Object.is(a.get(key), b.get(key)) && a.has(key) === b.has(key)) continue;
+    result.push(key);
+    if (result.length >= maxKeys) break;
+  }
+  return result;
+}
+
 export function compareReplayDeterminism({ expectedSource = "", actualSource = "", expectedSemantic = [], actualSemantic = [], expectedState = [], actualState = [] } = {}) {
+  const normalizedExpectedSemantic = normalizeSemanticBlocks(expectedSemantic);
+  const normalizedActualSemantic = normalizeSemanticBlocks(actualSemantic);
+  const normalizedExpectedState = normalizeDeterminismState(expectedState);
+  const normalizedActualState = normalizeDeterminismState(actualState);
   const source = String(expectedSource) === String(actualSource);
-  const semantic = sameJson(normalizeSemanticBlocks(expectedSemantic), normalizeSemanticBlocks(actualSemantic));
-  const state = sameJson(normalizeDeterminismState(expectedState), normalizeDeterminismState(actualState));
-  return { verified: source && semantic && state, source, semantic, state };
+  const semantic = sameJson(normalizedExpectedSemantic, normalizedActualSemantic);
+  const state = sameJson(normalizedExpectedState, normalizedActualState);
+  return {
+    verified: source && semantic && state,
+    source,
+    semantic,
+    state,
+    mismatch: {
+      sourceAt: source ? null : firstStringMismatch(expectedSource, actualSource),
+      semanticAt: semantic ? null : firstSemanticMismatch(normalizedExpectedSemantic, normalizedActualSemantic),
+      stateKeys: state ? [] : stateMismatchKeys(normalizedExpectedState, normalizedActualState),
+    },
+  };
 }

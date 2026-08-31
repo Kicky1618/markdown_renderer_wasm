@@ -380,13 +380,17 @@ const deterministic = compareReplayDeterminism({
   expectedState: [["temperature", 58], ["api_token", "hidden"]],
   actualState: [["temperature", 58], ["api_token", "different"]],
 });
-assert.deepEqual(deterministic, { verified: true, source: true, semantic: true, state: true });
+assert.deepEqual(deterministic, { verified: true, source: true, semantic: true, state: true, mismatch: { sourceAt: null, semanticAt: null, stateKeys: [] } });
 const stateDivergence = compareReplayDeterminism({
   expectedSource: "same", actualSource: "same",
   expectedSemantic: semanticA, actualSemantic: semanticB,
   expectedState: [["temperature", 58]], actualState: [["temperature", 42]],
 });
-assert.deepEqual(stateDivergence, { verified: false, source: true, semantic: true, state: false });
+assert.deepEqual(stateDivergence, { verified: false, source: true, semantic: true, state: false, mismatch: { sourceAt: null, semanticAt: null, stateKeys: ["temperature"] } });
+const sourceDivergence = compareReplayDeterminism({ expectedSource: "abc", actualSource: "abX", expectedSemantic: semanticA, actualSemantic: semanticB, expectedState: [], actualState: [] });
+assert.equal(sourceDivergence.mismatch.sourceAt, 2);
+const semanticDivergence = compareReplayDeterminism({ expectedSource: "same", actualSource: "same", expectedSemantic: semanticA, actualSemantic: [{ ...semanticB[0], value: "value=2" }], expectedState: [], actualState: [] });
+assert.equal(semanticDivergence.mismatch.semanticAt, 0);
 
 const securityHtml = await fs.readFile(new URL("./index.html", import.meta.url), "utf8");
 const securityApp = await fs.readFile(new URL("./app.js", import.meta.url), "utf8");
