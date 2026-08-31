@@ -611,19 +611,18 @@ impl Parser {
             self.live_table_cell_safe = false;
             return true;
         };
-        if !table_stream_row_is_plain(&new_row)
-            || old_row
-                .as_ref()
-                .is_some_and(|row| !table_stream_row_is_plain(row))
-        {
-            return false;
-        }
-
+        let input_is_plain = input.bytes().all(is_plain_stream_byte);
         let transition = match old_row {
             None => TableTailTransition::AppendRow(
                 new_row
                     .iter()
-                    .map(|cell| plain_cell_inlines(cell))
+                    .map(|cell| {
+                        if cell.bytes().all(is_plain_stream_byte) {
+                            plain_cell_inlines(cell)
+                        } else {
+                            parse_inlines(cell)
+                        }
+                    })
                     .collect(),
             ),
             Some(old_row) if new_row.len() == old_row.len() => {
@@ -636,8 +635,15 @@ impl Parser {
                 let new_last = &new_row[new_row.len() - 1];
                 if new_last == old_last {
                     TableTailTransition::None
-                } else if let Some(suffix) = new_last.strip_prefix(old_last) {
+                } else if table_stream_row_is_plain(&old_row)
+                    && table_stream_row_is_plain(&new_row)
+                    && let Some(suffix) = new_last.strip_prefix(old_last)
+                {
                     TableTailTransition::AppendCellText(suffix.to_owned())
+                } else if !input_is_plain
+                    || !quote_line_inlines_are_self_contained(&parse_inlines(old_last))
+                {
+                    TableTailTransition::ReplaceCell(parse_inlines(new_last))
                 } else {
                     return false;
                 }
@@ -646,7 +652,12 @@ impl Parser {
                 if old_row != new_row[..old_row.len()] {
                     return false;
                 }
-                TableTailTransition::AppendCell(plain_cell_inlines(&new_row[new_row.len() - 1]))
+                let cell = &new_row[new_row.len() - 1];
+                TableTailTransition::AppendCell(if cell.bytes().all(is_plain_stream_byte) {
+                    plain_cell_inlines(cell)
+                } else {
+                    parse_inlines(cell)
+                })
             }
             Some(_) => return false,
         };
@@ -688,6 +699,22 @@ impl Parser {
                     remove_nodes: 0,
                     truncate_bytes: 0,
                     append,
+                });
+            }
+            TableTailTransition::ReplaceCell(replacement) => {
+                let Some(cell) = rows.last_mut().and_then(|row| row.last_mut()) else {
+                    return false;
+                };
+                let (truncate_bytes, remove_nodes) = match cell.last() {
+                    Some(Inline::Text(text)) if !text.is_empty() => (text.len(), cell.len() - 1),
+                    _ => (0, cell.len()),
+                };
+                splice_inline_tail(cell, truncate_bytes, remove_nodes, &replacement);
+                delta.ops.push(Op::SpliceTableCellTail {
+                    block: block_index as u32,
+                    remove_nodes: remove_nodes as u32,
+                    truncate_bytes: truncate_bytes as u32,
+                    append: replacement,
                 });
             }
         }
@@ -3261,6 +3288,7 @@ enum TableTailTransition {
     AppendRow(Vec<Vec<Inline>>),
     AppendCell(Vec<Inline>),
     AppendCellText(String),
+    ReplaceCell(Vec<Inline>),
 }
 
 fn pending_has_two_complete_lines(pending: &str) -> bool {
@@ -4887,6 +4915,39 @@ $$
 
         let mut whole = Parser::new();
         whole.append("a|b\n---|---\na | **open token** tail");
+        assert_eq!(parser.blocks(), whole.blocks());
+    }
+
+    #[test]
+    fn rich_table_cells_use_nested_table_deltas() {
+        let mut parser = Parser::new();
+        parser.append("a|b\n---|---\n");
+        for ch in "*x*".chars() {
+            let mut buf = [0; 4];
+            parser.append(ch.encode_utf8(&mut buf));
+        }
+        let row = parser.append("|");
+        assert!(matches!(
+            row.ops.as_slice(),
+            [Op::AppendTableRow { row, .. }]
+                if matches!(row.first().map(Vec::as_slice), Some([Inline::Emphasis(_)]))
+        ));
+
+        for ch in "[y](u".chars() {
+            let mut buf = [0; 4];
+            parser.append(ch.encode_utf8(&mut buf));
+        }
+        let close = parser.append(")");
+        assert!(
+            !close.ops.is_empty()
+                && close
+                    .ops
+                    .iter()
+                    .all(|op| matches!(op, Op::SpliceTableCellTail { .. }))
+        );
+
+        let mut whole = Parser::new();
+        whole.append("a|b\n---|---\n*x*|[y](u)");
         assert_eq!(parser.blocks(), whole.blocks());
     }
 

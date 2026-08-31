@@ -340,6 +340,29 @@ fn table_token_tail_is_chunk_boundary_independent() {
 }
 
 #[test]
+fn rich_table_cells_are_character_stream_independent() {
+    for markdown in [
+        "a|b\n---|---\n*x*|y\n**z**|w",
+        "a|b\n---|---\n`x`|[y](u)",
+        "a|b\n---|---\n@[source:x]|[[cite:doc]]",
+        "a|b\n---|---\n日**本**|✅ [link](urn:a_b)",
+    ] {
+        let expected = parse_whole(markdown);
+        let boundaries = utf8_boundaries(markdown);
+        let actual = parse_chunks(
+            boundaries
+                .windows(2)
+                .map(|window| &markdown[window[0]..window[1]]),
+        );
+        assert_eq!(
+            actual, expected,
+            "character stream changed rich table AST for {markdown:?}"
+        );
+        assert_every_single_split(markdown);
+    }
+}
+
+#[test]
 fn table_rows_are_character_stream_independent() {
     for markdown in ["a|b\n---|---\nx|y\nz|w", "a|b\n---|---\n日|本\n✅|42"] {
         let expected = parse_whole(markdown);
