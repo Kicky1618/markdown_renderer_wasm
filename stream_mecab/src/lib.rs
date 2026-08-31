@@ -19,6 +19,7 @@ pub use wire::encode_delta_into;
 
 use std::collections::HashMap;
 use std::fmt;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 pub type TagId = u16;
@@ -677,7 +678,7 @@ impl Model {
 
             for candidate in candidates.iter().copied() {
                 let (end, tag, word_cost) = candidate.meta(self);
-                let mut best_prev: Option<(i64, Option<usize>)> = None;
+                let mut best_prev: Option<(i64, Option<NodeId>)> = None;
                 if let Some(incoming) = self
                     .dense_transitions
                     .as_ref()
@@ -710,7 +711,7 @@ impl Model {
                 if let Some(existing) = frontier[end].iter_mut().find(|state| state.tag == tag) {
                     if cost < existing.cost {
                         let index = nodes.len();
-                        let depth = prev.map_or(1, |index| nodes[index].depth + 1);
+                        let depth = prev.map_or(1, |id| nodes[id.index()].depth + 1);
                         nodes.push(PathNode {
                             start,
                             end,
@@ -719,11 +720,11 @@ impl Model {
                             depth,
                         });
                         existing.cost = cost;
-                        existing.node = Some(index);
+                        existing.node = Some(NodeId::from_index(index));
                     }
                 } else {
                     let index = nodes.len();
-                    let depth = prev.map_or(1, |index| nodes[index].depth + 1);
+                    let depth = prev.map_or(1, |id| nodes[id.index()].depth + 1);
                     nodes.push(PathNode {
                         start,
                         end,
@@ -734,7 +735,7 @@ impl Model {
                     frontier[end].push(State {
                         tag,
                         cost,
-                        node: Some(index),
+                        node: Some(NodeId::from_index(index)),
                     });
                 }
             }
@@ -767,7 +768,7 @@ impl Model {
         // Token/String materialization is needed for this stability test.
         let max_token_bytes = self.max_token_bytes();
         let live_start = text.len().saturating_sub(max_token_bytes);
-        let mut common: Option<usize> = None;
+        let mut common: Option<NodeId> = None;
         let mut initialized = false;
         'frontiers: for states in &frontier[live_start..=text.len()] {
             for state in states {
@@ -784,13 +785,14 @@ impl Model {
         }
 
         let safe_local_end = text.len().saturating_sub(max_token_bytes);
-        while let Some(index) = common {
+        while let Some(id) = common {
+            let index = id.index();
             if nodes[index].end <= safe_local_end {
                 break;
             }
             common = nodes[index].prev;
         }
-        common.map_or(0, |index| nodes[index].depth)
+        common.map_or(0, |id| nodes[id.index()].depth)
     }
 }
 
@@ -927,11 +929,30 @@ fn classify(ch: char) -> UnknownClass {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct NodeId(NonZeroUsize);
+
+impl NodeId {
+    #[inline]
+    fn from_index(index: usize) -> Self {
+        let encoded = index
+            .checked_add(1)
+            .and_then(NonZeroUsize::new)
+            .expect("path node index overflow");
+        Self(encoded)
+    }
+
+    #[inline]
+    fn index(self) -> usize {
+        self.0.get() - 1
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct State {
     tag: TagId,
     cost: i64,
-    node: Option<usize>,
+    node: Option<NodeId>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -939,7 +960,7 @@ struct PathNode {
     start: usize,
     end: usize,
     candidate: Candidate,
-    prev: Option<usize>,
+    prev: Option<NodeId>,
     depth: usize,
 }
 
@@ -974,16 +995,16 @@ fn reconstruct_tokens_into(
     text: &str,
     base: usize,
     nodes: &[PathNode],
-    mut node: Option<usize>,
+    mut node: Option<NodeId>,
     out: &mut Vec<Token>,
 ) {
     out.clear();
-    let capacity = node.map_or(0, |index| nodes[index].depth);
+    let capacity = node.map_or(0, |id| nodes[id.index()].depth);
     if out.capacity() < capacity {
         out.reserve(capacity - out.capacity());
     }
-    while let Some(index) = node {
-        let current = nodes[index];
+    while let Some(id) = node {
+        let current = nodes[id.index()];
         out.push(current.candidate.token(model, text, base, current.start));
         node = current.prev;
     }
@@ -992,23 +1013,23 @@ fn reconstruct_tokens_into(
 
 fn common_ancestor(
     nodes: &[PathNode],
-    mut left: Option<usize>,
-    mut right: Option<usize>,
-) -> Option<usize> {
+    mut left: Option<NodeId>,
+    mut right: Option<NodeId>,
+) -> Option<NodeId> {
     let (Some(mut l), Some(mut r)) = (left, right) else {
         return None;
     };
-    while nodes[l].depth > nodes[r].depth {
-        left = nodes[l].prev;
+    while nodes[l.index()].depth > nodes[r.index()].depth {
+        left = nodes[l.index()].prev;
         l = left?;
     }
-    while nodes[r].depth > nodes[l].depth {
-        right = nodes[r].prev;
+    while nodes[r.index()].depth > nodes[l.index()].depth {
+        right = nodes[r.index()].prev;
         r = right?;
     }
     while l != r {
-        left = nodes[l].prev;
-        right = nodes[r].prev;
+        left = nodes[l.index()].prev;
+        right = nodes[r.index()].prev;
         l = left?;
         r = right?;
     }
