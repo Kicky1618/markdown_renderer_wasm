@@ -544,6 +544,9 @@ fn find_loaded(name: &str) -> Option<&'static LanguageProfile> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+include!(concat!(env!("OUT_DIR"), "/langpack_aliases.rs"));
+
+#[cfg(not(target_arch = "wasm32"))]
 fn pack_name_for(name: &str) -> Option<String> {
     if let Some((_, pack)) = PACK_ALIASES
         .iter()
@@ -552,14 +555,10 @@ fn pack_name_for(name: &str) -> Option<String> {
         return Some((*pack).to_owned());
     }
     let normalized = normalize_dynamic_pack_name(name)?;
-    let direct = native_pack_dir().join(format!("{normalized}.langpack"));
-    if direct.is_file() {
-        return Some(normalized);
-    }
-    native_pack_aliases()
-        .iter()
-        .find(|(alias, _)| alias.eq_ignore_ascii_case(&normalized))
-        .map(|(_, pack)| pack.clone())
+    NATIVE_PACK_ALIASES
+        .binary_search_by_key(&normalized.as_str(), |(alias, _)| *alias)
+        .ok()
+        .map(|index| NATIVE_PACK_ALIASES[index].1.to_owned())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -576,39 +575,6 @@ fn normalize_dynamic_pack_name(name: &str) -> Option<String> {
 #[cfg(not(target_arch = "wasm32"))]
 fn native_pack_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("langpacks")
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn native_pack_aliases() -> &'static [(String, String)] {
-    use std::sync::OnceLock;
-    static INDEX: OnceLock<Vec<(String, String)>> = OnceLock::new();
-    INDEX.get_or_init(|| {
-        let Ok(entries) = std::fs::read_dir(native_pack_dir()) else {
-            return Vec::new();
-        };
-        let mut index = Vec::new();
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("langpack") {
-                continue;
-            }
-            let Some(pack) = path.file_stem().and_then(|stem| stem.to_str()) else {
-                continue;
-            };
-            let Ok(source) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            if let Some(line) = source.lines().find(|line| line.starts_with("aliases\t")) {
-                index.extend(
-                    line.split('\t')
-                        .skip(1)
-                        .filter_map(normalize_dynamic_pack_name)
-                        .map(|alias| (alias, pack.to_owned())),
-                );
-            }
-        }
-        index
-    })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
