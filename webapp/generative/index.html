@@ -110,6 +110,7 @@ edge llm ui stream
         </div>
         <div class="history-controls" aria-label="Model response history">
           <label class="review-toggle" title="Stage model state/component changes until you approve them"><input id="review-mode" type="checkbox" checked> Review effects</label>
+          <button id="replay-model" type="button" disabled title="Replay last decoded model stream locally">↻ Replay stream</button>
           <button id="undo-model" type="button" disabled title="Undo last model response">↶ Undo model</button>
           <button id="redo-model" type="button" disabled title="Redo model response">↷ Redo</button>
           <span id="stream-state" class="pill">READY</span>

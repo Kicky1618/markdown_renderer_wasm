@@ -15,6 +15,7 @@ import { summarizeModelCommit, summarizeStagedEffects } from "./commit_summary.j
 import { buildReviewDiff, formatReviewValue } from "./review_diff.js";
 import { ResponseBudget, ResponseBudgetError } from "./response_budget.js";
 import { auditUiConfig, parseSafeAction, summarizePolicy } from "./policy.js";
+import { StreamReplayRecorder, replayDecodedChunks } from "./stream_replay.js";
 
 assert.deepEqual(layoutSpec({ columns: "3", gap: "18", min: "240", title: "Grid" }), {
   id: "",
@@ -296,6 +297,40 @@ chunkBudget.push("a");
 chunkBudget.push("b");
 assert.throws(() => chunkBudget.push("c"), error => error instanceof ResponseBudgetError && error.code === "chunks");
 
+
+const replayTimes = [100, 110, 135];
+const replayRecorder = new StreamReplayRecorder({ maxChars: 32, maxChunks: 4, now: () => replayTimes.shift() ?? 135 });
+assert.equal(replayRecorder.push("alpha"), true);
+assert.equal(replayRecorder.push("beta"), true);
+const replaySnapshot = replayRecorder.snapshot();
+assert.deepEqual(replaySnapshot.chunks, [
+  { text: "alpha", delayMs: 10 },
+  { text: "beta", delayMs: 25 },
+]);
+assert.equal(replaySnapshot.chars, 9);
+assert.equal(replaySnapshot.durationMs, 35);
+assert.equal(replaySnapshot.truncated, false);
+const replayDelays = [];
+let replayText = "";
+const replayResult = await replayDecodedChunks(replaySnapshot, {
+  speed: 5,
+  maxDelayMs: 100,
+  sleep: async ms => { replayDelays.push(ms); },
+  onText: text => { replayText += text; },
+});
+assert.deepEqual(replayDelays, [2, 5]);
+assert.equal(replayText, "alphabeta");
+assert.deepEqual(replayResult, { chunks: 2, chars: 9 });
+const truncatedReplay = new StreamReplayRecorder({ maxChars: 4, maxChunks: 2, now: () => 0 });
+assert.equal(truncatedReplay.push("abcd"), true);
+assert.equal(truncatedReplay.push("e"), false);
+assert.equal(truncatedReplay.snapshot().truncated, true);
+const replayAbort = new AbortController();
+replayAbort.abort();
+await assert.rejects(
+  replayDecodedChunks(replaySnapshot, { signal: replayAbort.signal, onText() {} }),
+  error => error?.name === "AbortError",
+);
 
 const securityHtml = await fs.readFile(new URL("./index.html", import.meta.url), "utf8");
 const securityApp = await fs.readFile(new URL("./app.js", import.meta.url), "utf8");

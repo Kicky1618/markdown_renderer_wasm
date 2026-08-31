@@ -172,3 +172,10 @@ Review panelはApply前に、機密風state名を除外した `state` 変更キ�
 ## Response budgets
 
 Network/model responses are checked before each decoded text chunk enters the WASM parser or DOM. A single response is capped at 2 MiB of decoded Markdown, 8,192 emitted chunks, and 256 `:::llm ui` blocks. Semantic fence counting is incremental and detects fences split across transport chunks. If a limit is exceeded, the offending chunk is never appended; `action=llm:` and remote replacement flows discard staged semantic side effects and restore the pre-response application snapshot, with the runtime state set to `LIMIT`.
+
+
+## Local stream replay
+
+`Replay stream` replays the most recently completed decoded model/HTTP stream entirely in memory, through the same `appendChunk()` → WASM incremental AST → Generative UI → Review path. The recorder stores only decoded Markdown chunks and bounded inter-chunk timing; it does not retain endpoint URLs, HTTP headers, credentials, provider envelopes, or API keys. Recordings are capped at 2 MiB / 8,192 chunks and are discarded when truncated.
+
+Replay first reconstructs the original response-start application state, then emits the recorded chunks with accelerated bounded delays. For `action=llm:` responses this reproduces append-after-finish behavior, state patches, component overlays, policy audit and Human Review without another network request. The browser smoke deliberately replaces the configured endpoint with `127.0.0.1:1` before replay and verifies the same `58°C` / patched throughput UI with `data-replay-smoke="pass"`. Replay recordings live only in page memory and are cleared when a new manual baseline is established.

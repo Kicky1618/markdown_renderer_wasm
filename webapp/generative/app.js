@@ -13,6 +13,7 @@ import { parseSafeAction, summarizePolicy } from "./policy.js";
 import { summarizeModelCommit, summarizeStagedEffects } from "./commit_summary.js";
 import { buildReviewDiff, formatReviewValue } from "./review_diff.js";
 import { ResponseBudget } from "./response_budget.js";
+import { StreamReplayRecorder, replayDecodedChunks } from "./stream_replay.js";
 
 const DEMO = `# A dashboard that exists before the LLM finishes
 
@@ -170,6 +171,7 @@ const policyStatus = document.querySelector("#policy-status");
 const policyIssues = document.querySelector("#policy-issues");
 const undoModelButton = document.querySelector("#undo-model");
 const redoModelButton = document.querySelector("#redo-model");
+const replayModelButton = document.querySelector("#replay-model");
 const reviewMode = document.querySelector("#review-mode");
 const semanticReview = document.querySelector("#semantic-review");
 const applyReviewButton = document.querySelector("#apply-review");
@@ -205,6 +207,8 @@ let componentPatchesSignature = "[]";
 let semanticCommitDepth = 0;
 let semanticReviewPending = false;
 let pendingModelReview = null;
+let lastStreamReplay = null;
+let replayController = null;
 const modelHistoryPast = [];
 const modelHistoryFuture = [];
 const MODEL_HISTORY_LIMIT = 8;
@@ -244,11 +248,13 @@ function runtimeHistorySnapshot() {
 }
 
 function updateHistoryControls() {
-  const busy = Boolean(remoteController) || semanticReviewPending;
+  const busy = Boolean(remoteController) || Boolean(replayController) || semanticReviewPending;
   undoModelButton.disabled = busy || modelHistoryPast.length === 0;
   redoModelButton.disabled = busy || modelHistoryFuture.length === 0;
+  replayModelButton.disabled = busy || !lastStreamReplay;
   undoModelButton.title = modelHistoryPast.length ? `Undo model response (${modelHistoryPast.length})` : "No model response to undo";
   redoModelButton.title = modelHistoryFuture.length ? `Redo model response (${modelHistoryFuture.length})` : "No model response to redo";
+  replayModelButton.title = lastStreamReplay ? `Replay ${lastStreamReplay.recording.chunks.length} decoded chunks locally` : "No model stream recorded yet";
 }
 
 function renderCommitSummary(summary, status = "applied") {
@@ -355,6 +361,7 @@ function responseNeedsHumanReview(responseText) {
 function clearModelHistory() {
   modelHistoryPast.length = 0;
   modelHistoryFuture.length = 0;
+  lastStreamReplay = null;
   renderCommitSummary(null);
   updateHistoryControls();
 }
@@ -425,6 +432,87 @@ function redoModelResponse() {
 
 undoModelButton.addEventListener("click", undoModelResponse);
 redoModelButton.addEventListener("click", redoModelResponse);
+
+function cancelReplayStream() {
+  const controller = replayController;
+  if (!controller) return false;
+  replayController = null;
+  controller.abort();
+  // Explicit user actions that cancel replay immediately rebuild/reset the parser.
+  // Clear this replay's barrier synchronously so its delayed AbortError cannot
+  // interfere with a newly-started network/render transaction.
+  cancelSemanticCommitBarrier("discarded");
+  delete document.documentElement.dataset.replayState;
+  updateHistoryControls();
+  return true;
+}
+
+async function replayLastModelStream() {
+  if (!lastStreamReplay || remoteController || replayController || semanticReviewPending) return false;
+  const currentBeforeReplay = runtimeHistorySnapshot();
+  if (!currentBeforeReplay || !lastStreamReplay.before) return false;
+  const replay = lastStreamReplay;
+  cancelStreaming();
+  const controller = new AbortController();
+  replayController = controller;
+  updateHistoryControls();
+  document.documentElement.dataset.replayState = "running";
+  setRuntimeState("REPLAY");
+
+  try {
+    if (replay.kind === "append") {
+      restoreRuntimeHistorySnapshot(replay.before, "Preparing recorded stream replay");
+    } else {
+      source.value = "";
+      resetRuntime();
+    }
+    beginInputSession(generatedUiCount());
+    const responseStartBlock = parser.blockCount;
+    beginSemanticCommitBarrier();
+    let received = "";
+    if (replay.prefix) appendChunk(replay.prefix);
+    const result = await replayDecodedChunks(replay.recording, {
+      signal: controller.signal,
+      speed: 4,
+      maxDelayMs: 100,
+      onText(text) {
+        received += text;
+        appendChunk(text);
+        preview.scrollTop = preview.scrollHeight;
+      },
+    });
+    renderOperations(parser.finish());
+    if (replay.kind === "append") source.value = replay.before.source + replay.prefix + received;
+    else source.value = received;
+    const meta = { responseText: received, format: "replay", chunks: result.chunks, firstUiMs: firstUiAt };
+    if (responseNeedsHumanReview(received)) {
+      pendingModelReview = { before: currentBeforeReplay, meta, startBlock: responseStartBlock };
+      endSemanticCommitBarrier({ review: true });
+      setRuntimeState("REVIEW");
+    } else {
+      endSemanticCommitBarrier();
+      recordModelHistory(currentBeforeReplay, meta);
+      setRuntimeState("LIVE");
+    }
+    document.documentElement.dataset.replayState = "done";
+    deltaStatus.textContent = `REPLAY · ${result.chunks} chunks · ${result.chars} chars`;
+    return true;
+  } catch (error) {
+    const externallyCancelled = controller.signal.aborted && replayController !== controller;
+    if (!externallyCancelled) {
+      cancelSemanticCommitBarrier("discarded");
+      restoreRuntimeHistorySnapshot(currentBeforeReplay, "Replay cancelled");
+      document.documentElement.dataset.replayState = controller.signal.aborted ? "aborted" : "error";
+    }
+    if (error?.name !== "AbortError") console.error("Recorded stream replay failed", error);
+    return false;
+  } finally {
+    if (replayController === controller) replayController = null;
+    updateReviewControls();
+  }
+}
+
+replayModelButton.addEventListener("click", () => { void replayLastModelStream(); });
 updateHistoryControls();
 
 function cancelStreaming() {
@@ -816,6 +904,7 @@ async function runLlmInteraction(instruction) {
     });
     if (!response.ok) throw new Error(`stream request failed: HTTP ${response.status}`);
     const budget = new ResponseBudget();
+    const replayRecorder = new StreamReplayRecorder();
     beginSemanticCommitBarrier();
     prefix = parser.blockCount ? "\n\n" : "";
     if (prefix) appendChunk(prefix);
@@ -825,6 +914,7 @@ async function runLlmInteraction(instruction) {
       signal: controller.signal,
       onText(text) {
         budget.push(text);
+        replayRecorder.push(text);
         received += text;
         appendChunk(text);
         preview.scrollTop = preview.scrollHeight;
@@ -833,6 +923,11 @@ async function runLlmInteraction(instruction) {
     renderOperations(parser.finish());
     source.value += prefix + received;
     const meta = { responseText: received, format: result.format, chunks: result.chunks, firstUiMs: firstUiAt };
+    const recording = replayRecorder.snapshot();
+    if (!recording.truncated && historyBefore) {
+      lastStreamReplay = { kind: "append", before: historyBefore, prefix, recording };
+      updateHistoryControls();
+    }
     if (responseNeedsHumanReview(received)) {
       pendingModelReview = { before: historyBefore, meta, startBlock: responseStartBlock };
       endSemanticCommitBarrier({ review: true });
@@ -1722,6 +1817,7 @@ function streamAll() {
 }
 
 streamButton.addEventListener("click", () => {
+  if (replayController) cancelReplayStream();
   if (animation) {
     cancelStreaming();
     setRuntimeState("PAUSED");
@@ -1731,10 +1827,12 @@ streamButton.addEventListener("click", () => {
   }
 });
 renderNowButton.addEventListener("click", () => {
+  if (replayController) cancelReplayStream();
   clearModelHistory();
   renderAll();
 });
 resetButton.addEventListener("click", () => {
+  cancelReplayStream();
   cancelRemoteStream();
   cancelStreaming();
   clearModelHistory();
@@ -1744,6 +1842,7 @@ resetButton.addEventListener("click", () => {
 
 remoteForm.addEventListener("submit", async event => {
   event.preventDefault();
+  if (replayController) cancelReplayStream();
   if (remoteController) {
     cancelRemoteStream();
     setRuntimeState("PAUSED");
@@ -1790,6 +1889,7 @@ remoteForm.addEventListener("submit", async event => {
       signal: controller.signal,
     });
     const budget = new ResponseBudget();
+    const replayRecorder = new StreamReplayRecorder();
     beginSemanticCommitBarrier();
     setRuntimeState("REMOTE STREAM");
     const result = await consumeHttpResponse(response, {
@@ -1797,6 +1897,7 @@ remoteForm.addEventListener("submit", async event => {
       signal: controller.signal,
       onText(text) {
         budget.push(text);
+        replayRecorder.push(text);
         received += text;
         appendChunk(text);
         preview.scrollTop = preview.scrollHeight;
@@ -1805,6 +1906,11 @@ remoteForm.addEventListener("submit", async event => {
     renderOperations(parser.finish());
     source.value = received;
     const meta = { responseText: received, format: result.format, chunks: result.chunks, firstUiMs: firstUiAt };
+    const recording = replayRecorder.snapshot();
+    if (!recording.truncated && historyBefore) {
+      lastStreamReplay = { kind: "replace", before: historyBefore, prefix: "", recording };
+      updateHistoryControls();
+    }
     if (responseNeedsHumanReview(received)) {
       pendingModelReview = { before: historyBefore, meta, startBlock: responseStartBlock };
       endSemanticCommitBarrier({ review: true });
@@ -1944,6 +2050,56 @@ async function runInteractionSmoke() {
     }
   }
   root.dataset.interactionSmoke = "fail";
+}
+
+async function runReplaySmoke() {
+  if (new URLSearchParams(location.search).get("replay_smoke") !== "1") return;
+  const root = document.documentElement;
+  root.dataset.replaySmoke = "waiting";
+  streamUrl.value = new URL("/v1/chat/completions", location.origin).href;
+  requestProtocol.value = "chat";
+  streamFormat.value = "sse";
+  streamModel.value = "fixture-model";
+  reviewMode.checked = false;
+  requestProtocol.dispatchEvent(new Event("change", { bubbles: true }));
+
+  const button = preview.querySelector('[data-ui-id="ask-model"] button');
+  if (!button) { root.dataset.replaySmoke = "fail"; return; }
+  button.click();
+  for (let attempt = 0; attempt < 300; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    if (streamState.textContent === "ERROR" || streamState.textContent === "LIMIT") break;
+    if (!remoteController && streamState.textContent === "LIVE" && !replayModelButton.disabled) break;
+  }
+
+  const firstSlider = preview.querySelector('input[data-state-input="temperature"]');
+  const firstThroughput = preview.querySelector('[data-ui-id="throughput"]');
+  const firstSource = source.value;
+  const recorded = firstSlider?.value === "58"
+    && firstThroughput?.querySelector(".metric-value")?.textContent?.trim() === "3.1M"
+    && !replayModelButton.disabled
+    && firstSource.includes("## Model continuation");
+  if (!recorded) { root.dataset.replaySmoke = "fail"; return; }
+
+  // Replay must not consult the endpoint again. Make it deliberately unreachable.
+  streamUrl.value = "http://127.0.0.1:1/unreachable";
+  replayModelButton.click();
+  for (let attempt = 0; attempt < 400; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    if (root.dataset.replayState === "error") break;
+    if (!replayController && root.dataset.replayState === "done") break;
+  }
+
+  const replaySlider = preview.querySelector('input[data-state-input="temperature"]');
+  const replayThroughput = preview.querySelector('[data-ui-id="throughput"]');
+  const passed = root.dataset.replayState === "done"
+    && streamState.textContent === "LIVE"
+    && replaySlider?.value === "58"
+    && replayThroughput?.querySelector("h3")?.textContent?.trim() === "Model-updated throughput"
+    && replayThroughput?.querySelector(".metric-value")?.textContent?.trim() === "3.1M"
+    && source.value === firstSource
+    && deltaStatus.textContent.startsWith("REPLAY ·");
+  root.dataset.replaySmoke = passed ? "pass" : "fail";
 }
 
 async function runReviewSmoke() {
@@ -2134,6 +2290,7 @@ try {
   runLlmPostSmoke();
   runInteractionSmoke();
   runReviewSmoke();
+  runReplaySmoke();
   runBudgetSmoke();
 } catch (error) {
   setRuntimeState("ERROR");
