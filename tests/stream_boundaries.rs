@@ -195,6 +195,30 @@ fn formatted_link_labels_are_chunk_boundary_independent() {
 }
 
 #[test]
+fn link_destination_syntax_is_chunk_boundary_independent() {
+    for markdown in [
+        "prefix [x](foo_bar) suffix",
+        "prefix [x](a$b$c) suffix",
+        "prefix [x](a`b`c) suffix",
+        "prefix [x](a@b) suffix",
+        "prefix [x](a[b]) suffix",
+        "prefix [x](a(b) suffix",
+        "prefix [x](a@[source:y]) suffix",
+        "prefix [x](a[[cite:d]]) suffix",
+        "prefix [*x*](a@[source:y]) suffix",
+    ] {
+        assert_every_single_split(markdown);
+        let boundaries = utf8_boundaries(markdown);
+        let actual = parse_chunks(boundaries.windows(2).map(|w| &markdown[w[0]..w[1]]));
+        assert_eq!(
+            actual,
+            parse_whole(markdown),
+            "character stream changed {markdown:?}"
+        );
+    }
+}
+
+#[test]
 fn escaped_closers_are_chunk_boundary_independent() {
     assert_every_single_split(r"prefix \] \) @[source:id\] suffix");
 }
