@@ -23,6 +23,8 @@ const sections = [
   "header_macro_identifiers",
   "expression_prefixes",
 ];
+const COMMENT_STYLES = new Set(["brace", "angle_hash", "hash_pipe"]);
+const EXTENDED_SECTIONS_FLAG = 0x80000000;
 
 const flagBits = new Map([
   ["case_insensitive_keywords", 0], ["slash_comments", 1], ["dash_comments", 2],
@@ -44,7 +46,7 @@ const encoder = new TextEncoder();
 export function parsePack(source) {
   const lines = source.split(/\r?\n/);
   if (lines.shift() !== "STREAMDOWN_LANGPACK\t1") throw new Error("invalid langpack header");
-  const values = Object.fromEntries(sections.map(key => [key, []]));
+  const values = Object.fromEntries([...sections, "comment_styles"].map(key => [key, []]));
   let flags = 0;
   for (const line of lines) {
     if (!line || line.startsWith("#")) continue;
@@ -55,7 +57,12 @@ export function parsePack(source) {
         if (bit === undefined) throw new Error(`unknown langpack flag: ${flag}`);
         flags |= 1 << bit;
       }
-    } else if (Object.hasOwn(values, key)) {
+    } else if (key === "comment_styles") {
+      for (const style of items) {
+        if (!COMMENT_STYLES.has(style)) throw new Error(`unknown comment style: ${style}`);
+      }
+      values.comment_styles = items;
+    } else if (sections.includes(key)) {
       values[key] = items;
     } else {
       throw new Error(`unknown langpack field: ${key}`);
@@ -67,8 +74,11 @@ export function parsePack(source) {
 
 export function encodePack({ values, flags }) {
   const encoded = sections.map(key => values[key].map(word => encoder.encode(word)));
+  const encodedCommentStyles = values.comment_styles.map(word => encoder.encode(word));
+  const allEncoded = encodedCommentStyles.length ? [...encoded, encodedCommentStyles] : encoded;
+  const encodedFlags = encodedCommentStyles.length ? ((flags | EXTENDED_SECTIONS_FLAG) >>> 0) : flags;
   let size = 8;
-  for (const words of encoded) {
+  for (const words of allEncoded) {
     if (words.length > 0xffff) throw new Error("too many langpack words");
     size += 2;
     for (const word of words) {
@@ -79,9 +89,9 @@ export function encodePack({ values, flags }) {
   const output = new Uint8Array(size);
   output.set([0x53, 0x4c, 0x50, 0x31], 0); // SLP1
   const view = new DataView(output.buffer);
-  view.setUint32(4, flags, true);
+  view.setUint32(4, encodedFlags, true);
   let at = 8;
-  for (const words of encoded) {
+  for (const words of allEncoded) {
     view.setUint16(at, words.length, true);
     at += 2;
     for (const word of words) {

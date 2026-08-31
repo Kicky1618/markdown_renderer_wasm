@@ -28,6 +28,12 @@ pub(super) enum DeclarationKind {
     Macro,
 }
 
+const COMMENT_STYLE_BRACE: u8 = 1 << 0;
+const COMMENT_STYLE_ANGLE_HASH: u8 = 1 << 1;
+const COMMENT_STYLE_HASH_PIPE: u8 = 1 << 2;
+#[cfg(target_arch = "wasm32")]
+const EXTENDED_SECTIONS_FLAG: u32 = 1 << 31;
+
 #[derive(Debug)]
 struct LanguageProfile {
     aliases: &'static [&'static str],
@@ -74,6 +80,7 @@ struct LanguageProfile {
     double_semicolon_comments: bool,
     paren_semicolon_comments: bool,
     lua_long_brackets: bool,
+    comment_styles: u8,
 }
 
 macro_rules! empty_profile {
@@ -123,6 +130,7 @@ macro_rules! empty_profile {
             double_semicolon_comments: false,
             paren_semicolon_comments: false,
             lua_long_brackets: false,
+            comment_styles: 0,
         }
     };
 }
@@ -480,6 +488,15 @@ impl Language {
     pub(super) fn lua_long_brackets(self) -> bool {
         self.0.lua_long_brackets
     }
+    pub(super) fn brace_comments(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_BRACE != 0
+    }
+    pub(super) fn angle_hash_comments(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_ANGLE_HASH != 0
+    }
+    pub(super) fn hash_pipe_comments(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_HASH_PIPE != 0
+    }
 
     pub(super) fn is_macro_identifier(self, word: &str) -> bool {
         self.0.macro_identifiers.contains(&word)
@@ -684,6 +701,20 @@ impl<'a> BinaryCursor<'a> {
         Some(count)
     }
 
+    fn comment_styles(&mut self) -> Option<u8> {
+        let count = self.u16()?;
+        if count > 16 {
+            return None;
+        }
+        let mut styles = 0u8;
+        for _ in 0..count {
+            let len = self.u16()?;
+            let style = std::str::from_utf8(self.take(len)?).ok()?;
+            styles |= comment_style_bit(style)?;
+        }
+        Some(styles)
+    }
+
     fn words(&mut self) -> Option<&'static [&'static str]> {
         let count = self.u16()?;
         if count > MAX_BINARY_WORDS {
@@ -715,6 +746,9 @@ fn validate_binary_profile(bytes: &[u8]) -> Option<u32> {
     }
     for _ in 1..BINARY_WORD_SECTIONS {
         cursor.skip_words()?;
+    }
+    if flags & EXTENDED_SECTIONS_FLAG != 0 {
+        cursor.comment_styles()?;
     }
     (cursor.at == bytes.len()).then_some(flags)
 }
@@ -767,6 +801,9 @@ fn decode_validated_binary_profile(bytes: &[u8], flags: u32) -> Option<LanguageP
     profile.macro_operand_identifiers = cursor.words()?;
     profile.header_macro_identifiers = cursor.words()?;
     profile.expression_prefixes = cursor.words()?;
+    if flags & EXTENDED_SECTIONS_FLAG != 0 {
+        profile.comment_styles = cursor.comment_styles()?;
+    }
     if profile.aliases.is_empty() || cursor.at != bytes.len() {
         return None;
     }
@@ -855,6 +892,9 @@ fn parse_pack(source: &str) -> Result<LanguageProfile, String> {
             "macro_operand_identifiers" => profile.macro_operand_identifiers = leak_words(values),
             "header_macro_identifiers" => profile.header_macro_identifiers = leak_words(values),
             "expression_prefixes" => profile.expression_prefixes = leak_words(values),
+            "comment_styles" => {
+                profile.comment_styles = parse_comment_styles(&values)?;
+            }
             "flags" => {
                 for flag in values {
                     set_flag(&mut profile, flag)?;
@@ -881,6 +921,24 @@ fn leak_words(values: Vec<&str>) -> &'static [&'static str] {
         .map(|value| -> &'static str { Box::leak(value.to_owned().into_boxed_str()) })
         .collect::<Vec<_>>();
     Box::leak(words.into_boxed_slice())
+}
+
+fn comment_style_bit(style: &str) -> Option<u8> {
+    Some(match style {
+        "brace" => COMMENT_STYLE_BRACE,
+        "angle_hash" => COMMENT_STYLE_ANGLE_HASH,
+        "hash_pipe" => COMMENT_STYLE_HASH_PIPE,
+        _ => return None,
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn parse_comment_styles(values: &[&str]) -> Result<u8, String> {
+    values.iter().try_fold(0u8, |styles, style| {
+        comment_style_bit(style)
+            .map(|bit| styles | bit)
+            .ok_or_else(|| format!("unknown comment style: {style}"))
+    })
 }
 
 #[cfg(not(target_arch = "wasm32"))]

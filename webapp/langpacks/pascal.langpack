@@ -1,4 +1,5 @@
 STREAMDOWN_LANGPACK	1
 aliases	pascal
 keywords	program	begin	end	var	const	type	procedure	function	if	then	else	for	while	repeat	until
+comment_styles	brace
 flags	case_insensitive_keywords	paren_star_comments

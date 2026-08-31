@@ -389,18 +389,18 @@ fn capture_kind(
 fn block_comment_end(
     source: &str,
     start: usize,
-    opener: &[u8; 2],
-    closer: &[u8; 2],
+    opener: &[u8],
+    closer: &[u8],
     nested: bool,
 ) -> usize {
     let bytes = source.as_bytes();
     let mut cursor = start + opener.len();
     let mut depth = 1usize;
     while cursor < bytes.len() {
-        if nested && bytes.get(cursor..cursor + opener.len()) == Some(opener.as_slice()) {
+        if nested && bytes.get(cursor..cursor + opener.len()) == Some(opener) {
             depth += 1;
             cursor += opener.len();
-        } else if bytes.get(cursor..cursor + closer.len()) == Some(closer.as_slice()) {
+        } else if bytes.get(cursor..cursor + closer.len()) == Some(closer) {
             depth -= 1;
             cursor += closer.len();
             if depth == 0 {
@@ -473,15 +473,21 @@ fn block_comment_delimiters(
     bytes: &[u8],
     i: usize,
     language: Language,
-) -> Option<(&'static [u8; 2], &'static [u8; 2])> {
-    if language.block_comments() && bytes.get(i..i + 2) == Some(b"/*") {
+) -> Option<(&'static [u8], &'static [u8])> {
+    if bytes.get(i..i + 2) == Some(b"/*") && language.block_comments() {
         Some((b"/*", b"*/"))
-    } else if language.paren_star_comments() && bytes.get(i..i + 2) == Some(b"(*") {
+    } else if bytes.get(i..i + 2) == Some(b"(*") && language.paren_star_comments() {
         Some((b"(*", b"*)"))
-    } else if language.brace_dash_comments() && bytes.get(i..i + 2) == Some(b"{-") {
+    } else if bytes.get(i..i + 2) == Some(b"{-") && language.brace_dash_comments() {
         Some((b"{-", b"-}"))
-    } else if language.paren_semicolon_comments() && bytes.get(i..i + 2) == Some(b"(;") {
+    } else if bytes.get(i..i + 2) == Some(b"(;") && language.paren_semicolon_comments() {
         Some((b"(;", b";)"))
+    } else if bytes.get(i) == Some(&b'{') && language.brace_comments() {
+        Some((b"{", b"}"))
+    } else if bytes.get(i..i + 2) == Some(b"<#") && language.angle_hash_comments() {
+        Some((b"<#", b"#>"))
+    } else if bytes.get(i..i + 2) == Some(b"#|") && language.hash_pipe_comments() {
+        Some((b"#|", b"|#"))
     } else {
         None
     }

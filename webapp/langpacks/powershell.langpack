@@ -4,4 +4,5 @@ keywords	begin	break	catch	class	continue	data	define	do	dynamicparam	else	elsei
 builtin_types	bool	byte	char	datetime	decimal	double	float	guid	hashtable	int	int16	int32	int64	long	object	regex	scriptblock	single	string	timespan	type	uint	uint16	uint32	uint64	xml
 function_declarations	function	filter	workflow
 type_declarations	class	enum
+comment_styles	angle_hash
 flags	hash_comments	dollar_identifiers	multiline_strings	case_insensitive_keywords
