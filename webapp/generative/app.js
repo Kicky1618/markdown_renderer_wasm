@@ -201,6 +201,7 @@ const timelineEvents = document.querySelector("#timeline-events");
 const replayDeterminism = document.querySelector("#replay-determinism");
 const determinismStatus = document.querySelector("#determinism-status");
 const determinismDetails = document.querySelector("#determinism-details");
+const determinismDiff = document.querySelector("#determinism-diff");
 
 let parser;
 let blockElements = [];
@@ -275,6 +276,7 @@ function renderReplayDeterminism(result) {
     delete document.documentElement.dataset.replayDeterminism;
     determinismStatus.textContent = "—";
     determinismDetails.textContent = "";
+    determinismDiff.replaceChildren();
     return;
   }
   replayDeterminism.hidden = false;
@@ -291,6 +293,34 @@ function renderReplayDeterminism(result) {
   if (!result.semantic && result.mismatch?.semanticAt !== null) details.push(`semantic mismatch #${result.mismatch.semanticAt}`);
   if (!result.state && result.mismatch?.stateKeys?.length) details.push(`state mismatch: ${result.mismatch.stateKeys.join(", ")}`);
   determinismDetails.textContent = details.join(" · ");
+
+  const formatValue = (value, present) => {
+    if (!present) return "<missing>";
+    if (typeof value === "string") return JSON.stringify(value.slice(0, 96));
+    if (value === null) return "null";
+    return String(value);
+  };
+  determinismDiff.replaceChildren();
+  if (!result.source && result.mismatch?.sourceAt !== null) {
+    const item = document.createElement("li");
+    const lengths = result.mismatch.sourceLengths || [0, 0];
+    item.textContent = `source @${result.mismatch.sourceAt}: ${lengths[0]} → ${lengths[1]} chars`;
+    determinismDiff.append(item);
+  }
+  if (!result.semantic && result.mismatch?.semanticAt !== null) {
+    const item = document.createElement("li");
+    const expected = result.mismatch.semanticExpected;
+    const actual = result.mismatch.semanticActual;
+    const left = expected ? `${expected.label} (${expected.valueLength} body chars)` : "<missing>";
+    const right = actual ? `${actual.label} (${actual.valueLength} body chars)` : "<missing>";
+    item.textContent = `semantic #${result.mismatch.semanticAt}: ${left} → ${right}`;
+    determinismDiff.append(item);
+  }
+  for (const change of result.mismatch?.stateChanges || []) {
+    const item = document.createElement("li");
+    item.textContent = `state ${change.key}: ${formatValue(change.expected, change.expectedPresent)} → ${formatValue(change.actual, change.actualPresent)}`;
+    determinismDiff.append(item);
+  }
 }
 
 function renderStreamTimeline(timeline, label = "STREAM") {

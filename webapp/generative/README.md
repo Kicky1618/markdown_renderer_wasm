@@ -193,3 +193,5 @@ After a local `Replay stream`, the runtime compares the replay against the origi
 The Timeline panel reports `VERIFIED` only when all three axes match and shows `source ✓ · semantic ✓ · state ✓`; otherwise it reports `DIVERGED` with the failing axis. The Chrome replay smoke currently verifies the full network-free replay as `data-determinism-smoke="pass"` and `data-replay-determinism="verified"`.
 
 When replay diverges, the verifier also reports the first source character mismatch, first semantic-block mismatch, or bounded non-sensitive state-key differences. A dedicated Chrome smoke deliberately records with Review OFF and replays the identical decoded stream with Review ON; it verifies `source ✓ · semantic ✓ · state ✗ · state mismatch: fahrenheit, mode, temperature` with `data-determinism-divergence-smoke="pass"`.
+
+The divergence panel expands those failures without dumping the model body: source failures show mismatch position and expected/actual source lengths, semantic failures show bounded `type/id/target/closed` identity plus body lengths, and state failures show non-sensitive primitive `expected → actual` values such as `temperature: 58 → 42`.

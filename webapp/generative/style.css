@@ -142,6 +142,9 @@ button.primary:hover { background: #84ebdc; }
 .replay-determinism > span:first-child { letter-spacing: .08em; }
 .replay-determinism strong { color: #73d9ad; }
 .replay-determinism[data-status="diverged"] strong { color: #ffbd72; }
+.determinism-diff { grid-column: 1 / -1; margin: 4px 0 0; padding-left: 18px; color: #7f94a9; font: 9px/1.45 ui-monospace, monospace; }
+.determinism-diff:empty { display: none; }
+.determinism-diff li + li { margin-top: 2px; }
 #determinism-details { color: #8ba0b5; }
 .timeline-events { display: flex; gap: 7px; margin: 8px 0 0; padding: 0; overflow-x: auto; list-style: none; scrollbar-width: thin; }
 .timeline-events li { flex: 0 0 auto; border-left: 2px solid #294861; padding: 4px 7px; color: #70879e; background: #0a1520; font: 9px/1.35 ui-monospace, monospace; white-space: nowrap; }

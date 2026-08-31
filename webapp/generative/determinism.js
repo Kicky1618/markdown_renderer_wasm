@@ -63,17 +63,39 @@ function firstSemanticMismatch(expected, actual) {
   return expected.length === actual.length ? null : limit;
 }
 
-function stateMismatchKeys(expected, actual, maxKeys = 16) {
+function stateMismatchDetails(expected, actual, maxKeys = 16) {
   const a = new Map(expected);
   const b = new Map(actual);
   const keys = [...new Set([...a.keys(), ...b.keys()])].sort();
   const result = [];
   for (const key of keys) {
-    if (Object.is(a.get(key), b.get(key)) && a.has(key) === b.has(key)) continue;
-    result.push(key);
+    const aHas = a.has(key);
+    const bHas = b.has(key);
+    if (aHas === bHas && Object.is(a.get(key), b.get(key))) continue;
+    result.push({
+      key,
+      expected: aHas ? a.get(key) : undefined,
+      actual: bHas ? b.get(key) : undefined,
+      expectedPresent: aHas,
+      actualPresent: bHas,
+    });
     if (result.length >= maxKeys) break;
   }
   return result;
+}
+
+function semanticBlockSummary(block) {
+  if (!block) return null;
+  const attrs = Object.fromEntries(block.attributes || []);
+  const type = String(attrs.type || block.kind || "semantic").slice(0, 48);
+  const id = String(attrs.id || "").slice(0, 80);
+  const target = String(attrs.target || "").slice(0, 80);
+  const suffix = id ? `#${id}` : target ? ` -> ${target}` : "";
+  return {
+    type, id, target, closed: Boolean(block.closed),
+    valueLength: String(block.value || "").length,
+    label: `${type}${suffix}${block.closed ? "" : " (open)"}`,
+  };
 }
 
 export function compareReplayDeterminism({ expectedSource = "", actualSource = "", expectedSemantic = [], actualSemantic = [], expectedState = [], actualState = [] } = {}) {
@@ -84,6 +106,8 @@ export function compareReplayDeterminism({ expectedSource = "", actualSource = "
   const source = String(expectedSource) === String(actualSource);
   const semantic = sameJson(normalizedExpectedSemantic, normalizedActualSemantic);
   const state = sameJson(normalizedExpectedState, normalizedActualState);
+  const semanticAt = semantic ? null : firstSemanticMismatch(normalizedExpectedSemantic, normalizedActualSemantic);
+  const stateChanges = state ? [] : stateMismatchDetails(normalizedExpectedState, normalizedActualState);
   return {
     verified: source && semantic && state,
     source,
@@ -91,8 +115,12 @@ export function compareReplayDeterminism({ expectedSource = "", actualSource = "
     state,
     mismatch: {
       sourceAt: source ? null : firstStringMismatch(expectedSource, actualSource),
-      semanticAt: semantic ? null : firstSemanticMismatch(normalizedExpectedSemantic, normalizedActualSemantic),
-      stateKeys: state ? [] : stateMismatchKeys(normalizedExpectedState, normalizedActualState),
+      sourceLengths: source ? null : [String(expectedSource).length, String(actualSource).length],
+      semanticAt,
+      semanticExpected: semanticAt === null ? null : semanticBlockSummary(normalizedExpectedSemantic[semanticAt]),
+      semanticActual: semanticAt === null ? null : semanticBlockSummary(normalizedActualSemantic[semanticAt]),
+      stateKeys: stateChanges.map(change => change.key),
+      stateChanges,
     },
   };
 }

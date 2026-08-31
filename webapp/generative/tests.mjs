@@ -380,17 +380,26 @@ const deterministic = compareReplayDeterminism({
   expectedState: [["temperature", 58], ["api_token", "hidden"]],
   actualState: [["temperature", 58], ["api_token", "different"]],
 });
-assert.deepEqual(deterministic, { verified: true, source: true, semantic: true, state: true, mismatch: { sourceAt: null, semanticAt: null, stateKeys: [] } });
+assert.equal(deterministic.verified, true);
+assert.deepEqual(deterministic.mismatch, { sourceAt: null, sourceLengths: null, semanticAt: null, semanticExpected: null, semanticActual: null, stateKeys: [], stateChanges: [] });
 const stateDivergence = compareReplayDeterminism({
   expectedSource: "same", actualSource: "same",
   expectedSemantic: semanticA, actualSemantic: semanticB,
   expectedState: [["temperature", 58]], actualState: [["temperature", 42]],
 });
-assert.deepEqual(stateDivergence, { verified: false, source: true, semantic: true, state: false, mismatch: { sourceAt: null, semanticAt: null, stateKeys: ["temperature"] } });
+assert.equal(stateDivergence.verified, false);
+assert.equal(stateDivergence.state, false);
+assert.deepEqual(stateDivergence.mismatch.stateKeys, ["temperature"]);
+assert.deepEqual(stateDivergence.mismatch.stateChanges, [{ key: "temperature", expected: 58, actual: 42, expectedPresent: true, actualPresent: true }]);
 const sourceDivergence = compareReplayDeterminism({ expectedSource: "abc", actualSource: "abX", expectedSemantic: semanticA, actualSemantic: semanticB, expectedState: [], actualState: [] });
 assert.equal(sourceDivergence.mismatch.sourceAt, 2);
+assert.deepEqual(sourceDivergence.mismatch.sourceLengths, [3, 3]);
 const semanticDivergence = compareReplayDeterminism({ expectedSource: "same", actualSource: "same", expectedSemantic: semanticA, actualSemantic: [{ ...semanticB[0], value: "value=2" }], expectedState: [], actualState: [] });
 assert.equal(semanticDivergence.mismatch.semanticAt, 0);
+assert.equal(semanticDivergence.mismatch.semanticExpected.label, "metric#x");
+assert.equal(semanticDivergence.mismatch.semanticActual.label, "metric#x");
+assert.equal(semanticDivergence.mismatch.semanticExpected.valueLength, 7);
+assert.equal(semanticDivergence.mismatch.semanticActual.valueLength, 7);
 
 const securityHtml = await fs.readFile(new URL("./index.html", import.meta.url), "utf8");
 const securityApp = await fs.readFile(new URL("./app.js", import.meta.url), "utf8");
