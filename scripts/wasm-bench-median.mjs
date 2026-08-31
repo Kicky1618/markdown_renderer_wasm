@@ -84,6 +84,7 @@ const scenarios = [
   { name: "blockquote-rich-line", setup: "> seed\n", chunk: "> **bold** [x](u)\n", rounds: 1000 },
   { name: "heading-tail", setup: "## ", chunk: "token " },
   { name: "heading-rich-tail", setup: "## **bold** ", chunk: "token ", rounds: 5000 },
+  { name: "heading-rich-syntax-chunk", setup: "## seed ", chunk: "**x** ", rounds: 5000 },
   { name: "semantic-reference", chunk: "@[source:bench] " },
   { name: "semantic-citation", chunk: "[[cite:doc|Spec]] " },
   { name: "open-code", setup: "```text\n", chunk: "0123456789abcdef0123456789abcdef\n" },
