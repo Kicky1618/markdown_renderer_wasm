@@ -73,6 +73,7 @@ const scenarios = [
   { name: "markdown-boundary", chunk: " **fast**\n\n" },
   { name: "markdown-link", chunk: "[x](url) " },
   { name: "formatted-link-char-stream", chunks: ["[", "*", "x", "*", "]", "(", "u", ")", " "], rounds: 20000 },
+  { name: "formatted-link-tokenized", chunks: ["[", "*x*", "]", "(", "u", ")", " "], rounds: 500 },
   { name: "unordered-list-line", setup: "- seed\n", chunk: "- item\n" },
   { name: "ordered-list-line", setup: "1. seed\n", chunk: "2. item\n" },
   { name: "table-row", setup: "a|b\n---|---\n", chunk: "x|y\n" },
