@@ -78,6 +78,7 @@ const scenarios = [
   { name: "ordered-list-line", setup: "1. seed\n", chunk: "2. item\n" },
   { name: "rich-list-char-stream", setup: "- seed\n", chunks: ["- ", "*", "x", "*", "\n"], rounds: 1000 },
   { name: "table-row", setup: "a|b\n---|---\n", chunk: "x|y\n" },
+  { name: "table-cell-token-tail", setup: "a|b\n---|---\na | **x** ", chunk: "token ", rounds: 5000 },
   { name: "blockquote-line", setup: "> seed\n", chunk: "> item\n" },
   { name: "blockquote-rich-line", setup: "> seed\n", chunk: "> **bold** [x](u)\n", rounds: 1000 },
   { name: "heading-tail", setup: "## ", chunk: "token " },
