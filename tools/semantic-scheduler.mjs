@@ -1,3 +1,5 @@
+import { isLazySemanticResult } from "./semantic-lazy-result.mjs";
+
 function dependencyMap(graph) {
   const dependencies = new Map(graph.nodes.map((node) => [node.key, []]));
   for (const edge of graph.edges) {
@@ -40,6 +42,7 @@ export class SemanticScheduler {
     this.dependents = new Map();
     this.ready = new Set();
     this.records = new Map();
+    this.resultSources = new Map();
     this.running = 0;
     this.sequence = 0;
     this.idleWaiters = [];
@@ -121,11 +124,14 @@ export class SemanticScheduler {
 
   get(key) {
     const record = this.records.get(key);
-    return record ? { ...record } : null;
+    if (!record) return null;
+    const output = { ...record };
+    if (this.resultSources.has(key)) output.result = this.#materializeResult(key);
+    return output;
   }
 
   getResult(key) {
-    return this.records.get(key)?.result;
+    return this.resultSources.has(key) ? this.#materializeResult(key) : this.records.get(key)?.result;
   }
 
   snapshot() {
@@ -133,7 +139,11 @@ export class SemanticScheduler {
     const keys = new Set([...this.nodes.keys(), ...this.records.keys()]);
     for (const key of keys) {
       const record = this.records.get(key);
-      output[key] = record ? { ...record } : { key, status: "waiting" };
+      if (!record) output[key] = { key, status: "waiting" };
+      else {
+        output[key] = { ...record };
+        if (this.resultSources.has(key)) output[key].result = this.#materializeResult(key);
+      }
     }
     return output;
   }
@@ -149,12 +159,34 @@ export class SemanticScheduler {
     return this.runners.get(node.kind) ?? this.runners.get("*") ?? null;
   }
 
-  #transition(key, status, extra = {}) {
+  #transition(key, status, extra = {}, lazyResult = null) {
     const previous = this.records.get(key);
     const record = { ...(previous ?? { key }), ...extra, key, status, sequence: ++this.sequence };
+    if (lazyResult) this.resultSources.set(key, lazyResult);
+    else if (Object.prototype.hasOwnProperty.call(extra, "result")) this.resultSources.delete(key);
     this.records.set(key, record);
-    this.onTransition?.({ ...record, previousStatus: previous?.status ?? null });
+    if (this.onTransition) {
+      const transition = { ...record, previousStatus: previous?.status ?? null };
+      if (lazyResult) {
+        Object.defineProperty(transition, "result", {
+          enumerable: true,
+          configurable: false,
+          get: () => this.#materializeResult(key),
+        });
+      }
+      this.onTransition(transition);
+    }
     return record;
+  }
+
+  #materializeResult(key) {
+    const source = this.resultSources.get(key);
+    if (!source) return this.records.get(key)?.result;
+    const value = source.materialize();
+    this.resultSources.delete(key);
+    const record = this.records.get(key);
+    if (record) record.result = value;
+    return value;
   }
 
   #block(key, failedDependency) {
@@ -219,11 +251,19 @@ export class SemanticScheduler {
   #start(node, runner, dependencies) {
     this.running += 1;
     this.#transition(node.key, "running", { dependencies: [...dependencies] });
-    const dependencyResults = Object.fromEntries(dependencies.map((key) => [key, this.records.get(key)?.result]));
+    const dependencyResults = {};
+    for (const dependency of dependencies) {
+      Object.defineProperty(dependencyResults, dependency, {
+        enumerable: true,
+        configurable: false,
+        get: () => this.getResult(dependency),
+      });
+    }
     Promise.resolve()
       .then(() => runner(node, { key: node.key, dependencies: [...dependencies], dependencyResults, getResult: (key) => this.getResult(key) }))
       .then((result) => {
-        this.#transition(node.key, "completed", { result });
+        if (isLazySemanticResult(result)) this.#transition(node.key, "completed", {}, result);
+        else this.#transition(node.key, "completed", { result });
         for (const dependent of this.dependents.get(node.key) ?? []) this.#enqueue(dependent);
       }, (error) => {
         this.#transition(node.key, "failed", { error: publicError(error) });

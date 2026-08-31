@@ -1,3 +1,5 @@
+import { createLazySemanticResult } from "./semantic-lazy-result.mjs";
+
 const FORBIDDEN_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 const PATCH_FORMATS = new Set(["merge", "merge-patch", "application/merge-patch+json", "replace"]);
 
@@ -125,15 +127,17 @@ export class SemanticStateStore {
     return Object.fromEntries(this.revisions);
   }
 
-  initialize(node) {
+  initialize(node, { lazyResult = false } = {}) {
+    if (typeof lazyResult !== "boolean") throw new TypeError("lazyResult must be a boolean");
     if (node?.kind !== "state") throw new Error(`state runner received ${node?.kind ?? "unknown"} node`);
     if (typeof node.key !== "string" || !node.key.startsWith("state:")) throw new Error("state node requires an id");
     if (this.values.has(node.key)) throw new Error(`${node.key}: state is already initialized`);
     const value = parseNodeJson(node);
-    return this.#commit(node.key, value, { type: "initialize", node: node.key });
+    return this.#commit(node.key, value, { type: "initialize", node: node.key }, lazyResult);
   }
 
-  patch(node) {
+  patch(node, { lazyResult = false } = {}) {
+    if (typeof lazyResult !== "boolean") throw new TypeError("lazyResult must be a boolean");
     if (node?.kind !== "patch") throw new Error(`patch runner received ${node?.kind ?? "unknown"} node`);
     const target = normalizeTarget(node.attributes?.target);
     if (!this.values.has(target)) {
@@ -160,16 +164,18 @@ export class SemanticStateStore {
       node: node.key,
       format,
       patch,
-    });
+    }, lazyResult);
   }
 
-  #commit(key, value, metadata) {
+  #commit(key, value, metadata, lazyResult = false) {
     assertSafeJson(value);
     const stored = value;
     this.values.set(key, stored);
     const revision = (this.revisions.get(key) ?? 0) + 1;
     this.revisions.set(key, revision);
-    const result = cloneStateValue(stored);
+    const result = lazyResult
+      ? createLazySemanticResult(() => cloneStateValue(stored))
+      : cloneStateValue(stored);
     if (this.onChange) {
       const change = { key, revision, value: cloneStateValue(stored), ...metadata };
       if (Object.prototype.hasOwnProperty.call(metadata, "patch")) change.patch = cloneStateValue(metadata.patch);
@@ -179,11 +185,12 @@ export class SemanticStateStore {
   }
 }
 
-export function createStateRunners(store = new SemanticStateStore()) {
+export function createStateRunners(store = new SemanticStateStore(), { lazyResults = false } = {}) {
   if (!(store instanceof SemanticStateStore)) throw new TypeError("createStateRunners expects a SemanticStateStore");
+  if (typeof lazyResults !== "boolean") throw new TypeError("lazyResults must be a boolean");
   return {
-    state: (node) => store.initialize(node),
-    patch: (node) => store.patch(node),
+    state: (node) => store.initialize(node, { lazyResult: lazyResults }),
+    patch: (node) => store.patch(node, { lazyResult: lazyResults }),
   };
 }
 

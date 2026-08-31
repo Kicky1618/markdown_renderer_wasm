@@ -56,7 +56,7 @@ export class StatefulSemanticRuntime {
       onTransition: hooks.onTransition,
       runners: {
         ...runners,
-        ...createStateRunners(store),
+        ...createStateRunners(store, { lazyResults: true }),
       },
     });
     return new StatefulSemanticRuntime(runtime, store, journal);
