@@ -1,0 +1,167 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, closed]
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Repetitions used for the local median
+        required: false
+        default: "5"
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+concurrency:
+  group: benchmarks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  BENCHER_PROJECT: ${{ vars.BENCHER_PROJECT || 'kicky1618-markdown-renderer-wasm' }}
+
+jobs:
+  benchmark:
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BENCH_RUNS: ${{ inputs.runs || '5' }}
+      BENCHER_TESTBED: github-ubuntu-latest
+      BENCHER_API_KEY: ${{ secrets.BENCHER_API_KEY }}
+      SYNTAX_BENCH_BYTES: "4194304"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Select stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Install Bencher CLI
+        uses: bencherdev/bencher@v0.6.11
+
+      - name: Require Bencher API key
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        run: |
+          if [[ -z "$BENCHER_API_KEY" ]]; then
+            echo 'BENCHER_API_KEY is not available to this workflow.' >&2
+            exit 1
+          fi
+
+      - name: Build benchmark binaries
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/bench-target
+        run: |
+          cargo build --release --bin stream-bench
+          cargo build --release --manifest-path webapp/Cargo.toml --example syntax_highlight_bench
+
+      - name: Run local samples
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$GITHUB_WORKSPACE/benchmark-samples.log"
+          : > "$log"
+          for ((i = 1; i <= BENCH_RUNS; i++)); do
+            "${RUNNER_TEMP}/bench-target/release/stream-bench" >> "$log"
+            SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
+              "${RUNNER_TEMP}/bench-target/release/examples/syntax_highlight_bench" >> "$log"
+          done
+          python3 scripts/bench-to-bmf.py \
+            benchmark-samples.log \
+            benchmark-results.bmf.json \
+            --summary benchmark-summary.md
+          cat benchmark-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Track main benchmarks with Bencher
+        if: github.event_name != 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bencher run \
+            --ci-on-the-fly \
+            --project "$BENCHER_PROJECT" \
+            --key "$BENCHER_API_KEY" \
+            --branch main \
+            --hash "$GITHUB_SHA" \
+            --testbed "$BENCHER_TESTBED" \
+            --threshold-measure mib-per-second \
+            --threshold-test percentage \
+            --threshold-min-sample-size 3 \
+            --threshold-max-sample-size 8 \
+            --threshold-lower-boundary 0.10 \
+            --thresholds-reset \
+            --error-on-alert \
+            --adapter json \
+            --file benchmark-results.bmf.json \
+            --github-actions "$GITHUB_TOKEN" \
+            --ci-public-links
+
+      - name: Track pull-request benchmarks with Bencher
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_BRANCH: ${{ github.head_ref }}
+          BASE_BRANCH: ${{ github.base_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          bencher run \
+            --project "$BENCHER_PROJECT" \
+            --key "$BENCHER_API_KEY" \
+            --branch "$PR_BRANCH" \
+            --hash "$HEAD_SHA" \
+            --start-point "$BASE_BRANCH" \
+            --start-point-hash "$BASE_SHA" \
+            --start-point-clone-thresholds \
+            --start-point-reset \
+            --testbed "$BENCHER_TESTBED" \
+            --error-on-alert \
+            --adapter json \
+            --file benchmark-results.bmf.json \
+            --github-actions "$GITHUB_TOKEN" \
+            --ci-public-links
+
+      - name: Note fork PR limitation
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo '### Bencher upload skipped' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Fork pull requests do not receive BENCHER_API_KEY, so only the local benchmark artifact is produced.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw benchmark samples
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-samples-${{ github.run_id }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            benchmark-samples.log
+            benchmark-results.bmf.json
+            benchmark-summary.md
+
+  archive-pr:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BENCHER_API_KEY: ${{ secrets.BENCHER_API_KEY }}
+      PR_BRANCH: ${{ github.head_ref }}
+    steps:
+      - uses: bencherdev/bencher@v0.6.11
+      - name: Archive Bencher PR branch
+        run: |
+          bencher archive \
+            --project "$BENCHER_PROJECT" \
+            --key "$BENCHER_API_KEY" \
+            --branch "$PR_BRANCH"
