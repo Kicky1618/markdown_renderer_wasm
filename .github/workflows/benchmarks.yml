@@ -29,6 +29,8 @@ jobs:
     timeout-minutes: 20
     env:
       BENCH_RUNS: ${{ inputs.runs || '7' }}
+      BENCH_MIN_RUNS: "3"
+      BENCH_STABLE_RMAD: "0.015"
       SYNTAX_BENCH_BYTES: "4194304"
 
     steps:
@@ -312,6 +314,7 @@ jobs:
           set -euo pipefail
           log="$GITHUB_WORKSPACE/benchmark-samples.log"
           : > "$log"
+          samples=0
           for ((i = 1; i <= BENCH_RUNS; i++)); do
             if [[ "$BENCH_PARSER_CHANGED" == true ]]; then
               "${RUNNER_TEMP}/bench-bin-parser-${BENCH_PARSER_HEAD_HASH}/stream-bench" >> "$log"
@@ -320,7 +323,25 @@ jobs:
               SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
                 "${RUNNER_TEMP}/bench-bin-syntax-${BENCH_SYNTAX_HEAD_HASH}/syntax-bench" >> "$log"
             fi
+            samples=$i
+
+            if (( i >= BENCH_MIN_RUNS && i < BENCH_RUNS )); then
+              set +e
+              python3 scripts/bench-stable.py "$log" \
+                --min-samples "$BENCH_MIN_RUNS" \
+                --relative-mad "$BENCH_STABLE_RMAD"
+              stability=$?
+              set -e
+              if (( stability == 0 )); then
+                echo "Adaptive sampler converged after $i samples."
+                break
+              elif (( stability > 1 )); then
+                exit "$stability"
+              fi
+            fi
           done
+          echo "Adaptive sampler used $samples sample(s)." >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
           python3 scripts/bench-to-bmf.py \
             benchmark-samples.log \
             benchmark-results.bmf.json \
@@ -356,6 +377,7 @@ jobs:
             fi
           }
 
+          samples=0
           for ((i = 1; i <= BENCH_RUNS; i++)); do
             if ((i % 2)); then
               run_base
@@ -364,8 +386,26 @@ jobs:
               run_head
               run_base
             fi
+            samples=$i
+
+            if (( i >= BENCH_MIN_RUNS && i < BENCH_RUNS )); then
+              set +e
+              python3 scripts/bench-stable.py "$base_log" "$head_log" \
+                --min-samples "$BENCH_MIN_RUNS" \
+                --relative-mad "$BENCH_STABLE_RMAD"
+              stability=$?
+              set -e
+              if (( stability == 0 )); then
+                echo "Adaptive paired sampler converged after $i samples per revision."
+                break
+              elif (( stability > 1 )); then
+                exit "$stability"
+              fi
+            fi
           done
 
+          echo "Adaptive paired sampler used $samples sample(s) per revision." >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
           python3 scripts/bench-to-bmf.py \
             benchmark-base-samples.log \
             benchmark-base-results.bmf.json \

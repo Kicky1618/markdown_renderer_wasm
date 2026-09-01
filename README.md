@@ -73,7 +73,7 @@ cargo run --release --bin stream-bench
 cargo run --release --manifest-path tools/syntax-bench/Cargo.toml
 ```
 
-`main` への push と pull request では GitHub Actions が自動で7回測定し、
+`main` への push と pull request では GitHub Actions が最低3回測定し、中央値絶対偏差が1.5%以内で安定すれば終了、揺れている場合は最大7回まで追加測定して、
 各項目の中央値を Bencher Cloud に記録します。GitHub-hosted runner のCPU差を
 性能退行と誤認しないよう、CPU型番・vCPU数・architectureごとに Bencher testbed を
 自動分離します。`main` では同一testbedの履歴が3点以上たまると、直近8点に対して
@@ -81,11 +81,11 @@ cargo run --release --manifest-path tools/syntax-bench/Cargo.toml
 同じCPU型番でも負荷差があるため、この履歴alertだけでは main の Actions を失敗させません。
 
 Pull request では履歴上の別runnerと比較せず、同じrunner上で base と head を両方buildし、
-測定順を交互にしながら7回ずつ測定します。Bencher上では一時的な `pr-N-base` を1点の
+測定順を交互にしながら同じ回数ずつ測定し、base/headの両方が安定した時点で3〜7回の範囲で終了します。Bencher上では一時的な `pr-N-base` を1点の
 baselineとして `pr-N` を比較し、10%以上低下した項目があれば GitHub Check を failure に
 します。PRを閉じると両方のBencher branchを自動archiveします。fork PRはsecretを受け取れないため
 Bencher uploadだけ省略し、paired測定結果はartifactへ残します。ベンチ対象ソースはcontent hashを
-parser系6項目とsyntax系5項目で独立に取り、変わった系列だけbuild・7回測定・Bencher送信します。
+parser系6項目とsyntax系5項目で独立に取り、変わった系列だけbuild・適応的な3〜7回測定・Bencher送信します。
 同じ入力なら系列ごとのキャッシュ済みrelease binaryを再利用し、Cargo build自体を省略します。
 両系列ともbaseと完全に同一ならpush/PRの測定自体を省略し、`workflow_dispatch` では両系列を強制再測定します。
 生ログ、BMF JSON、集計表は Actions artifact に14日間保存します。
