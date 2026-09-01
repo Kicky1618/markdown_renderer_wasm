@@ -44,21 +44,13 @@ jobs:
           rustc --version
           cargo --version
 
-      - name: Compute Rust cache key
-        id: rust-cache
-        run: |
-          tag="$(rustc -vV | sha256sum | cut -c1-16)"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
 
-      - name: Restore benchmark build cache
-        uses: actions/cache@v6.1.0
-        with:
-          path: |
-            ${{ runner.temp }}/bench-target-root
-            ${{ runner.temp }}/bench-target-syntax
-          key: bench-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ hashFiles('Cargo.lock', 'tools/syntax-bench/Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            bench-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ hashFiles('Cargo.lock', 'tools/syntax-bench/Cargo.lock') }}-
+      - name: Enable Rust compiler cache
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
 
       - name: Install Bencher CLI
         uses: bencherdev/bencher@v0.6.12
