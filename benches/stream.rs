@@ -1,3 +1,4 @@
+// CI source-hash gate smoke test: comment-only change.
 use std::{hint::black_box, time::Instant};
 use streamdown::Parser;
 
