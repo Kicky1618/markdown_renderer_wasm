@@ -22,13 +22,17 @@ PATHS = (
 )
 
 
-def tracked_files(root: Path) -> list[Path]:
-    proc = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "-z", "--", *PATHS],
+def git(root: Path, *args: str) -> bytes:
+    return subprocess.run(
+        ["git", "-C", str(root), *args],
         check=True,
         stdout=subprocess.PIPE,
-    )
-    names = [name for name in proc.stdout.split(b"\0") if name]
+    ).stdout
+
+
+def tracked_files(root: Path) -> list[Path]:
+    raw = git(root, "ls-files", "-z", "--", *PATHS)
+    names = [name for name in raw.split(b"\0") if name]
     if not names:
         raise SystemExit(f"no tracked benchmark inputs found under {root}")
     return [root / name.decode("utf-8") for name in names]
@@ -45,17 +49,34 @@ def add_file(digest, root: Path, path: Path) -> None:
     digest.update(data)
 
 
+def hash_worktree(root: Path) -> str:
+    digest = hashlib.sha256()
+    digest.update(b"streamdown-benchmark-worktree-v2\0")
+    for path in tracked_files(root):
+        add_file(digest, root, path)
+    return digest.hexdigest()
+
+
+def hash_commit(root: Path, commit: str) -> str:
+    # ls-tree contains each tracked path, file mode, object type, and content-addressed
+    # blob id. Hashing this record stream is enough to detect every benchmark input
+    # change without checking the commit out into a second worktree.
+    tree = git(root, "ls-tree", "-r", "-z", "--full-tree", commit, "--", *PATHS)
+    if not tree:
+        raise SystemExit(f"no benchmark inputs found in commit {commit}")
+    digest = hashlib.sha256()
+    digest.update(b"streamdown-benchmark-commit-v1\0")
+    digest.update(tree)
+    return digest.hexdigest()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("root", nargs="?", default=".", type=Path)
+    parser.add_argument("--commit", help="hash tracked benchmark inputs from a Git commit")
     args = parser.parse_args()
     root = args.root.resolve()
-
-    digest = hashlib.sha256()
-    digest.update(b"streamdown-benchmark-inputs-v2\0")
-    for path in tracked_files(root):
-        add_file(digest, root, path)
-    print(digest.hexdigest())
+    print(hash_commit(root, args.commit) if args.commit else hash_worktree(root))
 
 
 if __name__ == "__main__":
