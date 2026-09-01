@@ -7,9 +7,11 @@ LLMの逐次出力向けに、末尾追記だけを処理する依存ゼロのRu
 パーサーです。HTMLではなく独自ASTの差分を返します。
 
 通常の入力では未確定な末尾ブロックだけを `Truncate + Push` で置換します。
-LLMが長い通常文を改行なしで生成するときは `AppendText` で末尾テキストだけを
-追記し、段落全体の再解析・再コピーを避けます。フェンスコードでは `SpliceCode` を
-使い、数MBのコードブロックでも新しいチャンクと現在行だけを差分に含めます。
+LLMが長い通常文を改行なしで生成するときは `AppendText` / `AppendInlineText` で
+末尾だけを追記し、段落全体の再解析・再コピーを避けます。強調・コード・数式・引用・
+リスト・表・見出しのライブ末尾は `Splice*Tail` 系の差分で局所更新します。フェンス
+コードでは `SpliceCode` を使い、数MBのコードブロックでも新しいチャンクと現在行
+だけを差分に含めます。
 JSONシリアライズは行わず、WASM境界は小さな `MDA1` バイナリ形式です。
 
 コンポーネント構成、逐次解析の状態管理、WASM境界、Canvasデモの描画系は
@@ -19,6 +21,7 @@ JSONシリアライズは行わず、WASM境界は小さな `MDA1` バイナリ�
 
 ```sh
 cargo test --release
+npm test
 rustup target add wasm32-unknown-unknown
 ./scripts/build_wasm.sh
 ```
@@ -93,7 +96,8 @@ parser系6項目とsyntax系5項目で独立に取り、変わった系列だけ
 ## Supported syntax
 
 ATX見出し、段落、強調、太字、インラインコード、リンク、改行、引用、順序・
-非順序リスト、水平線、言語付きフェンスコード、パイプテーブルを扱います。HTML、生HTML、
+非順序リスト、水平線、言語付きフェンスコード、パイプテーブル、インライン/表示
+数式を扱います。HTML、生HTML、
 ネストしたリスト、脚注は意図的に含めていません。CommonMark完全互換よりも、
 LLMが通常生成する構文で、ブロック単位の再解析と小さい差分を優先しています。
 
@@ -109,10 +113,10 @@ LLMが通常生成する構文で、ブロック単位の再解析と小さい�
 :::
 ```
 
-- `:::llm <kind> [key=value ...]` ... `:::`: tool / artifact / metric などの raw payload をストリームする semantic fence。既存 `CodeBlock` AST に `language="llm:..."` として落とすため互換性を維持します。
+- `:::llm <kind> [key=value ...]` ... `:::`: tool / artifact / metric などの raw payload をストリームする semantic fence。開始側は `:::llm` の `:` を3個以上に拡張でき、終了側は同数以上の `:` で閉じます。既存 `CodeBlock` AST に `language="llm:..."` として落とすため互換性を維持します。
 - `@[kind:id]`: 機械可読参照。既存 `Link` AST の `llm:<kind>:<id>` destination に正規化します。
 - `[[cite:source]]` / `[[cite:source|label]]`: RAG引用。`llm:cite:<source>` への `Link` として保持します。
-- 長いプレーン段落は `AppendText` 差分を使い、既出prefixを毎チャンク再解析・再転送しません。
+- 長いプレーン段落は `AppendText`、装飾を含む段落の末尾は `AppendInlineText` / `SpliceInlineTail` を使い、既出prefixを毎チャンク再解析・再転送しません。
 
 JavaScript側では `getLlmBlocks()` と `getCitations()` で構造化情報を直接取得できます。
 
@@ -120,7 +124,7 @@ JavaScript側では `getLlmBlocks()` と `getCitations()` で構造化情報を�
 
 ## Canvas demo
 
-`webapp/` に、36 TPSのLLMモックをこのパーサーへ流し、ASTを `wgpu` で
+`webapp/` に、デフォルト50,000 TPSのLLMモックをこのパーサーへ流し、ASTを `wgpu` で
 単一Canvasへ描画するデモがあります。Markdown本文用のDOMノードは生成しません。
 
 ```sh
