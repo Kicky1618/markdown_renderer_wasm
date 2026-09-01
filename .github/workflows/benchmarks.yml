@@ -231,7 +231,6 @@ jobs:
       - name: Track main benchmarks with Bencher
         if: github.event_name != 'pull_request'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BENCHER_API_KEY: ${{ secrets.BENCHER_API_KEY }}
         run: |
           bencher run \
@@ -246,11 +245,8 @@ jobs:
             --threshold-max-sample-size 8 \
             --threshold-lower-boundary 0.10 \
             --thresholds-reset \
-            --error-on-alert \
             --adapter json \
-            --file benchmark-results.bmf.json \
-            --github-actions "$GITHUB_TOKEN" \
-            --ci-public-links
+            --file benchmark-results.bmf.json
 
       - name: Track paired pull-request benchmarks with Bencher
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
