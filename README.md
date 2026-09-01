@@ -85,7 +85,9 @@ Pull request では履歴上の別runnerと比較せず、同じrunner上で bas
 baselineとして `pr-N` を比較し、10%以上低下した項目があれば GitHub Check を failure に
 します。PRを閉じると両方のBencher branchを自動archiveします。fork PRはsecretを受け取れないため
 Bencher uploadだけ省略し、paired測定結果はartifactへ残します。ベンチ対象ソースはcontent hashを
-取り、同じ入力ならキャッシュ済みのrelease binaryを再利用して Cargo build自体を省略します。
+parser系6項目とsyntax系5項目で独立に取り、変わった系列だけbuild・7回測定・Bencher送信します。
+同じ入力なら系列ごとのキャッシュ済みrelease binaryを再利用し、Cargo build自体を省略します。
+両系列ともbaseと完全に同一ならpush/PRの測定自体を省略し、`workflow_dispatch` では両系列を強制再測定します。
 生ログ、BMF JSON、集計表は Actions artifact に14日間保存します。
 
 ## Supported syntax

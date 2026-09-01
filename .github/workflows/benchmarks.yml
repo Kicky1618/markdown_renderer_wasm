@@ -46,10 +46,13 @@ jobs:
         run: |
           set -euo pipefail
           head_sha="$(git rev-parse HEAD)"
-          head_hash="$(python3 scripts/benchmark-input-hash.py . --commit "$head_sha")"
+          parser_head_hash="$(python3 scripts/benchmark-input-hash.py . --commit "$head_sha" --suite parser)"
+          syntax_head_hash="$(python3 scripts/benchmark-input-hash.py . --commit "$head_sha" --suite syntax)"
           base_sha=""
-          base_hash=""
-          changed=true
+          parser_base_hash=""
+          syntax_base_hash=""
+          parser_changed=true
+          syntax_changed=true
 
           case "$EVENT_NAME" in
             pull_request)
@@ -62,27 +65,43 @@ jobs:
               fi
               ;;
             workflow_dispatch)
-              # Manual runs are explicit benchmark requests and always execute.
+              # Manual runs are explicit benchmark requests and always execute both suites.
               base_sha=""
               ;;
           esac
 
           if [[ -n "$base_sha" ]]; then
             git fetch --no-tags --depth=1 origin "$base_sha"
-            base_hash="$(python3 scripts/benchmark-input-hash.py . --commit "$base_sha")"
-            if [[ "$head_hash" == "$base_hash" ]]; then
-              changed=false
-            fi
+            parser_base_hash="$(python3 scripts/benchmark-input-hash.py . --commit "$base_sha" --suite parser)"
+            syntax_base_hash="$(python3 scripts/benchmark-input-hash.py . --commit "$base_sha" --suite syntax)"
+            [[ "$parser_head_hash" != "$parser_base_hash" ]] || parser_changed=false
+            [[ "$syntax_head_hash" != "$syntax_base_hash" ]] || syntax_changed=false
+          fi
+
+          changed=false
+          if [[ "$parser_changed" == true || "$syntax_changed" == true ]]; then
+            changed=true
           fi
 
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
-          echo "head_hash=$head_hash" >> "$GITHUB_OUTPUT"
           echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
-          echo "base_hash=$base_hash" >> "$GITHUB_OUTPUT"
+          echo "parser_head_hash=$parser_head_hash" >> "$GITHUB_OUTPUT"
+          echo "parser_base_hash=$parser_base_hash" >> "$GITHUB_OUTPUT"
+          echo "syntax_head_hash=$syntax_head_hash" >> "$GITHUB_OUTPUT"
+          echo "syntax_base_hash=$syntax_base_hash" >> "$GITHUB_OUTPUT"
+          echo "parser_changed=$parser_changed" >> "$GITHUB_OUTPUT"
+          echo "syntax_changed=$syntax_changed" >> "$GITHUB_OUTPUT"
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
-          echo "BENCH_HEAD_HASH=$head_hash" >> "$GITHUB_ENV"
-          echo "BENCH_BASE_HASH=$base_hash" >> "$GITHUB_ENV"
-          echo "Benchmark input: head=$head_hash base=${base_hash:-none} changed=$changed"
+
+          echo "BENCH_PARSER_HEAD_HASH=$parser_head_hash" >> "$GITHUB_ENV"
+          echo "BENCH_PARSER_BASE_HASH=$parser_base_hash" >> "$GITHUB_ENV"
+          echo "BENCH_SYNTAX_HEAD_HASH=$syntax_head_hash" >> "$GITHUB_ENV"
+          echo "BENCH_SYNTAX_BASE_HASH=$syntax_base_hash" >> "$GITHUB_ENV"
+          echo "BENCH_PARSER_CHANGED=$parser_changed" >> "$GITHUB_ENV"
+          echo "BENCH_SYNTAX_CHANGED=$syntax_changed" >> "$GITHUB_ENV"
+
+          echo "Parser: head=$parser_head_hash base=${parser_base_hash:-none} changed=$parser_changed"
+          echo "Syntax: head=$syntax_head_hash base=${syntax_base_hash:-none} changed=$syntax_changed"
 
       - name: Skip unchanged benchmark inputs
         if: steps.benchmark-change.outputs.changed != 'true'
@@ -90,7 +109,7 @@ jobs:
           {
             echo '## Benchmarks skipped'
             echo
-            echo 'The benchmark-relevant source hash is identical to the base revision.'
+            echo 'Neither parser nor syntax benchmark inputs changed from the base revision.'
             echo 'No compilation, measurement, Bencher metric, or artifact was produced for this revision.'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -109,13 +128,21 @@ jobs:
           tag="$(rustc -vV | sha256sum | cut -c1-16)"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Restore benchmark binary cache
-        if: steps.benchmark-change.outputs.changed == 'true'
-        id: head-cache
+      - name: Restore parser binary cache
+        if: steps.benchmark-change.outputs.parser_changed == 'true'
+        id: parser-head-cache
         uses: actions/cache@v6.1.0
         with:
-          path: ${{ runner.temp }}/bench-bin-${{ steps.benchmark-change.outputs.head_hash }}
-          key: bench-bin-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.benchmark-change.outputs.head_hash }}
+          path: ${{ runner.temp }}/bench-bin-parser-${{ steps.benchmark-change.outputs.parser_head_hash }}
+          key: bench-bin-v3-parser-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.benchmark-change.outputs.parser_head_hash }}
+
+      - name: Restore syntax binary cache
+        if: steps.benchmark-change.outputs.syntax_changed == 'true'
+        id: syntax-head-cache
+        uses: actions/cache@v6.1.0
+        with:
+          path: ${{ runner.temp }}/bench-bin-syntax-${{ steps.benchmark-change.outputs.syntax_head_hash }}
+          key: bench-bin-v3-syntax-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.benchmark-change.outputs.syntax_head_hash }}
 
       - name: Install Bencher CLI
         if: steps.benchmark-change.outputs.changed == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
@@ -143,60 +170,91 @@ jobs:
           echo "Bencher testbed: $testbed"
           echo "BENCHER_TESTBED=$testbed" >> "$GITHUB_ENV"
 
-      - name: Build benchmark binaries
-        if: steps.benchmark-change.outputs.changed == 'true' && steps.head-cache.outputs.cache-hit != 'true'
+      - name: Build parser benchmark binary
+        if: steps.benchmark-change.outputs.parser_changed == 'true' && steps.parser-head-cache.outputs.cache-hit != 'true'
         run: |
-          CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-root" \
+          CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-parser" \
             cargo build --release --bin stream-bench
+          bin_dir="${RUNNER_TEMP}/bench-bin-parser-${BENCH_PARSER_HEAD_HASH}"
+          mkdir -p "$bin_dir"
+          cp "${RUNNER_TEMP}/bench-target-parser/release/stream-bench" "$bin_dir/stream-bench"
+
+      - name: Build syntax benchmark binary
+        if: steps.benchmark-change.outputs.syntax_changed == 'true' && steps.syntax-head-cache.outputs.cache-hit != 'true'
+        run: |
           CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-syntax" \
             cargo build --release --manifest-path tools/syntax-bench/Cargo.toml
-          bin_dir="${RUNNER_TEMP}/bench-bin-${BENCH_HEAD_HASH}"
+          bin_dir="${RUNNER_TEMP}/bench-bin-syntax-${BENCH_SYNTAX_HEAD_HASH}"
           mkdir -p "$bin_dir"
-          cp "${RUNNER_TEMP}/bench-target-root/release/stream-bench" "$bin_dir/stream-bench"
           cp "${RUNNER_TEMP}/bench-target-syntax/release/syntax-bench" "$bin_dir/syntax-bench"
 
-      - name: Restore pull-request base binary cache
-        if: steps.benchmark-change.outputs.changed == 'true' && github.event_name == 'pull_request'
-        id: base-cache
+      - name: Restore pull-request base parser binary cache
+        if: github.event_name == 'pull_request' && steps.benchmark-change.outputs.parser_changed == 'true'
+        id: parser-base-cache
         uses: actions/cache@v6.1.0
         with:
-          path: ${{ runner.temp }}/bench-bin-${{ steps.benchmark-change.outputs.base_hash }}
-          key: bench-bin-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.benchmark-change.outputs.base_hash }}
+          path: ${{ runner.temp }}/bench-bin-parser-${{ steps.benchmark-change.outputs.parser_base_hash }}
+          key: bench-bin-v3-parser-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.benchmark-change.outputs.parser_base_hash }}
 
-      - name: Build pull-request base binaries
-        if: steps.benchmark-change.outputs.changed == 'true' && github.event_name == 'pull_request' && steps.base-cache.outputs.cache-hit != 'true'
+      - name: Restore pull-request base syntax binary cache
+        if: github.event_name == 'pull_request' && steps.benchmark-change.outputs.syntax_changed == 'true'
+        id: syntax-base-cache
+        uses: actions/cache@v6.1.0
+        with:
+          path: ${{ runner.temp }}/bench-bin-syntax-${{ steps.benchmark-change.outputs.syntax_base_hash }}
+          key: bench-bin-v3-syntax-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.benchmark-change.outputs.syntax_base_hash }}
+
+      - name: Prepare pull-request base worktree
+        if: github.event_name == 'pull_request' && ((steps.benchmark-change.outputs.parser_changed == 'true' && steps.parser-base-cache.outputs.cache-hit != 'true') || (steps.benchmark-change.outputs.syntax_changed == 'true' && steps.syntax-base-cache.outputs.cache-hit != 'true'))
         env:
           BASE_SHA: ${{ steps.benchmark-change.outputs.base_sha }}
+        run: git worktree add --detach "${RUNNER_TEMP}/benchmark-base" "$BASE_SHA"
+
+      - name: Build pull-request base parser binary
+        if: github.event_name == 'pull_request' && steps.benchmark-change.outputs.parser_changed == 'true' && steps.parser-base-cache.outputs.cache-hit != 'true'
         run: |
-          git worktree add --detach "${RUNNER_TEMP}/benchmark-base" "$BASE_SHA"
-          CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-base-root" \
+          CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-base-parser" \
             cargo build --release \
               --manifest-path "${RUNNER_TEMP}/benchmark-base/Cargo.toml" \
               --bin stream-bench
+          bin_dir="${RUNNER_TEMP}/bench-bin-parser-${BENCH_PARSER_BASE_HASH}"
+          mkdir -p "$bin_dir"
+          cp "${RUNNER_TEMP}/bench-target-base-parser/release/stream-bench" "$bin_dir/stream-bench"
+
+      - name: Build pull-request base syntax binary
+        if: github.event_name == 'pull_request' && steps.benchmark-change.outputs.syntax_changed == 'true' && steps.syntax-base-cache.outputs.cache-hit != 'true'
+        run: |
           CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-base-syntax" \
             cargo build --release \
               --manifest-path "${RUNNER_TEMP}/benchmark-base/tools/syntax-bench/Cargo.toml"
-          bin_dir="${RUNNER_TEMP}/bench-bin-${BENCH_BASE_HASH}"
+          bin_dir="${RUNNER_TEMP}/bench-bin-syntax-${BENCH_SYNTAX_BASE_HASH}"
           mkdir -p "$bin_dir"
-          cp "${RUNNER_TEMP}/bench-target-base-root/release/stream-bench" "$bin_dir/stream-bench"
           cp "${RUNNER_TEMP}/bench-target-base-syntax/release/syntax-bench" "$bin_dir/syntax-bench"
 
       - name: Warm benchmark binaries
         if: steps.benchmark-change.outputs.changed == 'true' && github.event_name != 'pull_request'
         run: |
-          bin_dir="${RUNNER_TEMP}/bench-bin-${BENCH_HEAD_HASH}"
-          "$bin_dir/stream-bench" > /dev/null
-          SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" "$bin_dir/syntax-bench" > /dev/null
+          if [[ "$BENCH_PARSER_CHANGED" == true ]]; then
+            "${RUNNER_TEMP}/bench-bin-parser-${BENCH_PARSER_HEAD_HASH}/stream-bench" > /dev/null
+          fi
+          if [[ "$BENCH_SYNTAX_CHANGED" == true ]]; then
+            SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
+              "${RUNNER_TEMP}/bench-bin-syntax-${BENCH_SYNTAX_HEAD_HASH}/syntax-bench" > /dev/null
+          fi
 
       - name: Warm paired pull-request binaries
         if: steps.benchmark-change.outputs.changed == 'true' && github.event_name == 'pull_request'
         run: |
-          base_dir="${RUNNER_TEMP}/bench-bin-${BENCH_BASE_HASH}"
-          head_dir="${RUNNER_TEMP}/bench-bin-${BENCH_HEAD_HASH}"
-          "$base_dir/stream-bench" > /dev/null
-          SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" "$base_dir/syntax-bench" > /dev/null
-          "$head_dir/stream-bench" > /dev/null
-          SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" "$head_dir/syntax-bench" > /dev/null
+          if [[ "$BENCH_PARSER_CHANGED" == true ]]; then
+            "${RUNNER_TEMP}/bench-bin-parser-${BENCH_PARSER_BASE_HASH}/stream-bench" > /dev/null
+            "${RUNNER_TEMP}/bench-bin-parser-${BENCH_PARSER_HEAD_HASH}/stream-bench" > /dev/null
+          fi
+          if [[ "$BENCH_SYNTAX_CHANGED" == true ]]; then
+            SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
+              "${RUNNER_TEMP}/bench-bin-syntax-${BENCH_SYNTAX_BASE_HASH}/syntax-bench" > /dev/null
+            SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
+              "${RUNNER_TEMP}/bench-bin-syntax-${BENCH_SYNTAX_HEAD_HASH}/syntax-bench" > /dev/null
+          fi
 
       - name: Run local samples
         if: steps.benchmark-change.outputs.changed == 'true' && github.event_name != 'pull_request'
@@ -204,11 +262,15 @@ jobs:
         run: |
           set -euo pipefail
           log="$GITHUB_WORKSPACE/benchmark-samples.log"
-          bin_dir="${RUNNER_TEMP}/bench-bin-${BENCH_HEAD_HASH}"
           : > "$log"
           for ((i = 1; i <= BENCH_RUNS; i++)); do
-            "$bin_dir/stream-bench" >> "$log"
-            SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" "$bin_dir/syntax-bench" >> "$log"
+            if [[ "$BENCH_PARSER_CHANGED" == true ]]; then
+              "${RUNNER_TEMP}/bench-bin-parser-${BENCH_PARSER_HEAD_HASH}/stream-bench" >> "$log"
+            fi
+            if [[ "$BENCH_SYNTAX_CHANGED" == true ]]; then
+              SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
+                "${RUNNER_TEMP}/bench-bin-syntax-${BENCH_SYNTAX_HEAD_HASH}/syntax-bench" >> "$log"
+            fi
           done
           python3 scripts/bench-to-bmf.py \
             benchmark-samples.log \
@@ -223,18 +285,26 @@ jobs:
           set -euo pipefail
           head_log="$GITHUB_WORKSPACE/benchmark-samples.log"
           base_log="$GITHUB_WORKSPACE/benchmark-base-samples.log"
-          head_dir="${RUNNER_TEMP}/bench-bin-${BENCH_HEAD_HASH}"
-          base_dir="${RUNNER_TEMP}/bench-bin-${BENCH_BASE_HASH}"
           : > "$head_log"
           : > "$base_log"
 
           run_head() {
-            "$head_dir/stream-bench" >> "$head_log"
-            SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" "$head_dir/syntax-bench" >> "$head_log"
+            if [[ "$BENCH_PARSER_CHANGED" == true ]]; then
+              "${RUNNER_TEMP}/bench-bin-parser-${BENCH_PARSER_HEAD_HASH}/stream-bench" >> "$head_log"
+            fi
+            if [[ "$BENCH_SYNTAX_CHANGED" == true ]]; then
+              SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
+                "${RUNNER_TEMP}/bench-bin-syntax-${BENCH_SYNTAX_HEAD_HASH}/syntax-bench" >> "$head_log"
+            fi
           }
           run_base() {
-            "$base_dir/stream-bench" >> "$base_log"
-            SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" "$base_dir/syntax-bench" >> "$base_log"
+            if [[ "$BENCH_PARSER_CHANGED" == true ]]; then
+              "${RUNNER_TEMP}/bench-bin-parser-${BENCH_PARSER_BASE_HASH}/stream-bench" >> "$base_log"
+            fi
+            if [[ "$BENCH_SYNTAX_CHANGED" == true ]]; then
+              SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
+                "${RUNNER_TEMP}/bench-bin-syntax-${BENCH_SYNTAX_BASE_HASH}/syntax-bench" >> "$base_log"
+            fi
           }
 
           for ((i = 1; i <= BENCH_RUNS; i++)); do
@@ -365,9 +435,11 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
-          base_hash="$(python3 scripts/benchmark-input-hash.py . --commit "$BASE_SHA")"
-          head_hash="$(python3 scripts/benchmark-input-hash.py . --commit "$HEAD_SHA")"
-          if [[ "$base_hash" == "$head_hash" ]]; then
+          parser_base_hash="$(python3 scripts/benchmark-input-hash.py . --commit "$BASE_SHA" --suite parser)"
+          parser_head_hash="$(python3 scripts/benchmark-input-hash.py . --commit "$HEAD_SHA" --suite parser)"
+          syntax_base_hash="$(python3 scripts/benchmark-input-hash.py . --commit "$BASE_SHA" --suite syntax)"
+          syntax_head_hash="$(python3 scripts/benchmark-input-hash.py . --commit "$HEAD_SHA" --suite syntax)"
+          if [[ "$parser_base_hash" == "$parser_head_hash" && "$syntax_base_hash" == "$syntax_head_hash" ]]; then
             echo "needed=false" >> "$GITHUB_OUTPUT"
           else
             echo "needed=true" >> "$GITHUB_OUTPUT"

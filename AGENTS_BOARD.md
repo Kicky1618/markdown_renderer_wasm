@@ -70,6 +70,8 @@
 
 ## 検証結果
 
+- 2026-09-02 ChatGPT(bencher-suite-shard): GitHub Actions benchmark入力hashを parser(6 metrics) / syntax(5 metrics) に分割。変更系列だけrelease binary cache/build/warmup/7-run paired測定/Bencher uploadを行い、両系列不変なら従来どおり完全skip、workflow_dispatchは両系列を強制測定する。履歴実コミットで parser-only / syntax-only hash分離を確認し、単独BMFは6/5 metrics。
+
 - 2026-08-30 ChatGPT(math-fastpath): fixed 2x box-filterとhorizontal MathRun生成を1passへ融合し、runtimeでは低解像度RGBA Vecの書込+再走査を廃止（test buildのみpixel回帰用に保持）。透明skip版との保存済みbinary 7-run interleaved medianは128 streaming-prefix raster `46.838→42.798ms`（約8.6%短縮）、cold raster `0.050→0.049ms/op`、8448-run数は完全一致。既存generic-vs-2x pixel/run回帰を含むwebapp全tests（canvas2d 7 + code 19 + compat 10 + language_matrix 11 + math 5 + palette 2 + search 3）pass、wasm32 release check pass。
 
 - 2026-08-30 ChatGPT(math-fastpath): 2x downsampleで完全透明2x2 blockを早期skipし、不要な12 RGB load + 3 demultiply divisionを除去。保存済み前後binaryの7-run interleaved medianは128 streaming-prefix raster `51.534→46.148ms`（約10.5%短縮）、cold raster `0.053→0.048ms/op`（約9.4%短縮）。transparent block専用のgeneric経路bit-exact回帰を追加し、webapp全tests（canvas2d 7 + code 19 + compat 10 + language_matrix 11 + math 5 + palette 2 + search 3）pass、wasm32 release check pass。
