@@ -7,3 +7,5 @@
 /.agent_*.py
 
 /webapp/langpacks/*.slp
+
+__pycache__/

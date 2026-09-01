@@ -1,5 +1,8 @@
 # Streamdown
 
+[![Benchmarks](https://github.com/Kicky1618/markdown_renderer_wasm/actions/workflows/benchmarks.yml/badge.svg)](https://github.com/Kicky1618/markdown_renderer_wasm/actions/workflows/benchmarks.yml)
+[Bencher Cloud performance history](https://bencher.dev/perf/markdown-renderer-wasm)
+
 LLMの逐次出力向けに、末尾追記だけを処理する依存ゼロのRust Markdown
 パーサーです。HTMLではなく独自ASTの差分を返します。
 
@@ -67,7 +70,15 @@ await parser.consume(fetchResponse, {
 
 ```sh
 cargo run --release --bin stream-bench
+cargo run --release --manifest-path webapp/Cargo.toml --example syntax_highlight_bench
 ```
+
+`main` への push と pull request では GitHub Actions が自動で7回測定し、
+各項目の中央値を Bencher Cloud に記録します。GitHub-hosted runner のCPU差を
+性能退行と誤認しないよう、CPU型番・vCPU数・architectureごとに Bencher testbed を
+自動分離します。`main` では同一testbedの履歴が3点以上たまると、直近8点に対して
+10%以上低下した項目を alert にします。生ログ、BMF JSON、集計表は Actions artifact に
+14日間保存します。
 
 ## Supported syntax
 

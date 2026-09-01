@@ -11,7 +11,7 @@ on:
       runs:
         description: Repetitions used for the local median
         required: false
-        default: "5"
+        default: "7"
 
 permissions:
   contents: read
@@ -28,8 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      BENCH_RUNS: ${{ inputs.runs || '5' }}
-      BENCHER_TESTBED: github-ubuntu-latest
+      BENCH_RUNS: ${{ inputs.runs || '7' }}
       SYNTAX_BENCH_BYTES: "4194304"
 
     steps:
@@ -61,12 +60,26 @@ jobs:
           echo "Resolved Bencher project: $project"
           echo "BENCHER_PROJECT=$project" >> "$GITHUB_ENV"
 
+      - name: Resolve benchmark testbed
+        run: |
+          testbed="$(python3 scripts/resolve-bencher-testbed.py)"
+          echo "Bencher testbed: $testbed"
+          echo "BENCHER_TESTBED=$testbed" >> "$GITHUB_ENV"
+
       - name: Build benchmark binaries
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/bench-target
         run: |
           cargo build --release --bin stream-bench
           cargo build --release --manifest-path webapp/Cargo.toml --example syntax_highlight_bench
+
+      - name: Warm benchmark binaries
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/bench-target
+        run: |
+          "${RUNNER_TEMP}/bench-target/release/stream-bench" > /dev/null
+          SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
+            "${RUNNER_TEMP}/bench-target/release/examples/syntax_highlight_bench" > /dev/null
 
       - name: Run local samples
         shell: bash
