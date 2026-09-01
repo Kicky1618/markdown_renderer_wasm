@@ -113,13 +113,12 @@ jobs:
             echo 'No compilation, measurement, Bencher metric, or artifact was produced for this revision.'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Select stable Rust
+      - name: Use runner Rust toolchain
         if: steps.benchmark-change.outputs.changed == 'true'
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
           rustc --version
           cargo --version
+          rustup show active-toolchain
 
       - name: Compute Rust cache key
         if: steps.benchmark-change.outputs.changed == 'true'
