@@ -70,15 +70,21 @@ await parser.consume(fetchResponse, {
 
 ```sh
 cargo run --release --bin stream-bench
-cargo run --release --manifest-path webapp/Cargo.toml --example syntax_highlight_bench
+cargo run --release --manifest-path tools/syntax-bench/Cargo.toml
 ```
 
 `main` への push と pull request では GitHub Actions が自動で7回測定し、
 各項目の中央値を Bencher Cloud に記録します。GitHub-hosted runner のCPU差を
 性能退行と誤認しないよう、CPU型番・vCPU数・architectureごとに Bencher testbed を
 自動分離します。`main` では同一testbedの履歴が3点以上たまると、直近8点に対して
-10%以上低下した項目を alert にします。生ログ、BMF JSON、集計表は Actions artifact に
-14日間保存します。
+10%以上低下した項目を alert にします。
+
+Pull request では履歴上の別runnerと比較せず、同じrunner上で base と head を両方buildし、
+測定順を交互にしながら7回ずつ測定します。Bencher上では一時的な `pr-N-base` を1点の
+baselineとして `pr-N` を比較し、10%以上低下した項目があれば GitHub Check を failure に
+します。PRを閉じると両方のBencher branchを自動archiveします。fork PRはsecretを受け取れないため
+Bencher uploadだけ省略し、paired測定結果はartifactへ残します。生ログ、BMF JSON、集計表は
+Actions artifact に14日間保存します。
 
 ## Supported syntax
 

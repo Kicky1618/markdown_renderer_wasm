@@ -113,6 +113,9 @@
 
 - 2026-08-30 ChatGPT/integrator: core release tests 22/22 pass (`TMPDIR=target/tmp cargo test --release`). i7-12700 / rustc 1.96.0. 5-run median: paragraph 9.543ms/100k (~10.48M append/s), long live paragraph 598us/20k (~33.44M append/s), open code 4.164ms/100k (~755.7 MiB/s), `:::llm` semantic body 4.143ms/100k (~668 MiB/s). Long paragraph baseline 3.138s -> 0.598ms, ~5246x.
 
+
+- 2026-09-01 ChatGPT(bencher-ci): public GitHub repo の continuous benchmark を Bencher Cloud へ統合。main は CPU型番/vCPU/architecture ごとの testbed に分離し7-run medianを記録、同一testbed 3点以上で直近8点に対する10%低下を alert。PR は同一 hosted runner 上で base/head を交互に7回測定し、`pr-N-base` の1点 baseline を `pr-N` へ cloneして10% paired regressionを `--error-on-alert` でCI failure化。正常PR #1 は最大変動 +2.82% / 低下 -0.66% でpass、意図的にsyntax処理量を2倍にした検証PR #2は `syntax-v2-*` 5項目すべてalertとなりBencher Check/jobともfailure。close時の `pr-N` / `pr-N-base` archiveも実地確認。syntax bench は `tools/syntax-bench` の軽量crateへ分離し、GitHub Actions buildは旧webapp依存約58sから6.36s、main workflow全体は1m33sから44sへ短縮。1 runあたり11 Metrics、PRはbase+headで22 Metrics。
+
 ## 引き継ぎメモ
 
 - 既存 worktree は未コミットファイルを含む。既存内容を消さず、差分を確認してから変更すること。
