@@ -1,6 +1,6 @@
 use std::{hint::black_box, time::Instant};
 
-#[path = "../src/code.rs"]
+#[path = "../../../webapp/src/code.rs"]
 mod code;
 
 const DEFAULT_TARGET_BYTES: usize = 4 * 1024 * 1024;
@@ -32,7 +32,7 @@ fn benchmark(label: &str, language: &str, seed: &str, target_bytes: usize) {
 
     let mib = source.len() as f64 / 1_048_576.0;
     println!(
-        "syntax {label}: {mib:.2} MiB in {elapsed:?} ({:.1} MiB/s)",
+        "syntax-v2 {label}: {mib:.2} MiB in {elapsed:?} ({:.1} MiB/s)",
         mib / elapsed.as_secs_f64()
     );
 }

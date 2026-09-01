@@ -67,19 +67,17 @@ jobs:
           echo "BENCHER_TESTBED=$testbed" >> "$GITHUB_ENV"
 
       - name: Build benchmark binaries
-        env:
-          CARGO_TARGET_DIR: ${{ runner.temp }}/bench-target
         run: |
-          cargo build --release --bin stream-bench
-          cargo build --release --manifest-path webapp/Cargo.toml --example syntax_highlight_bench
+          CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-root" \
+            cargo build --release --bin stream-bench
+          CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-syntax" \
+            cargo build --release --manifest-path tools/syntax-bench/Cargo.toml
 
       - name: Warm benchmark binaries
-        env:
-          CARGO_TARGET_DIR: ${{ runner.temp }}/bench-target
         run: |
-          "${RUNNER_TEMP}/bench-target/release/stream-bench" > /dev/null
+          "${RUNNER_TEMP}/bench-target-root/release/stream-bench" > /dev/null
           SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
-            "${RUNNER_TEMP}/bench-target/release/examples/syntax_highlight_bench" > /dev/null
+            "${RUNNER_TEMP}/bench-target-syntax/release/syntax-bench" > /dev/null
 
       - name: Run local samples
         shell: bash
@@ -88,9 +86,9 @@ jobs:
           log="$GITHUB_WORKSPACE/benchmark-samples.log"
           : > "$log"
           for ((i = 1; i <= BENCH_RUNS; i++)); do
-            "${RUNNER_TEMP}/bench-target/release/stream-bench" >> "$log"
+            "${RUNNER_TEMP}/bench-target-root/release/stream-bench" >> "$log"
             SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
-              "${RUNNER_TEMP}/bench-target/release/examples/syntax_highlight_bench" >> "$log"
+              "${RUNNER_TEMP}/bench-target-syntax/release/syntax-bench" >> "$log"
           done
           python3 scripts/bench-to-bmf.py \
             benchmark-samples.log \
