@@ -134,7 +134,7 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: ${{ runner.temp }}/bench-bin-parser-${{ steps.benchmark-change.outputs.parser_head_hash }}
-          key: bench-bin-v3-parser-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.benchmark-change.outputs.parser_head_hash }}
+          key: bench-bin-v4-parser-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.benchmark-change.outputs.parser_head_hash }}
 
       - name: Restore syntax binary cache
         if: steps.benchmark-change.outputs.syntax_changed == 'true'
@@ -142,7 +142,7 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: ${{ runner.temp }}/bench-bin-syntax-${{ steps.benchmark-change.outputs.syntax_head_hash }}
-          key: bench-bin-v3-syntax-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.benchmark-change.outputs.syntax_head_hash }}
+          key: bench-bin-v4-syntax-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.benchmark-change.outputs.syntax_head_hash }}
 
       - name: Install Bencher CLI
         if: steps.benchmark-change.outputs.changed == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
@@ -170,23 +170,48 @@ jobs:
           echo "Bencher testbed: $testbed"
           echo "BENCHER_TESTBED=$testbed" >> "$GITHUB_ENV"
 
-      - name: Build parser benchmark binary
-        if: steps.benchmark-change.outputs.parser_changed == 'true' && steps.parser-head-cache.outputs.cache-hit != 'true'
+      - name: Build changed benchmark binaries
+        if: steps.benchmark-change.outputs.changed == 'true' && ((steps.benchmark-change.outputs.parser_changed == 'true' && steps.parser-head-cache.outputs.cache-hit != 'true') || (steps.benchmark-change.outputs.syntax_changed == 'true' && steps.syntax-head-cache.outputs.cache-hit != 'true'))
+        env:
+          PARSER_CACHE_HIT: ${{ steps.parser-head-cache.outputs.cache-hit }}
+          SYNTAX_CACHE_HIT: ${{ steps.syntax-head-cache.outputs.cache-hit }}
         run: |
-          CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-parser" \
-            cargo build --release --bin stream-bench
-          bin_dir="${RUNNER_TEMP}/bench-bin-parser-${BENCH_PARSER_HEAD_HASH}"
-          mkdir -p "$bin_dir"
-          cp "${RUNNER_TEMP}/bench-target-parser/release/stream-bench" "$bin_dir/stream-bench"
+          set -euo pipefail
+          pids=()
+          labels=()
 
-      - name: Build syntax benchmark binary
-        if: steps.benchmark-change.outputs.syntax_changed == 'true' && steps.syntax-head-cache.outputs.cache-hit != 'true'
-        run: |
-          CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-syntax" \
-            cargo build --release --manifest-path tools/syntax-bench/Cargo.toml
-          bin_dir="${RUNNER_TEMP}/bench-bin-syntax-${BENCH_SYNTAX_HEAD_HASH}"
-          mkdir -p "$bin_dir"
-          cp "${RUNNER_TEMP}/bench-target-syntax/release/syntax-bench" "$bin_dir/syntax-bench"
+          if [[ "$BENCH_PARSER_CHANGED" == true && "$PARSER_CACHE_HIT" != true ]]; then
+            (
+              CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-parser" \
+                cargo build --release --bin stream-bench
+              bin_dir="${RUNNER_TEMP}/bench-bin-parser-${BENCH_PARSER_HEAD_HASH}"
+              mkdir -p "$bin_dir"
+              cp "${RUNNER_TEMP}/bench-target-parser/release/stream-bench" "$bin_dir/stream-bench"
+            ) &
+            pids+=("$!")
+            labels+=(parser)
+          fi
+
+          if [[ "$BENCH_SYNTAX_CHANGED" == true && "$SYNTAX_CACHE_HIT" != true ]]; then
+            (
+              CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-syntax" \
+                cargo build --release --manifest-path tools/syntax-bench/Cargo.toml
+              bin_dir="${RUNNER_TEMP}/bench-bin-syntax-${BENCH_SYNTAX_HEAD_HASH}"
+              mkdir -p "$bin_dir"
+              cp "${RUNNER_TEMP}/bench-target-syntax/release/syntax-bench" "$bin_dir/syntax-bench"
+            ) &
+            pids+=("$!")
+            labels+=(syntax)
+          fi
+
+          failed=0
+          for i in "${!pids[@]}"; do
+            if ! wait "${pids[$i]}"; then
+              echo "::error::${labels[$i]} benchmark build failed"
+              failed=1
+            fi
+          done
+          exit "$failed"
 
       - name: Restore pull-request base parser binary cache
         if: github.event_name == 'pull_request' && steps.benchmark-change.outputs.parser_changed == 'true'
@@ -194,7 +219,7 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: ${{ runner.temp }}/bench-bin-parser-${{ steps.benchmark-change.outputs.parser_base_hash }}
-          key: bench-bin-v3-parser-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.benchmark-change.outputs.parser_base_hash }}
+          key: bench-bin-v4-parser-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.benchmark-change.outputs.parser_base_hash }}
 
       - name: Restore pull-request base syntax binary cache
         if: github.event_name == 'pull_request' && steps.benchmark-change.outputs.syntax_changed == 'true'
@@ -202,7 +227,7 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: ${{ runner.temp }}/bench-bin-syntax-${{ steps.benchmark-change.outputs.syntax_base_hash }}
-          key: bench-bin-v3-syntax-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.benchmark-change.outputs.syntax_base_hash }}
+          key: bench-bin-v4-syntax-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.benchmark-change.outputs.syntax_base_hash }}
 
       - name: Prepare pull-request base worktree
         if: github.event_name == 'pull_request' && ((steps.benchmark-change.outputs.parser_changed == 'true' && steps.parser-base-cache.outputs.cache-hit != 'true') || (steps.benchmark-change.outputs.syntax_changed == 'true' && steps.syntax-base-cache.outputs.cache-hit != 'true'))
@@ -210,26 +235,51 @@ jobs:
           BASE_SHA: ${{ steps.benchmark-change.outputs.base_sha }}
         run: git worktree add --detach "${RUNNER_TEMP}/benchmark-base" "$BASE_SHA"
 
-      - name: Build pull-request base parser binary
-        if: github.event_name == 'pull_request' && steps.benchmark-change.outputs.parser_changed == 'true' && steps.parser-base-cache.outputs.cache-hit != 'true'
+      - name: Build missing pull-request base binaries
+        if: github.event_name == 'pull_request' && ((steps.benchmark-change.outputs.parser_changed == 'true' && steps.parser-base-cache.outputs.cache-hit != 'true') || (steps.benchmark-change.outputs.syntax_changed == 'true' && steps.syntax-base-cache.outputs.cache-hit != 'true'))
+        env:
+          PARSER_BASE_CACHE_HIT: ${{ steps.parser-base-cache.outputs.cache-hit }}
+          SYNTAX_BASE_CACHE_HIT: ${{ steps.syntax-base-cache.outputs.cache-hit }}
         run: |
-          CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-base-parser" \
-            cargo build --release \
-              --manifest-path "${RUNNER_TEMP}/benchmark-base/Cargo.toml" \
-              --bin stream-bench
-          bin_dir="${RUNNER_TEMP}/bench-bin-parser-${BENCH_PARSER_BASE_HASH}"
-          mkdir -p "$bin_dir"
-          cp "${RUNNER_TEMP}/bench-target-base-parser/release/stream-bench" "$bin_dir/stream-bench"
+          set -euo pipefail
+          pids=()
+          labels=()
 
-      - name: Build pull-request base syntax binary
-        if: github.event_name == 'pull_request' && steps.benchmark-change.outputs.syntax_changed == 'true' && steps.syntax-base-cache.outputs.cache-hit != 'true'
-        run: |
-          CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-base-syntax" \
-            cargo build --release \
-              --manifest-path "${RUNNER_TEMP}/benchmark-base/tools/syntax-bench/Cargo.toml"
-          bin_dir="${RUNNER_TEMP}/bench-bin-syntax-${BENCH_SYNTAX_BASE_HASH}"
-          mkdir -p "$bin_dir"
-          cp "${RUNNER_TEMP}/bench-target-base-syntax/release/syntax-bench" "$bin_dir/syntax-bench"
+          if [[ "$BENCH_PARSER_CHANGED" == true && "$PARSER_BASE_CACHE_HIT" != true ]]; then
+            (
+              CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-base-parser" \
+                cargo build --release \
+                  --manifest-path "${RUNNER_TEMP}/benchmark-base/Cargo.toml" \
+                  --bin stream-bench
+              bin_dir="${RUNNER_TEMP}/bench-bin-parser-${BENCH_PARSER_BASE_HASH}"
+              mkdir -p "$bin_dir"
+              cp "${RUNNER_TEMP}/bench-target-base-parser/release/stream-bench" "$bin_dir/stream-bench"
+            ) &
+            pids+=("$!")
+            labels+=(parser-base)
+          fi
+
+          if [[ "$BENCH_SYNTAX_CHANGED" == true && "$SYNTAX_BASE_CACHE_HIT" != true ]]; then
+            (
+              CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-base-syntax" \
+                cargo build --release \
+                  --manifest-path "${RUNNER_TEMP}/benchmark-base/tools/syntax-bench/Cargo.toml"
+              bin_dir="${RUNNER_TEMP}/bench-bin-syntax-${BENCH_SYNTAX_BASE_HASH}"
+              mkdir -p "$bin_dir"
+              cp "${RUNNER_TEMP}/bench-target-base-syntax/release/syntax-bench" "$bin_dir/syntax-bench"
+            ) &
+            pids+=("$!")
+            labels+=(syntax-base)
+          fi
+
+          failed=0
+          for i in "${!pids[@]}"; do
+            if ! wait "${pids[$i]}"; then
+              echo "::error::${labels[$i]} benchmark build failed"
+              failed=1
+            fi
+          done
+          exit "$failed"
 
       - name: Warm benchmark binaries
         if: steps.benchmark-change.outputs.changed == 'true' && github.event_name != 'pull_request'
