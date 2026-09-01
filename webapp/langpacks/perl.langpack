@@ -4,4 +4,5 @@ keywords	__DATA__	__END__	__FILE__	__LINE__	__PACKAGE__	and	cmp	continue	CORE	do
 builtin_types	ARRAY	CODE	GLOB	HASH	IO	REF	SCALAR
 function_declarations	sub
 type_declarations	package
+comment_styles	backtick_strings
 flags	hash_comments	dollar_identifiers	multiline_strings

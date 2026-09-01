@@ -8,4 +8,5 @@ preprocessor_headers	include	include_next	import
 macro_identifiers	defined	__has_include	__has_include_next	__has_cpp_attribute	__has_builtin	__has_feature	__cplusplus
 macro_operand_identifiers	defined
 header_macro_identifiers	__has_include	__has_include_next
+comment_styles	c_family_prefixed_strings	apostrophe_digit_separators
 flags	slash_comments	block_comments	preprocessor	uppercase_macros

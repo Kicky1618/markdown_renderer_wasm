@@ -2,5 +2,5 @@ STREAMDOWN_LANGPACK	1
 aliases	sh	bash	shell	zsh
 keywords	case	do	done	elif	else	esac	fi	for	function	if	in	select	then	time	until	while
 function_declarations	function
-comment_styles	shell_heredocs
-flags	hash_comments
+comment_styles	shell_heredocs	backtick_strings	shell_prefixed_strings
+flags	hash_comments	multiline_strings

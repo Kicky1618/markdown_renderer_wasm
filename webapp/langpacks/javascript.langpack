@@ -5,4 +5,5 @@ builtin_types	any	bigint	boolean	never	number	object	string	symbol	unknown
 function_declarations	function
 type_declarations	class	interface	type
 expression_prefixes	return	throw	case	delete	typeof	void	yield	await	new	in	of	instanceof
+comment_styles	backtick_strings
 flags	slash_comments	block_comments	dollar_identifiers	javascript_lexing

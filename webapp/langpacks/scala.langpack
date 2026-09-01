@@ -4,4 +4,5 @@ keywords	abstract	case	catch	class	def	do	else	enum	export	extends	false	final	f
 builtin_types	Any	AnyRef	AnyVal	Boolean	Byte	Char	Double	Float	Int	Long	Nothing	Null	Short	String	Unit
 function_declarations	def
 type_declarations	class	enum	object	trait	type
+comment_styles	backtick_identifiers
 flags	slash_comments	block_comments	decorators	multiline_strings	triple_double_strings

@@ -28,15 +28,38 @@ pub(super) enum DeclarationKind {
     Macro,
 }
 
-const COMMENT_STYLE_BRACE: u16 = 1 << 0;
-const COMMENT_STYLE_ANGLE_HASH: u16 = 1 << 1;
-const COMMENT_STYLE_HASH_PIPE: u16 = 1 << 2;
-const COMMENT_STYLE_HASH_EQUALS: u16 = 1 << 3;
-const COMMENT_STYLE_HASH_BRACKET: u16 = 1 << 4;
-const COMMENT_STYLE_SLASH_PLUS: u16 = 1 << 5;
-const COMMENT_STYLE_CMAKE_BRACKETS: u16 = 1 << 6;
-const COMMENT_STYLE_POWERSHELL_HERE_STRINGS: u16 = 1 << 7;
-const COMMENT_STYLE_SHELL_HEREDOCS: u16 = 1 << 8;
+const COMMENT_STYLE_BRACE: u64 = 1 << 0;
+const COMMENT_STYLE_ANGLE_HASH: u64 = 1 << 1;
+const COMMENT_STYLE_HASH_PIPE: u64 = 1 << 2;
+const COMMENT_STYLE_HASH_EQUALS: u64 = 1 << 3;
+const COMMENT_STYLE_HASH_BRACKET: u64 = 1 << 4;
+const COMMENT_STYLE_SLASH_PLUS: u64 = 1 << 5;
+const COMMENT_STYLE_CMAKE_BRACKETS: u64 = 1 << 6;
+const COMMENT_STYLE_POWERSHELL_HERE_STRINGS: u64 = 1 << 7;
+const COMMENT_STYLE_SHELL_HEREDOCS: u64 = 1 << 8;
+const COMMENT_STYLE_BACKTICK_STRINGS: u64 = 1 << 9;
+const COMMENT_STYLE_BACKTICK_IDENTIFIERS: u64 = 1 << 10;
+const COMMENT_STYLE_BACKTICK_OPERATORS: u64 = 1 << 11;
+const COMMENT_STYLE_APOSTROPHE_NAMES: u64 = 1 << 12;
+const COMMENT_STYLE_APOSTROPHE_IDENTIFIERS: u64 = 1 << 13;
+const COMMENT_STYLE_SWIFT_HASH_RAW_STRINGS: u64 = 1 << 14;
+const COMMENT_STYLE_CSHARP_PREFIXED_STRINGS: u64 = 1 << 15;
+const COMMENT_STYLE_FSHARP_INTERPOLATED_STRINGS: u64 = 1 << 16;
+const COMMENT_STYLE_OBJECTIVE_C_STRINGS: u64 = 1 << 17;
+const COMMENT_STYLE_C_FAMILY_PREFIXED_STRINGS: u64 = 1 << 18;
+const COMMENT_STYLE_APOSTROPHE_DIGIT_SEPARATORS: u64 = 1 << 19;
+const COMMENT_STYLE_VERILOG_NUMBERS: u64 = 1 << 20;
+const COMMENT_STYLE_BACKTICK_MACROS: u64 = 1 << 21;
+const COMMENT_STYLE_POSTFIX_APOSTROPHE_OPERATORS: u64 = 1 << 22;
+const COMMENT_STYLE_DOLLAR_QUOTED_STRINGS: u64 = 1 << 23;
+const COMMENT_STYLE_SHELL_PREFIXED_STRINGS: u64 = 1 << 24;
+const COMMENT_STYLE_OCAML_QUOTED_STRINGS: u64 = 1 << 25;
+const COMMENT_STYLE_RUBY_PERCENT_LITERALS: u64 = 1 << 26;
+const COMMENT_STYLE_ELIXIR_SIGILS: u64 = 1 << 27;
+const COMMENT_STYLE_PHP_HEREDOCS: u64 = 1 << 28;
+const COMMENT_STYLE_R_RAW_STRINGS: u64 = 1 << 29;
+const COMMENT_STYLE_HASKELL_QUASIQUOTES: u64 = 1 << 30;
+const COMMENT_STYLE_GROOVY_DOLLAR_SLASHY: u64 = 1 << 31;
 #[cfg(target_arch = "wasm32")]
 const EXTENDED_SECTIONS_FLAG: u32 = 1 << 31;
 
@@ -86,7 +109,7 @@ struct LanguageProfile {
     double_semicolon_comments: bool,
     paren_semicolon_comments: bool,
     lua_long_brackets: bool,
-    comment_styles: u16,
+    comment_styles: u64,
 }
 
 macro_rules! empty_profile {
@@ -322,6 +345,75 @@ impl Language {
     pub(super) fn shell_heredocs(self) -> bool {
         self.0.comment_styles & COMMENT_STYLE_SHELL_HEREDOCS != 0
     }
+    pub(super) fn backtick_strings(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_BACKTICK_STRINGS != 0
+    }
+    pub(super) fn backtick_identifiers(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_BACKTICK_IDENTIFIERS != 0
+    }
+    pub(super) fn backtick_operators(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_BACKTICK_OPERATORS != 0
+    }
+    pub(super) fn apostrophe_names(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_APOSTROPHE_NAMES != 0
+    }
+    pub(super) fn apostrophe_identifiers(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_APOSTROPHE_IDENTIFIERS != 0
+    }
+    pub(super) fn swift_hash_raw_strings(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_SWIFT_HASH_RAW_STRINGS != 0
+    }
+    pub(super) fn csharp_prefixed_strings(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_CSHARP_PREFIXED_STRINGS != 0
+    }
+    pub(super) fn fsharp_interpolated_strings(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_FSHARP_INTERPOLATED_STRINGS != 0
+    }
+    pub(super) fn objective_c_strings(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_OBJECTIVE_C_STRINGS != 0
+    }
+    pub(super) fn c_family_prefixed_strings(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_C_FAMILY_PREFIXED_STRINGS != 0
+    }
+    pub(super) fn apostrophe_digit_separators(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_APOSTROPHE_DIGIT_SEPARATORS != 0
+    }
+    pub(super) fn verilog_numbers(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_VERILOG_NUMBERS != 0
+    }
+    pub(super) fn backtick_macros(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_BACKTICK_MACROS != 0
+    }
+    pub(super) fn postfix_apostrophe_operators(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_POSTFIX_APOSTROPHE_OPERATORS != 0
+    }
+    pub(super) fn dollar_quoted_strings(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_DOLLAR_QUOTED_STRINGS != 0
+    }
+    pub(super) fn shell_prefixed_strings(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_SHELL_PREFIXED_STRINGS != 0
+    }
+    pub(super) fn ocaml_quoted_strings(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_OCAML_QUOTED_STRINGS != 0
+    }
+    pub(super) fn ruby_percent_literals(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_RUBY_PERCENT_LITERALS != 0
+    }
+    pub(super) fn elixir_sigils(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_ELIXIR_SIGILS != 0
+    }
+    pub(super) fn php_heredocs(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_PHP_HEREDOCS != 0
+    }
+    pub(super) fn r_raw_strings(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_R_RAW_STRINGS != 0
+    }
+    pub(super) fn haskell_quasiquotes(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_HASKELL_QUASIQUOTES != 0
+    }
+    pub(super) fn groovy_dollar_slashy(self) -> bool {
+        self.0.comment_styles & COMMENT_STYLE_GROOVY_DOLLAR_SLASHY != 0
+    }
 
     pub(super) fn is_macro_identifier(self, word: &str) -> bool {
         self.0.macro_identifiers.contains(&word)
@@ -486,12 +578,12 @@ impl<'a> BinaryCursor<'a> {
         Some(count)
     }
 
-    fn comment_styles(&mut self) -> Option<u16> {
+    fn comment_styles(&mut self) -> Option<u64> {
         let count = self.u16()?;
-        if count > 16 {
+        if count > 64 {
             return None;
         }
-        let mut styles = 0u16;
+        let mut styles = 0u64;
         for _ in 0..count {
             let len = self.u16()?;
             let style = std::str::from_utf8(self.take(len)?).ok()?;
@@ -708,7 +800,7 @@ fn leak_words(values: Vec<&str>) -> &'static [&'static str] {
     Box::leak(words.into_boxed_slice())
 }
 
-fn comment_style_bit(style: &str) -> Option<u16> {
+fn comment_style_bit(style: &str) -> Option<u64> {
     Some(match style {
         "brace" => COMMENT_STYLE_BRACE,
         "angle_hash" => COMMENT_STYLE_ANGLE_HASH,
@@ -719,13 +811,36 @@ fn comment_style_bit(style: &str) -> Option<u16> {
         "cmake_brackets" => COMMENT_STYLE_CMAKE_BRACKETS,
         "powershell_here_strings" => COMMENT_STYLE_POWERSHELL_HERE_STRINGS,
         "shell_heredocs" => COMMENT_STYLE_SHELL_HEREDOCS,
+        "backtick_strings" => COMMENT_STYLE_BACKTICK_STRINGS,
+        "backtick_identifiers" => COMMENT_STYLE_BACKTICK_IDENTIFIERS,
+        "backtick_operators" => COMMENT_STYLE_BACKTICK_OPERATORS,
+        "apostrophe_names" => COMMENT_STYLE_APOSTROPHE_NAMES,
+        "apostrophe_identifiers" => COMMENT_STYLE_APOSTROPHE_IDENTIFIERS,
+        "swift_hash_raw_strings" => COMMENT_STYLE_SWIFT_HASH_RAW_STRINGS,
+        "csharp_prefixed_strings" => COMMENT_STYLE_CSHARP_PREFIXED_STRINGS,
+        "fsharp_interpolated_strings" => COMMENT_STYLE_FSHARP_INTERPOLATED_STRINGS,
+        "objective_c_strings" => COMMENT_STYLE_OBJECTIVE_C_STRINGS,
+        "c_family_prefixed_strings" => COMMENT_STYLE_C_FAMILY_PREFIXED_STRINGS,
+        "apostrophe_digit_separators" => COMMENT_STYLE_APOSTROPHE_DIGIT_SEPARATORS,
+        "verilog_numbers" => COMMENT_STYLE_VERILOG_NUMBERS,
+        "backtick_macros" => COMMENT_STYLE_BACKTICK_MACROS,
+        "postfix_apostrophe_operators" => COMMENT_STYLE_POSTFIX_APOSTROPHE_OPERATORS,
+        "dollar_quoted_strings" => COMMENT_STYLE_DOLLAR_QUOTED_STRINGS,
+        "shell_prefixed_strings" => COMMENT_STYLE_SHELL_PREFIXED_STRINGS,
+        "ocaml_quoted_strings" => COMMENT_STYLE_OCAML_QUOTED_STRINGS,
+        "ruby_percent_literals" => COMMENT_STYLE_RUBY_PERCENT_LITERALS,
+        "elixir_sigils" => COMMENT_STYLE_ELIXIR_SIGILS,
+        "php_heredocs" => COMMENT_STYLE_PHP_HEREDOCS,
+        "r_raw_strings" => COMMENT_STYLE_R_RAW_STRINGS,
+        "haskell_quasiquotes" => COMMENT_STYLE_HASKELL_QUASIQUOTES,
+        "groovy_dollar_slashy" => COMMENT_STYLE_GROOVY_DOLLAR_SLASHY,
         _ => return None,
     })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn parse_comment_styles(values: &[&str]) -> Result<u16, String> {
-    values.iter().try_fold(0u16, |styles, style| {
+fn parse_comment_styles(values: &[&str]) -> Result<u64, String> {
+    values.iter().try_fold(0u64, |styles, style| {
         comment_style_bit(style)
             .map(|bit| styles | bit)
             .ok_or_else(|| format!("unknown comment style: {style}"))
@@ -840,7 +955,7 @@ fn embedded_pack(name: &str) -> Option<&'static str> {
     })
 }
 
-fn normalize_fence_name(name: &str) -> Cow<'_, str> {
+pub(super) fn normalize_fence_name(name: &str) -> Cow<'_, str> {
     let name = name.trim();
     if let Some(canonical) = special_fence_name(name) {
         return Cow::Borrowed(canonical);

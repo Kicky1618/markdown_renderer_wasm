@@ -4,4 +4,5 @@ keywords	always	always_comb	always_ff	always_latch	and	assign	automatic	begin	bu
 builtin_types	bit	byte	int	integer	logic	longint	real	realtime	reg	shortint	signed	string	time	unsigned	wire
 function_declarations	function	task
 type_declarations	module	primitive	class	interface	package	program	struct	union	enum
+comment_styles	verilog_numbers	backtick_macros
 flags	slash_comments	block_comments	multiline_strings

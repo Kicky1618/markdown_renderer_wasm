@@ -3,4 +3,5 @@ aliases	haskell	hs	lhs
 keywords	as	case	class	data	default	deriving	do	else	family	forall	foreign	hiding	if	import	in	infix	infixl	infixr	instance	let	mdo	module	newtype	of	qualified	role	safe	then	type	unsafe	where	stock	anyclass	via	pattern	static	group	by	using
 builtin_types	Bool	Char	Double	Either	Float	IO	Int	Integer	Maybe	Ordering	String	Text	Word
 type_declarations	class	data	family	instance	newtype	type
+comment_styles	backtick_operators	apostrophe_names	apostrophe_identifiers	haskell_quasiquotes
 flags	dash_comments	multiline_strings	brace_dash_comments	nested_block_comments

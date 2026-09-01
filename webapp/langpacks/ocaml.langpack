@@ -4,4 +4,5 @@ keywords	and	as	assert	begin	class	constraint	do	done	downto	else	end	exception	
 builtin_types	bool	bytes	char	exn	float	int	int32	int64	lazy_t	list	nativeint	option	result	string	unit
 function_declarations	let	method
 type_declarations	class	exception	module	type
+comment_styles	backtick_operators	apostrophe_names	apostrophe_identifiers	ocaml_quoted_strings
 flags	multiline_strings	paren_star_comments	nested_block_comments

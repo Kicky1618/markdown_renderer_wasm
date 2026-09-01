@@ -4,4 +4,5 @@ keywords	__halt_compiler	abstract	and	array	as	break	callable	case	catch	class	c
 builtin_types	bool	int	float	string	array	object	callable	iterable	mixed	never	void	self	parent	static
 function_declarations	function	fn
 type_declarations	class	interface	trait	enum
+comment_styles	php_heredocs
 flags	slash_comments	hash_comments	block_comments	dollar_identifiers	multiline_strings

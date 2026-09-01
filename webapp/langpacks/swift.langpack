@@ -4,4 +4,5 @@ keywords	associatedtype	class	deinit	enum	extension	fileprivate	func	import	init
 builtin_types	Any	AnyObject	Bool	Character	Double	Float	Int	Int8	Int16	Int32	Int64	Never	String	UInt	UInt8	UInt16	UInt32	UInt64	Void
 function_declarations	func
 type_declarations	class	enum	protocol	struct	typealias	actor
+comment_styles	backtick_identifiers	swift_hash_raw_strings
 flags	slash_comments	block_comments	nested_block_comments	decorators	multiline_strings	triple_double_strings

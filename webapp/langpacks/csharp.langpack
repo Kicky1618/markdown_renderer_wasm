@@ -4,4 +4,5 @@ keywords	abstract	as	base	bool	break	byte	case	catch	char	checked	class	const	co
 builtin_types	bool	byte	sbyte	char	decimal	double	float	int	uint	long	ulong	short	ushort	object	string	void	nint	nuint
 function_declarations	delegate
 type_declarations	class	struct	interface	enum	record
+comment_styles	csharp_prefixed_strings
 flags	slash_comments	block_comments	multiline_strings	triple_double_strings

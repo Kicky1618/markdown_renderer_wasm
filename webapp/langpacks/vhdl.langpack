@@ -4,4 +4,5 @@ keywords	abs	access	after	alias	all	and	architecture	array	assert	assume	assume_
 builtin_types	bit	bit_vector	boolean	character	integer	natural	positive	real	severity_level	signed	std_logic	std_logic_vector	string	time	unsigned
 function_declarations	function	procedure
 type_declarations	architecture	component	configuration	entity	package	subtype	type
+comment_styles	apostrophe_names
 flags	dash_comments	case_insensitive_keywords	multiline_strings

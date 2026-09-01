@@ -4,4 +4,5 @@ keywords	break	case	catch	classdef	continue	else	elseif	end	for	function	global	
 builtin_types	cell	char	double	int8	int16	int32	int64	logical	single	string	struct	table	uint8	uint16	uint32	uint64
 function_declarations	function
 type_declarations	classdef
+comment_styles	postfix_apostrophe_operators
 flags	percent_comments	multiline_strings

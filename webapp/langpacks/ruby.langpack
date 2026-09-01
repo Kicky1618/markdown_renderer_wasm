@@ -4,4 +4,5 @@ keywords	BEGIN	END	alias	and	begin	break	case	class	def	defined	do	else	elsif	en
 builtin_types	Array	BasicObject	Class	Enumerator	Exception	Float	Hash	Integer	IO	Kernel	Module	Numeric	Object	Proc	Range	Regexp	String	Struct	Symbol	Time
 function_declarations	def
 type_declarations	class	module
+comment_styles	backtick_strings	ruby_percent_literals
 flags	hash_comments	multiline_strings	question_identifiers	bang_identifiers

@@ -23,7 +23,18 @@ const sections = [
   "header_macro_identifiers",
   "expression_prefixes",
 ];
-const COMMENT_STYLES = new Set(["brace", "angle_hash", "hash_pipe", "hash_equals", "hash_bracket", "slash_plus", "cmake_brackets", "powershell_here_strings", "shell_heredocs"]);
+const COMMENT_STYLES = new Set([
+  "brace", "angle_hash", "hash_pipe", "hash_equals", "hash_bracket", "slash_plus",
+  "cmake_brackets", "powershell_here_strings", "shell_heredocs",
+  "backtick_strings", "backtick_identifiers", "backtick_operators",
+  "apostrophe_names", "apostrophe_identifiers", "swift_hash_raw_strings",
+  "csharp_prefixed_strings", "fsharp_interpolated_strings", "objective_c_strings",
+  "c_family_prefixed_strings", "apostrophe_digit_separators", "verilog_numbers",
+  "backtick_macros", "postfix_apostrophe_operators",
+  "dollar_quoted_strings", "shell_prefixed_strings", "ocaml_quoted_strings",
+  "ruby_percent_literals", "elixir_sigils", "php_heredocs",
+  "r_raw_strings", "haskell_quasiquotes", "groovy_dollar_slashy",
+]);
 const EXTENDED_SECTIONS_FLAG = 0x80000000;
 
 const flagBits = new Map([

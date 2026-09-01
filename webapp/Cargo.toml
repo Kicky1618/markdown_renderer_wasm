@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 streamdown = { path = ".." }
+stream-mecab = { path = "../stream_mecab" }
 bytemuck = { version = "1.25", features = ["derive"] }
 ab_glyph = "0.2"
 wasm-bindgen = "0.2"

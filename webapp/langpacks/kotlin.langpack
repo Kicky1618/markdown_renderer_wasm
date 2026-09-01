@@ -4,4 +4,5 @@ keywords	as	break	class	continue	do	else	false	for	fun	if	in	interface	is	null	o
 builtin_types	Any	Boolean	Byte	Char	Double	Float	Int	Long	Nothing	Short	String	Unit	UInt	ULong	UByte	UShort
 function_declarations	fun
 type_declarations	class	interface	object	typealias	enum	annotation
+comment_styles	backtick_identifiers
 flags	slash_comments	block_comments	decorators	multiline_strings	triple_double_strings
