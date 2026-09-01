@@ -50,15 +50,19 @@ jobs:
           tag="$(rustc -vV | sha256sum | cut -c1-16)"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Restore benchmark build cache
+      - name: Compute benchmark source hash
+        id: bench-source
+        run: |
+          hash="$(python3 scripts/benchmark-input-hash.py .)"
+          echo "Benchmark source hash: $hash"
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+
+      - name: Restore benchmark binary cache
+        id: head-cache
         uses: actions/cache@v6.1.0
         with:
-          path: |
-            ${{ runner.temp }}/bench-target-root
-            ${{ runner.temp }}/bench-target-syntax
-          key: bench-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ hashFiles('Cargo.lock', 'tools/syntax-bench/Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            bench-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ hashFiles('Cargo.lock', 'tools/syntax-bench/Cargo.lock') }}-
+          path: ${{ runner.temp }}/bench-bin-head
+          key: bench-bin-v1-head-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.bench-source.outputs.hash }}
 
       - name: Install Bencher CLI
         uses: bencherdev/bencher@v0.6.12
@@ -85,19 +89,50 @@ jobs:
           echo "BENCHER_TESTBED=$testbed" >> "$GITHUB_ENV"
 
       - name: Build benchmark binaries
+        if: steps.head-cache.outputs.cache-hit != 'true'
         run: |
           CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-root" \
             cargo build --release --bin stream-bench
           CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-syntax" \
             cargo build --release --manifest-path tools/syntax-bench/Cargo.toml
+          mkdir -p "${RUNNER_TEMP}/bench-bin-head"
+          cp "${RUNNER_TEMP}/bench-target-root/release/stream-bench" \
+            "${RUNNER_TEMP}/bench-bin-head/stream-bench"
+          cp "${RUNNER_TEMP}/bench-target-syntax/release/syntax-bench" \
+            "${RUNNER_TEMP}/bench-bin-head/syntax-bench"
 
-      - name: Prepare pull-request base binaries
+      - name: Prepare pull-request base checkout
         if: github.event_name == 'pull_request'
+        id: base-source
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
           git worktree add --detach "${RUNNER_TEMP}/benchmark-base" "$BASE_SHA"
+          hash="$(python3 scripts/benchmark-input-hash.py "${RUNNER_TEMP}/benchmark-base")"
+          echo "Base benchmark source hash: $hash"
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+
+      - name: Reuse head binaries for benchmark-identical pull request
+        if: github.event_name == 'pull_request' && steps.base-source.outputs.hash == steps.bench-source.outputs.hash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/bench-bin-base"
+          cp "${RUNNER_TEMP}/bench-bin-head/stream-bench" \
+            "${RUNNER_TEMP}/bench-bin-base/stream-bench"
+          cp "${RUNNER_TEMP}/bench-bin-head/syntax-bench" \
+            "${RUNNER_TEMP}/bench-bin-base/syntax-bench"
+
+      - name: Restore pull-request base binary cache
+        if: github.event_name == 'pull_request' && steps.base-source.outputs.hash != steps.bench-source.outputs.hash
+        id: base-cache
+        uses: actions/cache@v6.1.0
+        with:
+          path: ${{ runner.temp }}/bench-bin-base
+          key: bench-bin-v1-base-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ steps.base-source.outputs.hash }}
+
+      - name: Build pull-request base binaries
+        if: github.event_name == 'pull_request' && steps.base-source.outputs.hash != steps.bench-source.outputs.hash && steps.base-cache.outputs.cache-hit != 'true'
+        run: |
           CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-base-root" \
             cargo build --release \
               --manifest-path "${RUNNER_TEMP}/benchmark-base/Cargo.toml" \
@@ -105,23 +140,28 @@ jobs:
           CARGO_TARGET_DIR="${RUNNER_TEMP}/bench-target-base-syntax" \
             cargo build --release \
               --manifest-path "${RUNNER_TEMP}/benchmark-base/tools/syntax-bench/Cargo.toml"
+          mkdir -p "${RUNNER_TEMP}/bench-bin-base"
+          cp "${RUNNER_TEMP}/bench-target-base-root/release/stream-bench" \
+            "${RUNNER_TEMP}/bench-bin-base/stream-bench"
+          cp "${RUNNER_TEMP}/bench-target-base-syntax/release/syntax-bench" \
+            "${RUNNER_TEMP}/bench-bin-base/syntax-bench"
 
       - name: Warm benchmark binaries
         if: github.event_name != 'pull_request'
         run: |
-          "${RUNNER_TEMP}/bench-target-root/release/stream-bench" > /dev/null
+          "${RUNNER_TEMP}/bench-bin-head/stream-bench" > /dev/null
           SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
-            "${RUNNER_TEMP}/bench-target-syntax/release/syntax-bench" > /dev/null
+            "${RUNNER_TEMP}/bench-bin-head/syntax-bench" > /dev/null
 
       - name: Warm paired pull-request binaries
         if: github.event_name == 'pull_request'
         run: |
-          "${RUNNER_TEMP}/bench-target-base-root/release/stream-bench" > /dev/null
+          "${RUNNER_TEMP}/bench-bin-base/stream-bench" > /dev/null
           SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
-            "${RUNNER_TEMP}/bench-target-base-syntax/release/syntax-bench" > /dev/null
-          "${RUNNER_TEMP}/bench-target-root/release/stream-bench" > /dev/null
+            "${RUNNER_TEMP}/bench-bin-base/syntax-bench" > /dev/null
+          "${RUNNER_TEMP}/bench-bin-head/stream-bench" > /dev/null
           SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
-            "${RUNNER_TEMP}/bench-target-syntax/release/syntax-bench" > /dev/null
+            "${RUNNER_TEMP}/bench-bin-head/syntax-bench" > /dev/null
 
       - name: Run local samples
         if: github.event_name != 'pull_request'
@@ -131,9 +171,9 @@ jobs:
           log="$GITHUB_WORKSPACE/benchmark-samples.log"
           : > "$log"
           for ((i = 1; i <= BENCH_RUNS; i++)); do
-            "${RUNNER_TEMP}/bench-target-root/release/stream-bench" >> "$log"
+            "${RUNNER_TEMP}/bench-bin-head/stream-bench" >> "$log"
             SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
-              "${RUNNER_TEMP}/bench-target-syntax/release/syntax-bench" >> "$log"
+              "${RUNNER_TEMP}/bench-bin-head/syntax-bench" >> "$log"
           done
           python3 scripts/bench-to-bmf.py \
             benchmark-samples.log \
@@ -152,14 +192,14 @@ jobs:
           : > "$base_log"
 
           run_head() {
-            "${RUNNER_TEMP}/bench-target-root/release/stream-bench" >> "$head_log"
+            "${RUNNER_TEMP}/bench-bin-head/stream-bench" >> "$head_log"
             SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
-              "${RUNNER_TEMP}/bench-target-syntax/release/syntax-bench" >> "$head_log"
+              "${RUNNER_TEMP}/bench-bin-head/syntax-bench" >> "$head_log"
           }
           run_base() {
-            "${RUNNER_TEMP}/bench-target-base-root/release/stream-bench" >> "$base_log"
+            "${RUNNER_TEMP}/bench-bin-base/stream-bench" >> "$base_log"
             SYNTAX_BENCH_BYTES="$SYNTAX_BENCH_BYTES" \
-              "${RUNNER_TEMP}/bench-target-base-syntax/release/syntax-bench" >> "$base_log"
+              "${RUNNER_TEMP}/bench-bin-base/syntax-bench" >> "$base_log"
           }
 
           for ((i = 1; i <= BENCH_RUNS; i++)); do
