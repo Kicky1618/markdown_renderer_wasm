@@ -44,6 +44,22 @@ jobs:
           rustc --version
           cargo --version
 
+      - name: Compute Rust cache key
+        id: rust-cache
+        run: |
+          tag="$(rustc -vV | sha256sum | cut -c1-16)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Restore benchmark build cache
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/bench-target-root
+            ${{ runner.temp }}/bench-target-syntax
+          key: bench-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ hashFiles('Cargo.lock', 'tools/syntax-bench/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            bench-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache.outputs.tag }}-${{ hashFiles('Cargo.lock', 'tools/syntax-bench/Cargo.lock') }}-
+
       - name: Install Bencher CLI
         uses: bencherdev/bencher@v0.6.12
 
