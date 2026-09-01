@@ -75,3 +75,5 @@ fn main() {
         benchmark(label, language, seed, target_bytes);
     }
 }
+
+// CI probe: syntax-suite shard only.
