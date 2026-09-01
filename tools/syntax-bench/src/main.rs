@@ -21,12 +21,14 @@ fn benchmark(label: &str, language: &str, seed: &str, target_bytes: usize) {
 
     let start = Instant::now();
     let mut checksum = 0usize;
-    code::highlight(black_box(&source), Some(language), |text, kind| {
-        checksum = checksum
-            .wrapping_add(text.len())
-            .wrapping_add(kind as usize);
-        true
-    });
+    for _ in 0..2 {
+        code::highlight(black_box(&source), Some(language), |text, kind| {
+            checksum = checksum
+                .wrapping_add(text.len())
+                .wrapping_add(kind as usize);
+            true
+        });
+    }
     let elapsed = start.elapsed();
     black_box(checksum);
 
