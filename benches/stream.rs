@@ -99,3 +99,5 @@ fn main() {
         (tokens * payload.len()) as f64 / 1_048_576.0 / elapsed.as_secs_f64()
     );
 }
+
+// CI probe: adaptive paired sampler.
