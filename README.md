@@ -87,7 +87,8 @@ baselineとして `pr-N` を比較し、10%以上低下した項目があれば 
 Bencher uploadだけ省略し、paired測定結果はartifactへ残します。ベンチ対象ソースはcontent hashを
 parser系6項目とsyntax系5項目で独立に取り、変わった系列だけbuild・適応的な3〜7回測定・Bencher送信します。
 同じ入力なら系列ごとのキャッシュ済みrelease binaryを再利用し、Cargo build自体を省略します。
-両系列ともbaseと完全に同一ならpush/PRの測定自体を省略し、`workflow_dispatch` では両系列を強制再測定します。
+両系列ともbaseと完全に同一ならpush/PRの測定自体を省略します。`workflow_dispatch` では
+`all` / `parser` / `syntax` を選んで必要な系列だけ強制再測定できます。
 生ログ、BMF JSON、集計表は Actions artifact に14日間保存します。
 
 ## Supported syntax

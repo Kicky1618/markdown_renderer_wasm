@@ -9,9 +9,18 @@ on:
   workflow_dispatch:
     inputs:
       runs:
-        description: Repetitions used for the local median
+        description: Maximum repetitions used for the adaptive local median
         required: false
         default: "7"
+      suite:
+        description: Benchmark suite to force on a manual run
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - parser
+          - syntax
 
 permissions:
   contents: read
@@ -45,6 +54,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE_SHA: ${{ github.event.before }}
+          MANUAL_SUITE: ${{ inputs.suite || 'all' }}
         run: |
           set -euo pipefail
           head_sha="$(git rev-parse HEAD)"
@@ -67,8 +77,14 @@ jobs:
               fi
               ;;
             workflow_dispatch)
-              # Manual runs are explicit benchmark requests and always execute both suites.
+              # Manual runs are explicit benchmark requests. The selected suite is forced.
               base_sha=""
+              case "$MANUAL_SUITE" in
+                all) ;;
+                parser) syntax_changed=false ;;
+                syntax) parser_changed=false ;;
+                *) echo "unsupported manual suite: $MANUAL_SUITE" >&2; exit 2 ;;
+              esac
               ;;
           esac
 
